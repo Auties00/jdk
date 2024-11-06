@@ -3661,6 +3661,9 @@ public class Check {
             } else if (target == names.MODULE) {
                 if (s.kind == MDL)
                     applicableTargets.add(names.MODULE);
+            } else if (target == names.opens) {
+                if (s.kind == OPE)
+                    applicableTargets.add(names.MODULE);
             } else {
                 log.error(a, Errors.AnnotationUnrecognizedAttributeName(a.type, target));
                 return Optional.empty(); // Unknown ElementType

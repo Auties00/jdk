@@ -3112,6 +3112,15 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
 
     public abstract static class JCDirective extends JCTree
         implements DirectiveTree {
+        public List<JCAnnotation> annotations;
+        protected JCDirective(List<JCAnnotation> annotations) {
+            this.annotations = annotations;
+        }
+
+        @DefinedBy(Api.COMPILER_TREE)
+        public List<JCAnnotation> getAnnotations() {
+            return annotations;
+        }
     }
 
     public static class JCModuleDecl extends JCTree implements ModuleTree {
@@ -3175,7 +3184,8 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         public List<JCExpression> moduleNames;
         public ExportsDirective directive;
 
-        protected JCExports(JCExpression qualId, List<JCExpression> moduleNames) {
+        protected JCExports(List<JCAnnotation> annotations, JCExpression qualId, List<JCExpression> moduleNames) {
+            super(annotations);
             this.qualid = qualId;
             this.moduleNames = moduleNames;
         }
@@ -3216,6 +3226,11 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         public OpensDirective directive;
 
         protected JCOpens(JCExpression qualId, List<JCExpression> moduleNames) {
+            this(List.nil(), qualId, moduleNames);
+        }
+
+        protected JCOpens(List<JCAnnotation> annotations, JCExpression qualId, List<JCExpression> moduleNames) {
+            super(annotations);
             this.qualid = qualId;
             this.moduleNames = moduleNames;
         }
@@ -3255,6 +3270,11 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         public List<JCExpression> implNames;
 
         protected JCProvides(JCExpression serviceName, List<JCExpression> implNames) {
+            this(List.nil(), serviceName, implNames);
+        }
+
+        protected JCProvides(List<JCAnnotation> annotations, JCExpression serviceName, List<JCExpression> implNames) {
+            super(annotations);
             this.serviceName = serviceName;
             this.implNames = implNames;
         }
@@ -3296,6 +3316,11 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         public RequiresDirective directive;
 
         protected JCRequires(boolean isTransitive, boolean isStaticPhase, JCExpression moduleName) {
+            this(List.nil(), isTransitive, isStaticPhase, moduleName);
+        }
+
+        protected JCRequires(List<JCAnnotation> annotations, boolean isTransitive, boolean isStaticPhase, JCExpression moduleName) {
+            super(annotations);
             this.isTransitive = isTransitive;
             this.isStaticPhase = isStaticPhase;
             this.moduleName = moduleName;
@@ -3340,6 +3365,11 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         public JCExpression qualid;
 
         protected JCUses(JCExpression qualId) {
+            this(List.nil(), qualId);
+        }
+
+        protected JCUses(List<JCAnnotation> annotations, JCExpression qualId) {
+            super(annotations);
             this.qualid = qualId;
         }
 
@@ -3512,11 +3542,11 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         JCModifiers Modifiers(long flags, List<JCAnnotation> annotations);
         JCErroneous Erroneous(List<? extends JCTree> errs);
         JCModuleDecl ModuleDef(JCModifiers mods, ModuleKind kind, JCExpression qualId, List<JCDirective> directives);
-        JCExports Exports(JCExpression qualId, List<JCExpression> moduleNames);
-        JCOpens Opens(JCExpression qualId, List<JCExpression> moduleNames);
-        JCProvides Provides(JCExpression serviceName, List<JCExpression> implNames);
-        JCRequires Requires(boolean isTransitive, boolean isStaticPhase, JCExpression qualId);
-        JCUses Uses(JCExpression qualId);
+        JCExports Exports(List<JCAnnotation> annotations, JCExpression qualId, List<JCExpression> moduleNames);
+        JCOpens Opens(List<JCAnnotation> annotations, JCExpression qualId, List<JCExpression> moduleNames);
+        JCProvides Provides(List<JCAnnotation> annotations, JCExpression serviceName, List<JCExpression> implNames);
+        JCRequires Requires(List<JCAnnotation> annotations, boolean isTransitive, boolean isStaticPhase, JCExpression qualId);
+        JCUses Uses(List<JCAnnotation> annotations, JCExpression qualId);
         LetExpr LetExpr(List<JCStatement> defs, JCExpression expr);
     }
 

@@ -4173,7 +4173,8 @@ public class JavacParser implements Parser {
 
     List<JCDirective> moduleDirectiveList() {
         ListBuffer<JCDirective> defs = new ListBuffer<>();
-        while (token.kind == IDENTIFIER) {
+        while (token.kind == IDENTIFIER || token.kind == MONKEYS_AT) {
+            List<JCAnnotation> annotations = annotationsOpt(ANNOTATION);
             int pos = token.pos;
             if (token.name() == names.requires) {
                 nextToken();
@@ -4206,7 +4207,7 @@ public class JavacParser implements Parser {
                 }
                 JCExpression moduleName = qualident(false);
                 accept(SEMI);
-                defs.append(toP(F.at(pos).Requires(isTransitive, isStaticPhase, moduleName)));
+                defs.append(toP(F.at(pos).Requires(annotations, isTransitive, isStaticPhase, moduleName)));
             } else if (token.name() == names.exports || token.name() == names.opens) {
                 boolean exports = token.name() == names.exports;
                 nextToken();
@@ -4219,9 +4220,9 @@ public class JavacParser implements Parser {
                 accept(SEMI);
                 JCDirective d;
                 if (exports) {
-                    d = F.at(pos).Exports(pkgName, moduleNames);
+                    d = F.at(pos).Exports(annotations, pkgName, moduleNames);
                 } else {
-                    d = F.at(pos).Opens(pkgName, moduleNames);
+                    d = F.at(pos).Opens(annotations, pkgName, moduleNames);
                 }
                 defs.append(toP(d));
             } else if (token.name() == names.provides) {
@@ -4236,12 +4237,12 @@ public class JavacParser implements Parser {
                     implNames = List.nil();
                 }
                 accept(SEMI);
-                defs.append(toP(F.at(pos).Provides(serviceName, implNames)));
+                defs.append(toP(F.at(pos).Provides(annotations, serviceName, implNames)));
             } else if (token.name() == names.uses) {
                 nextToken();
                 JCExpression service = qualident(false);
                 accept(SEMI);
-                defs.append(toP(F.at(pos).Uses(service)));
+                defs.append(toP(F.at(pos).Uses(annotations, service)));
             } else {
                 setErrorEndPos(pos);
                 reportSyntaxError(pos, Errors.InvalidModuleDirective);

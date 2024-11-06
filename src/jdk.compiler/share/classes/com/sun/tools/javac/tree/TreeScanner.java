@@ -81,6 +81,7 @@ public class TreeScanner extends Visitor {
 
     @Override
     public void visitExports(JCExports tree) {
+        scan(tree.annotations);
         scan(tree.qualid);
         scan(tree.moduleNames);
     }
@@ -92,23 +93,27 @@ public class TreeScanner extends Visitor {
 
     @Override
     public void visitOpens(JCOpens tree) {
+        scan(tree.annotations);
         scan(tree.qualid);
         scan(tree.moduleNames);
     }
 
     @Override
     public void visitProvides(JCProvides tree) {
+        scan(tree.annotations);
         scan(tree.serviceName);
         scan(tree.implNames);
     }
 
     @Override
     public void visitRequires(JCRequires tree) {
+        scan(tree.annotations);
         scan(tree.moduleName);
     }
 
     @Override
     public void visitUses(JCUses tree) {
+        scan(tree.annotations);
         scan(tree.qualid);
     }
 

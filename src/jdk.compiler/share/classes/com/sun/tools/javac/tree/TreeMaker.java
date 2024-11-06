@@ -643,36 +643,36 @@ public class TreeMaker implements JCTree.Factory {
     }
 
     @Override
-    public JCExports Exports(JCExpression qualId, List<JCExpression> moduleNames) {
-        JCExports tree = new JCExports(qualId, moduleNames);
+    public JCExports Exports(List<JCAnnotation> annotations, JCExpression qualId, List<JCExpression> moduleNames) {
+        JCExports tree = new JCExports(annotations, qualId, moduleNames);
         tree.pos = pos;
         return tree;
     }
 
     @Override
-    public JCOpens Opens(JCExpression qualId, List<JCExpression> moduleNames) {
-        JCOpens tree = new JCOpens(qualId, moduleNames);
+    public JCOpens Opens(List<JCAnnotation> annotations, JCExpression qualId, List<JCExpression> moduleNames) {
+        JCOpens tree = new JCOpens(annotations, qualId, moduleNames);
         tree.pos = pos;
         return tree;
     }
 
     @Override
-    public JCProvides Provides(JCExpression serviceName, List<JCExpression> implNames) {
-        JCProvides tree = new JCProvides(serviceName, implNames);
+    public JCProvides Provides(List<JCAnnotation> annotations, JCExpression serviceName, List<JCExpression> implNames) {
+        JCProvides tree = new JCProvides(annotations, serviceName, implNames);
         tree.pos = pos;
         return tree;
     }
 
     @Override
-    public JCRequires Requires(boolean isTransitive, boolean isStaticPhase, JCExpression qualId) {
-        JCRequires tree = new JCRequires(isTransitive, isStaticPhase, qualId);
+    public JCRequires Requires(List<JCAnnotation> annotations, boolean isTransitive, boolean isStaticPhase, JCExpression qualId) {
+        JCRequires tree = new JCRequires(annotations, isTransitive, isStaticPhase, qualId);
         tree.pos = pos;
         return tree;
     }
 
     @Override
-    public JCUses Uses(JCExpression qualId) {
-        JCUses tree = new JCUses(qualId);
+    public JCUses Uses(List<JCAnnotation> annotations, JCExpression qualId) {
+        JCUses tree = new JCUses(annotations, qualId);
         tree.pos = pos;
         return tree;
     }
