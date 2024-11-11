@@ -324,7 +324,7 @@ public class Enter extends JCTree.Visitor {
             tree.packge = syms.rootPackage;
             Env<AttrContext> topEnv = topLevelEnv(tree);
             classEnter(tree.defs, topEnv);
-            tree.modle.usesProvidesCompleter = modules.getUsesProvidesCompleter();
+            tree.modle.usesProvidesCompleter = modules.getDirectivesCompleter();
         } else {
             JCPackageDecl pd = tree.getPackage();
             if (pd != null) {
@@ -584,6 +584,7 @@ public class Enter extends JCTree.Visitor {
         if (modules.isInModuleGraph(tree.sym)) {
             todo.append(moduleEnv);
         }
+        classEnter(tree.directives, moduleEnv);
     }
 
     /** Default class enter visitor method: do nothing.

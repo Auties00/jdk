@@ -441,7 +441,7 @@ public class Symtab {
                     provides = List.nil();
                     uses = List.nil();
                     com.sun.tools.javac.code.Directive.RequiresDirective d =
-                            new com.sun.tools.javac.code.Directive.RequiresDirective(java_base,
+                            new com.sun.tools.javac.code.Directive.RequiresDirective(this, java_base,
                                     EnumSet.of(com.sun.tools.javac.code.Directive.RequiresFlag.MANDATED));
                     requires = List.of(d);
                 }
@@ -460,7 +460,7 @@ public class Symtab {
                     provides = List.nil();
                     uses = List.nil();
                     com.sun.tools.javac.code.Directive.RequiresDirective d =
-                            new com.sun.tools.javac.code.Directive.RequiresDirective(java_base,
+                            new com.sun.tools.javac.code.Directive.RequiresDirective(this, java_base,
                                     EnumSet.of(com.sun.tools.javac.code.Directive.RequiresFlag.MANDATED));
                     requires = List.of(d);
                 }

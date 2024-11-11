@@ -66,6 +66,7 @@ public class Kinds {
         MTH(Category.BASIC, KindName.METHOD, KindSelector.MTH),
         POLY(Category.BASIC, KindSelector.POLY),
         MDL(Category.BASIC, KindSelector.MDL),
+        MDL_DRCTV(Category.BASIC, KindSelector.MDL_DRCTV),
         ERR(Category.ERROR, KindSelector.ERR),
         AMBIGUOUS(Category.RESOLUTION_TARGET),                         // overloaded       target
         HIDDEN(Category.RESOLUTION_TARGET),                            // not overloaded   non-target
@@ -173,6 +174,7 @@ public class Kinds {
         public static final KindSelector MTH = new KindSelector(0x10);
         public static final KindSelector POLY = new KindSelector(0x20);
         public static final KindSelector MDL = new KindSelector(0x40);
+        public static final KindSelector MDL_DRCTV = new KindSelector(0x80);
         public static final KindSelector ERR = new KindSelector(0x7f);
         public static final KindSelector ASG = new KindSelector(0x84);
 

@@ -3661,6 +3661,23 @@ public class Check {
             } else if (target == names.MODULE) {
                 if (s.kind == MDL)
                     applicableTargets.add(names.MODULE);
+            }else if(target == names.REQUIRES || target == names.EXPORTS || target == names.OPENS || target == names.USES || target == names.PROVIDES) {
+                if(s.kind == MDL_DRCTV) {
+                    Directive.DirectiveSymbol directiveSymbol = (Directive.DirectiveSymbol) s;
+                    switch (directiveSymbol) {
+                        case Directive.DirectiveSymbol.Exports _ when target == names.EXPORTS ->
+                                applicableTargets.add(names.EXPORTS);
+                        case Directive.DirectiveSymbol.Opens _ when target == names.OPENS ->
+                                applicableTargets.add(names.OPENS);
+                        case Directive.DirectiveSymbol.Provides _ when target == names.PROVIDES ->
+                                applicableTargets.add(names.PROVIDES);
+                        case Directive.DirectiveSymbol.Requires _ when target == names.REQUIRES ->
+                                applicableTargets.add(names.REQUIRES);
+                        case Directive.DirectiveSymbol.Uses _ when target == names.USES ->
+                                applicableTargets.add(names.USES);
+                        default -> {}
+                    }
+                }
             } else {
                 log.error(a, Errors.AnnotationUnrecognizedAttributeName(a.type, target));
                 return Optional.empty(); // Unknown ElementType

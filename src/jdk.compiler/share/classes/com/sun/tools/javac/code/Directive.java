@@ -27,19 +27,20 @@ package com.sun.tools.javac.code;
 
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.Locale;
 import java.util.Set;
 
+import javax.lang.model.element.ElementVisitor;
 import javax.lang.model.element.ModuleElement;
 import javax.lang.model.element.ModuleElement.DirectiveVisitor;
 
-import com.sun.tools.javac.api.Messages;
 import com.sun.tools.javac.code.Symbol.ClassSymbol;
 import com.sun.tools.javac.code.Symbol.ModuleSymbol;
 import com.sun.tools.javac.code.Symbol.PackageSymbol;
 import com.sun.tools.javac.util.DefinedBy;
 import com.sun.tools.javac.util.DefinedBy.Api;
 import com.sun.tools.javac.util.List;
+
+import static com.sun.tools.javac.code.Kinds.Kind.MDL_DRCTV;
 
 
 /**
@@ -51,6 +52,10 @@ import com.sun.tools.javac.util.List;
  *  deletion without notice.</b>
  */
 public abstract class Directive implements ModuleElement.Directive {
+    public final DirectiveSymbol symbol;
+    public Directive(DirectiveSymbol symbol) {
+        this.symbol = symbol;
+    }
 
     /** Flags for RequiresDirective. */
     public enum RequiresFlag {
@@ -110,11 +115,12 @@ public abstract class Directive implements ModuleElement.Directive {
         public final List<ModuleSymbol> modules;
         public final Set<ExportsFlag> flags;
 
-        public ExportsDirective(PackageSymbol packge, List<ModuleSymbol> modules) {
-            this(packge, modules, EnumSet.noneOf(ExportsFlag.class));
+        public ExportsDirective(ModuleSymbol owner, PackageSymbol packge, List<ModuleSymbol> modules) {
+            this(owner, packge, modules, EnumSet.noneOf(ExportsFlag.class));
         }
 
-        public ExportsDirective(PackageSymbol packge, List<ModuleSymbol> modules, Set<ExportsFlag> flags) {
+        public ExportsDirective(ModuleSymbol owner, PackageSymbol packge, List<ModuleSymbol> modules, Set<ExportsFlag> flags) {
+            super(new DirectiveSymbol.Exports(owner));
             this.packge = packge;
             this.modules = modules;
             this.flags = flags;
@@ -181,11 +187,12 @@ public abstract class Directive implements ModuleElement.Directive {
         public final List<ModuleSymbol> modules;
         public final Set<OpensFlag> flags;
 
-        public OpensDirective(PackageSymbol packge, List<ModuleSymbol> modules) {
-            this(packge, modules, EnumSet.noneOf(OpensFlag.class));
+        public OpensDirective(ModuleSymbol owner, PackageSymbol packge, List<ModuleSymbol> modules) {
+            this(owner, packge, modules, EnumSet.noneOf(OpensFlag.class));
         }
 
-        public OpensDirective(PackageSymbol packge, List<ModuleSymbol> modules, Set<OpensFlag> flags) {
+        public OpensDirective(ModuleSymbol owner, PackageSymbol packge, List<ModuleSymbol> modules, Set<OpensFlag> flags) {
+            super(new DirectiveSymbol.Opens(owner));
             this.packge = packge;
             this.modules = modules;
             this.flags = flags;
@@ -230,7 +237,8 @@ public abstract class Directive implements ModuleElement.Directive {
         public final ClassSymbol service;
         public final List<ClassSymbol> impls;
 
-        public ProvidesDirective(ClassSymbol service, List<ClassSymbol> impls) {
+        public ProvidesDirective(ModuleSymbol owner, ClassSymbol service, List<ClassSymbol> impls) {
+            super(new DirectiveSymbol.Provides(owner));
             this.service = service;
             this.impls = impls;
         }
@@ -283,11 +291,12 @@ public abstract class Directive implements ModuleElement.Directive {
         public final ModuleSymbol module;
         public final Set<RequiresFlag> flags;
 
-        public RequiresDirective(ModuleSymbol module) {
-            this(module, EnumSet.noneOf(RequiresFlag.class));
+        public RequiresDirective(ModuleSymbol owner, ModuleSymbol module) {
+            this(owner, module, EnumSet.noneOf(RequiresFlag.class));
         }
 
-        public RequiresDirective(ModuleSymbol module, Set<RequiresFlag> flags) {
+        public RequiresDirective(ModuleSymbol owner, ModuleSymbol module, Set<RequiresFlag> flags) {
+            super(new DirectiveSymbol.Requires(owner));
             this.module = module;
             this.flags = flags;
         }
@@ -330,7 +339,8 @@ public abstract class Directive implements ModuleElement.Directive {
             implements ModuleElement.UsesDirective {
         public final ClassSymbol service;
 
-        public UsesDirective(ClassSymbol service) {
+        public UsesDirective(ModuleSymbol owner, ClassSymbol service) {
+            super(new DirectiveSymbol.Requires(owner));
             this.service = service;
         }
 
@@ -365,6 +375,47 @@ public abstract class Directive implements ModuleElement.Directive {
         @Override
         public int hashCode() {
             return service.hashCode() * 31;
+        }
+    }
+
+    public static sealed class DirectiveSymbol extends Symbol {
+        private DirectiveSymbol(ModuleSymbol owner) {
+            super(MDL_DRCTV, 0, null, Type.noType, owner);
+        }
+
+        @Override
+        public <R, P> R accept(ElementVisitor<R, P> v, P p) {
+            return null; // Visits are implemented in the Directive class
+        }
+
+        public static final class Exports extends DirectiveSymbol {
+            public Exports(ModuleSymbol owner) {
+                super(owner);
+            }
+        }
+
+        public static final class Requires extends DirectiveSymbol {
+            public Requires(ModuleSymbol owner) {
+                super(owner);
+            }
+        }
+
+        public static final class Opens extends DirectiveSymbol {
+            public Opens(ModuleSymbol owner) {
+                super(owner);
+            }
+        }
+
+        public static final class Uses extends DirectiveSymbol {
+            public Uses(ModuleSymbol owner) {
+                super(owner);
+            }
+        }
+
+        public static final class Provides extends DirectiveSymbol {
+            public Provides(ModuleSymbol owner) {
+                super(owner);
+            }
         }
     }
 }

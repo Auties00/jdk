@@ -52,7 +52,6 @@ import javax.tools.JavaFileObject.Kind;
 import javax.tools.StandardLocation;
 
 import com.sun.source.tree.ModuleTree.ModuleKind;
-import com.sun.tools.javac.code.ClassFinder;
 import com.sun.tools.javac.code.DeferredLintHandler;
 import com.sun.tools.javac.code.Directive;
 import com.sun.tools.javac.code.Directive.ExportsDirective;
@@ -148,6 +147,7 @@ public class Modules extends JCTree.Visitor {
     private final ModuleFinder moduleFinder;
     private final Source source;
     private final Target target;
+    private final Annotate annotate;
     private final boolean allowModules;
     private final boolean allowAccessIntoSystem;
 
@@ -199,6 +199,7 @@ public class Modules extends JCTree.Visitor {
         fileManager = context.get(JavaFileManager.class);
         source = Source.instance(context);
         target = Target.instance(context);
+        annotate = Annotate.instance(context);
         allowModules = Feature.MODULES.allowedInSource(source);
         Options options = Options.instance(context);
 
@@ -688,7 +689,7 @@ public class Modules extends JCTree.Visitor {
                 String binName = fileManager.inferBinaryName(msym.classLocation, clazz);
                 String pack = binName.lastIndexOf('.') != (-1) ? binName.substring(0, binName.lastIndexOf('.')) : ""; //unnamed package????
                 if (seenPackages.add(pack)) {
-                    ExportsDirective d = new ExportsDirective(syms.enterPackage(msym, names.fromString(pack)), null);
+                    ExportsDirective d = new ExportsDirective(msym, syms.enterPackage(msym, names.fromString(pack)), null);
                     //TODO: opens?
                     directives.add(d);
                     exports.add(d);
@@ -717,12 +718,12 @@ public class Modules extends JCTree.Visitor {
                 continue;
             Set<RequiresFlag> flags = (ms.flags_field & Flags.AUTOMATIC_MODULE) != 0 ?
                     EnumSet.of(RequiresFlag.TRANSITIVE) : EnumSet.noneOf(RequiresFlag.class);
-            RequiresDirective d = new RequiresDirective(ms, flags);
+            RequiresDirective d = new RequiresDirective(msym, ms, flags);
             directives.add(d);
             requires.add(d);
         }
 
-        RequiresDirective requiresUnnamed = new RequiresDirective(syms.unnamedModule);
+        RequiresDirective requiresUnnamed = new RequiresDirective(msym, syms.unnamedModule);
         directives.add(requiresUnnamed);
         requires.add(requiresUnnamed);
 
@@ -820,7 +821,7 @@ public class Modules extends JCTree.Visitor {
                         flags.add(RequiresFlag.STATIC_PHASE);
                     }
                 }
-                RequiresDirective d = new RequiresDirective(msym, flags);
+                RequiresDirective d = new RequiresDirective(sym, msym, flags);
                 tree.directive = d;
                 sym.requires = sym.requires.prepend(d);
             }
@@ -855,7 +856,7 @@ public class Modules extends JCTree.Visitor {
 
             if (toModules == null || !toModules.isEmpty()) {
                 Set<ExportsFlag> flags = EnumSet.noneOf(ExportsFlag.class);
-                ExportsDirective d = new ExportsDirective(packge, toModules, flags);
+                ExportsDirective d = new ExportsDirective(sym, packge, toModules, flags);
                 sym.exports = sym.exports.prepend(d);
                 tree.directive = d;
 
@@ -914,7 +915,7 @@ public class Modules extends JCTree.Visitor {
 
             if (toModules == null || !toModules.isEmpty()) {
                 Set<OpensFlag> flags = EnumSet.noneOf(OpensFlag.class);
-                OpensDirective d = new OpensDirective(packge, toModules, flags);
+                OpensDirective d = new OpensDirective(sym, packge, toModules, flags);
                 sym.opens = sym.opens.prepend(d);
                 tree.directive = d;
 
@@ -958,7 +959,7 @@ public class Modules extends JCTree.Visitor {
 
             ModuleSymbol java_base = syms.enterModule(names.java_base);
             Directive.RequiresDirective d =
-                    new Directive.RequiresDirective(java_base,
+                    new Directive.RequiresDirective(sym, java_base,
                             EnumSet.of(Directive.RequiresFlag.MANDATED));
             sym.requires = sym.requires.prepend(d);
         }
@@ -971,14 +972,14 @@ public class Modules extends JCTree.Visitor {
         }
     }
 
-    public Completer getUsesProvidesCompleter() {
+    public Completer getDirectivesCompleter() {
         return sym -> {
             ModuleSymbol msym = (ModuleSymbol) sym;
 
             msym.complete();
 
             Env<AttrContext> env = typeEnvs.get(msym);
-            UsesProvidesVisitor v = new UsesProvidesVisitor(msym, env);
+            DirectivesCompleter v = new DirectivesCompleter(msym, env);
             JavaFileObject prev = log.useSource(env.toplevel.sourcefile);
             JCModuleDecl decl = env.toplevel.getModuleDecl();
             DiagnosticPosition prevLintPos = deferredLintHandler.setPos(decl.pos());
@@ -992,14 +993,14 @@ public class Modules extends JCTree.Visitor {
         };
     }
 
-    class UsesProvidesVisitor extends JCTree.Visitor {
+    class DirectivesCompleter extends JCTree.Visitor {
         private final ModuleSymbol msym;
         private final Env<AttrContext> env;
 
         private final Set<ClassSymbol> allUses = new HashSet<>();
         private final Map<ClassSymbol, Set<ClassSymbol>> allProvides = new HashMap<>();
 
-        public UsesProvidesVisitor(ModuleSymbol msym, Env<AttrContext> env) {
+        public DirectivesCompleter(ModuleSymbol msym, Env<AttrContext> env) {
             this.msym = msym;
             this.env = env;
         }
@@ -1051,12 +1052,14 @@ public class Modules extends JCTree.Visitor {
                 log.error(tree.qualid.pos(), Errors.PackageEmptyOrNotFound(tree.directive.packge));
             }
             msym.directives = msym.directives.prepend(tree.directive);
+            annotate.annotateLater(tree.annotations, env, tree.directive.symbol, tree.pos());
         }
 
         @Override
         public void visitOpens(JCOpens tree) {
             chk.checkPackageExistsForOpens(tree.qualid, tree.directive.packge);
             msym.directives = msym.directives.prepend(tree.directive);
+            annotate.annotateLater(tree.annotations, env, tree.directive.symbol, tree.pos());
         }
 
         MethodSymbol noArgsConstructor(ClassSymbol tsym) {
@@ -1137,21 +1140,26 @@ public class Modules extends JCTree.Visitor {
                 }
             }
             if (st.hasTag(CLASS) && !impls.isEmpty()) {
-                Directive.ProvidesDirective d = new Directive.ProvidesDirective(service, impls.toList());
+                Directive.ProvidesDirective d = new Directive.ProvidesDirective(msym, service, impls.toList());
+                tree.directive = d;
                 msym.provides = msym.provides.prepend(d);
                 msym.directives = msym.directives.prepend(d);
                 directiveToTreeMap.put(d, tree);
             }
+
+            annotate.annotateLater(tree.annotations, env, tree.directive.symbol, tree.pos());
         }
 
         @Override
         public void visitRequires(JCRequires tree) {
-            if (tree.directive != null && allModules().contains(tree.directive.module)) {
+            if (allModules().contains(tree.directive.module)) {
                 chk.checkDeprecated(tree.moduleName.pos(), msym, tree.directive.module);
                 chk.checkPreview(tree.moduleName.pos(), msym, tree.directive.module);
                 chk.checkModuleRequires(tree.moduleName.pos(), tree.directive);
                 msym.directives = msym.directives.prepend(tree.directive);
             }
+
+            annotate.annotateLater(tree.annotations, env, tree.directive.symbol, tree.pos());
         }
 
         @Override
@@ -1163,13 +1171,16 @@ public class Modules extends JCTree.Visitor {
             } else if (st.hasTag(CLASS)) {
                 ClassSymbol service = (ClassSymbol) st.tsym;
                 if (allUses.add(service)) {
-                    Directive.UsesDirective d = new Directive.UsesDirective(service);
+                    Directive.UsesDirective d = new Directive.UsesDirective(msym, service);
+                    tree.directive = d;
                     msym.uses = msym.uses.prepend(d);
                     msym.directives = msym.directives.prepend(d);
                 } else {
                     log.error(tree.pos(), Errors.DuplicateUses(service));
                 }
             }
+
+            annotate.annotateLater(tree.annotations, env, tree.directive.symbol, tree.pos());
         }
 
         private void checkForCorrectness() {
@@ -1700,7 +1711,7 @@ public class Modules extends JCTree.Visitor {
             }
 
             Set<ExportsDirective> extra = addExports.computeIfAbsent(msym, _x -> new LinkedHashSet<>());
-            ExportsDirective d = new ExportsDirective(p, targetModules);
+            ExportsDirective d = new ExportsDirective(msym, p, targetModules);
             extra.add(d);
         }
     }
@@ -1776,8 +1787,9 @@ public class Modules extends JCTree.Visitor {
                         continue;
                     }
                 }
+                RequiresDirective d = new RequiresDirective(msym, targetModule, EnumSet.of(RequiresFlag.EXTRA));
                 addReads.computeIfAbsent(msym, m -> new HashSet<>())
-                        .add(new RequiresDirective(targetModule, EnumSet.of(RequiresFlag.EXTRA)));
+                        .add(d);
             }
         }
     }
