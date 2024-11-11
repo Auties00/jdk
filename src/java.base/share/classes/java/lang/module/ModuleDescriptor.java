@@ -1629,6 +1629,7 @@ public class ModuleDescriptor
      * @return  A possibly-empty unmodifiable set of services used by this module.
      * @since 24
      */
+    // TODO: uses() is already defined above, is this a good compromise?
     public Set<Uses> used() {
         return uses;
     }
