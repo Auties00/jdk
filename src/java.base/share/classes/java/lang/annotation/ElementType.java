@@ -120,6 +120,41 @@ public enum ElementType {
     MODULE,
 
     /**
+     * Exports module directive
+     *
+     * @since 24
+     */
+    EXPORTS,
+
+    /**
+     * Opens module directive
+     *
+     * @since 24
+     */
+    OPENS,
+
+    /**
+     * Provides module directive
+     *
+     * @since 24
+     */
+    PROVIDES,
+
+    /**
+     * Requires module directive
+     *
+     * @since 24
+     */
+    REQUIRES,
+
+    /**
+     * Users module directive
+     *
+     * @since 24
+     */
+    USES,
+
+    /**
      * Record component
      *
      * @jls 8.10.3 Record Members
