@@ -586,39 +586,44 @@ public class TreeCopier<P> implements TreeVisitor<JCTree,P> {
     @Override @DefinedBy(Api.COMPILER_TREE)
     public JCExports visitExports(ExportsTree node, P p) {
         JCExports t = (JCExports) node;
+        List<JCAnnotation> annotations = copy(t.annotations, p);
         JCExpression qualId = copy(t.qualid, p);
         List<JCExpression> moduleNames = copy(t.moduleNames, p);
-        return M.at(t.pos).Exports(qualId, moduleNames);
+        return M.at(t.pos).Exports(annotations, qualId, moduleNames);
     }
 
     @Override @DefinedBy(Api.COMPILER_TREE)
     public JCOpens visitOpens(OpensTree node, P p) {
         JCOpens t = (JCOpens) node;
+        List<JCAnnotation> annotations = copy(t.annotations, p);
         JCExpression qualId = copy(t.qualid, p);
         List<JCExpression> moduleNames = copy(t.moduleNames, p);
-        return M.at(t.pos).Opens(qualId, moduleNames);
+        return M.at(t.pos).Opens(annotations, qualId, moduleNames);
     }
 
     @Override @DefinedBy(Api.COMPILER_TREE)
     public JCProvides visitProvides(ProvidesTree node, P p) {
         JCProvides t = (JCProvides) node;
+        List<JCAnnotation> annotations = copy(t.annotations, p);
         JCExpression serviceName = copy(t.serviceName, p);
         List<JCExpression> implNames = copy(t.implNames, p);
-        return M.at(t.pos).Provides(serviceName, implNames);
+        return M.at(t.pos).Provides(annotations, serviceName, implNames);
     }
 
     @Override @DefinedBy(Api.COMPILER_TREE)
     public JCRequires visitRequires(RequiresTree node, P p) {
         JCRequires t = (JCRequires) node;
+        List<JCAnnotation> annotations = copy(t.annotations, p);
         JCExpression moduleName = copy(t.moduleName, p);
-        return M.at(t.pos).Requires(t.isTransitive, t.isStaticPhase, moduleName);
+        return M.at(t.pos).Requires(annotations, t.isTransitive, t.isStaticPhase, moduleName);
     }
 
     @Override @DefinedBy(Api.COMPILER_TREE)
     public JCUses visitUses(UsesTree node, P p) {
         JCUses t = (JCUses) node;
+        List<JCAnnotation> annotations = copy(t.annotations, p);
         JCExpression serviceName = copy(t.qualid, p);
-        return M.at(t.pos).Uses(serviceName);
+        return M.at(t.pos).Uses(annotations, serviceName);
     }
 
     @DefinedBy(Api.COMPILER_TREE)

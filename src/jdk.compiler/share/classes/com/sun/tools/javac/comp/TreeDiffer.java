@@ -382,7 +382,7 @@ public class TreeDiffer extends TreeScanner {
     @Override
     public void visitExports(JCExports tree) {
         JCExports that = (JCExports) parameter;
-        result = scan(tree.qualid, that.qualid) && scan(tree.moduleNames, that.moduleNames);
+        result = scan(tree.annotations, that.annotations) && scan(tree.qualid, that.qualid) && scan(tree.moduleNames, that.moduleNames);
     }
 
     @Override
@@ -514,7 +514,7 @@ public class TreeDiffer extends TreeScanner {
     @Override
     public void visitOpens(JCOpens tree) {
         JCOpens that = (JCOpens) parameter;
-        result = scan(tree.qualid, that.qualid) && scan(tree.moduleNames, that.moduleNames);
+        result = scan(tree.annotations, that.annotations) && scan(tree.qualid, that.qualid) && scan(tree.moduleNames, that.moduleNames);
     }
 
     @Override
@@ -529,7 +529,7 @@ public class TreeDiffer extends TreeScanner {
     @Override
     public void visitProvides(JCProvides tree) {
         JCProvides that = (JCProvides) parameter;
-        result = scan(tree.serviceName, that.serviceName) && scan(tree.implNames, that.implNames);
+        result = scan(tree.annotations, that.annotations) && scan(tree.serviceName, that.serviceName) && scan(tree.implNames, that.implNames);
     }
 
     @Override
@@ -547,7 +547,7 @@ public class TreeDiffer extends TreeScanner {
     public void visitRequires(JCRequires tree) {
         JCRequires that = (JCRequires) parameter;
         result =
-                tree.isTransitive == that.isTransitive
+                scan(tree.annotations, that.annotations) && tree.isTransitive == that.isTransitive
                         && tree.isStaticPhase == that.isStaticPhase
                         && scan(tree.moduleName, that.moduleName);
     }
@@ -667,7 +667,7 @@ public class TreeDiffer extends TreeScanner {
     @Override
     public void visitUses(JCUses tree) {
         JCUses that = (JCUses) parameter;
-        result = scan(tree.qualid, that.qualid);
+        result = scan(tree.annotations, that.annotations) && scan(tree.qualid, that.qualid);
     }
 
     @Override
