@@ -33,18 +33,11 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.lang.module.InvalidModuleDescriptorException;
 import java.lang.module.ModuleDescriptor;
+import java.lang.module.ModuleDescriptor.*;
 import java.lang.module.ModuleDescriptor.Builder;
-import java.lang.module.ModuleDescriptor.Requires;
-import java.lang.module.ModuleDescriptor.Exports;
-import java.lang.module.ModuleDescriptor.Opens;
 import java.nio.ByteBuffer;
 import java.nio.BufferUnderflowException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Supplier;
 
 import jdk.internal.access.JavaLangModuleAccess;
@@ -226,12 +219,13 @@ public final class ModuleInfo {
         // the names of the attributes found in the class file
         Set<String> attributes = new HashSet<>();
 
-        Builder builder = null;
+        ModuleInfoDescriptor module = null;
         Set<String> allPackages = null;
         String mainClass = null;
         ModuleTarget moduleTarget = null;
         ModuleHashes moduleHashes = null;
         ModuleResolution moduleResolution = null;
+        ModuleDirectivesAnnotationsDescriptor moduleDirectivesAnnotations = ModuleDirectivesAnnotationsDescriptor.empty();
 
         for (int i = 0; i < attributes_count ; i++) {
             int name_index = in.readUnsignedShort();
@@ -248,7 +242,11 @@ public final class ModuleInfo {
 
             switch (attribute_name) {
                 case MODULE :
-                    builder = readModuleAttribute(in, cpool, major_version);
+                    module = readModuleAttribute(in, cpool, major_version);
+                    break;
+
+                case MODULE_DIRECTIVES_RUNTIME_VISIBLE_ANNOTATIONS:
+                    moduleDirectivesAnnotations = readModuleDirectivesAnnotations(in, cpool, major_version);
                     break;
 
                 case MODULE_PACKAGES :
@@ -294,8 +292,13 @@ public final class ModuleInfo {
         }
 
         // the Module attribute is required
-        if (builder == null) {
+        if (module == null) {
             throw invalidModuleDescriptor(MODULE + " attribute not found");
+        }
+
+        Builder builder = JLMA.newModuleBuilder(module.name(), false, module.modifiers());
+        if(module.hasVersion()) {
+            builder.version(module.version());
         }
 
         // ModuleMainClass  attribute
@@ -333,6 +336,41 @@ public final class ModuleInfo {
             builder.packages(allPackages);
         }
 
+        List<RequiresDescriptor> requires = module.requires();
+        for (int i = 0; i < requires.size(); i++) {
+            RequiresDescriptor require = requires.get(i);
+            List<ModuleDirectiveAnnotation> annotations = moduleDirectivesAnnotations.requires().get(i);
+            JLMA.requires(builder, require.modifiers(), require.moduleName(), require.rawVersion(), annotations);
+        }
+
+        List<ExportsDescriptor> exports = module.exports();
+        for (int i = 0; i < exports.size(); i++) {
+            ExportsDescriptor export = exports.get(i);
+            List<ModuleDirectiveAnnotation> annotations = moduleDirectivesAnnotations.exports().get(i);
+            builder.exports(JLMA.newExports(export.modifiers(), export.packageName(), export.targets(), annotations));
+        }
+
+        List<OpensDescriptor> opens = module.opens();
+        for (int i = 0; i < opens.size(); i++) {
+            OpensDescriptor open = opens.get(i);
+            List<ModuleDirectiveAnnotation> annotations = moduleDirectivesAnnotations.opens().get(i);
+            builder.opens(JLMA.newOpens(open.modifiers(), open.packageName(), open.targets(), annotations));
+        }
+
+        List<UsesDescriptor> uses = module.uses();
+        for (int i = 0; i < uses.size(); i++) {
+            UsesDescriptor use = uses.get(i);
+            List<ModuleDirectiveAnnotation> annotations = moduleDirectivesAnnotations.uses().get(i);
+            builder.uses(JLMA.newUses(use.serviceName(), annotations));
+        }
+
+        List<ProvidesDescriptor> provides = module.provides();
+        for (int i = 0; i < provides.size(); i++) {
+            ProvidesDescriptor provide = provides.get(i);
+            List<ModuleDirectiveAnnotation> annotations = moduleDirectivesAnnotations.provides().get(i);
+            builder.provides(JLMA.newProvides(provide.serviceName(), provide.providers(), annotations));
+        }
+
         ModuleDescriptor descriptor = builder.build();
         return new Attributes(descriptor,
                               moduleTarget,
@@ -344,7 +382,7 @@ public final class ModuleInfo {
      * Reads the Module attribute, returning the ModuleDescriptor.Builder to
      * build the corresponding ModuleDescriptor.
      */
-    private Builder readModuleAttribute(DataInput in, ConstantPool cpool, int major)
+    private ModuleInfoDescriptor readModuleAttribute(DataInput in, ConstantPool cpool, int major)
         throws IOException
     {
         // module_name
@@ -353,22 +391,23 @@ public final class ModuleInfo {
 
         int module_flags = in.readUnsignedShort();
 
-        Set<ModuleDescriptor.Modifier> modifiers = new HashSet<>();
+        Set<Modifier> modifiers = new HashSet<>();
         boolean open = ((module_flags & ACC_OPEN) != 0);
         if (open)
-            modifiers.add(ModuleDescriptor.Modifier.OPEN);
+            modifiers.add(Modifier.OPEN);
         if ((module_flags & ACC_SYNTHETIC) != 0)
-            modifiers.add(ModuleDescriptor.Modifier.SYNTHETIC);
+            modifiers.add(Modifier.SYNTHETIC);
         if ((module_flags & ACC_MANDATED) != 0)
-            modifiers.add(ModuleDescriptor.Modifier.MANDATED);
+            modifiers.add(Modifier.MANDATED);
 
-        Builder builder = JLMA.newModuleBuilder(mn, false, modifiers);
+        List<RequiresDescriptor> requires = new ArrayList<>();
+        List<ExportsDescriptor> exports = new ArrayList<>();
+        List<OpensDescriptor> opens = new ArrayList<>();
+        List<UsesDescriptor> uses = new ArrayList<>();
+        List<ProvidesDescriptor> provides = new ArrayList<>();
 
         int module_version_index = in.readUnsignedShort();
-        if (module_version_index != 0) {
-            String vs = cpool.getUtf8(module_version_index);
-            builder.version(vs);
-        }
+        String vs = module_version_index != 0 ? cpool.getUtf8(module_version_index) : null;
 
         int requires_count = in.readUnsignedShort();
         boolean requiresJavaBase = false;
@@ -393,12 +432,9 @@ public final class ModuleInfo {
             }
 
             int requires_version_index = in.readUnsignedShort();
-            if (requires_version_index == 0) {
-                builder.requires(mods, dn);
-            } else {
-                String vs = cpool.getUtf8(requires_version_index);
-                JLMA.requires(builder, mods, dn, vs);
-            }
+            String raw_requires_version = requires_version_index != 0 ? cpool.getUtf8(requires_version_index) : null;
+            RequiresDescriptor requires_descriptor = new RequiresDescriptor(mods, dn, raw_requires_version);
+            requires.add(requires_descriptor);
 
             if (dn.equals("java.base")) {
                 if (mods.contains(Requires.Modifier.SYNTHETIC)) {
@@ -449,6 +485,7 @@ public final class ModuleInfo {
                 }
 
                 int exports_to_count = in.readUnsignedShort();
+                ExportsDescriptor exports_descriptor;
                 if (exports_to_count > 0) {
                     Set<String> targets = HashSet.newHashSet(exports_to_count);
                     for (int j=0; j<exports_to_count; j++) {
@@ -459,10 +496,11 @@ public final class ModuleInfo {
                                                           + target + " more than once");
                         }
                     }
-                    builder.exports(mods, pkg, targets);
+                    exports_descriptor = new ExportsDescriptor(mods, pkg, targets);
                 } else {
-                    builder.exports(mods, pkg);
+                    exports_descriptor = new ExportsDescriptor(mods, pkg, Set.of());
                 }
+                exports.add(exports_descriptor);
             }
         }
 
@@ -489,6 +527,7 @@ public final class ModuleInfo {
                 }
 
                 int open_to_count = in.readUnsignedShort();
+                OpensDescriptor opens_descriptor;
                 if (open_to_count > 0) {
                     Set<String> targets = HashSet.newHashSet(open_to_count);
                     for (int j=0; j<open_to_count; j++) {
@@ -499,10 +538,11 @@ public final class ModuleInfo {
                                                           + target + " more than once");
                         }
                     }
-                    builder.opens(mods, pkg, targets);
+                    opens_descriptor = new OpensDescriptor(mods, pkg, targets);
                 } else {
-                    builder.opens(mods, pkg);
+                    opens_descriptor = new OpensDescriptor(mods, pkg, Set.of());
                 }
+                opens.add(opens_descriptor);
             }
         }
 
@@ -511,7 +551,8 @@ public final class ModuleInfo {
             for (int i=0; i<uses_count; i++) {
                 int index = in.readUnsignedShort();
                 String sn = cpool.getClassName(index);
-                builder.uses(sn);
+                UsesDescriptor uses_descriptor = new UsesDescriptor(sn);
+                uses.add(uses_descriptor);
             }
         }
 
@@ -530,11 +571,202 @@ public final class ModuleInfo {
                                                       + " more than once");
                     }
                 }
-                builder.provides(sn, providers);
+                ProvidesDescriptor provides_directive = new ProvidesDescriptor(sn, providers);
+                provides.add(provides_directive);
             }
         }
 
-        return builder;
+        return new ModuleInfoDescriptor(mn, modifiers, vs, requires, exports, opens, uses, provides);
+    }
+
+
+    private ModuleDirectivesAnnotationsDescriptor readModuleDirectivesAnnotations(DataInput in, ConstantPool cpool, int major) throws IOException {
+        if (major < 68) { // JDK 24
+            return ModuleDirectivesAnnotationsDescriptor.empty();
+        }
+
+        Map<Integer, List<ModuleDirectiveAnnotation>> requires = readAnnotations(in, cpool);
+        Map<Integer, List<ModuleDirectiveAnnotation>> exports = readAnnotations(in, cpool);
+        Map<Integer, List<ModuleDirectiveAnnotation>> opens = readAnnotations(in, cpool);
+        Map<Integer, List<ModuleDirectiveAnnotation>> uses = readAnnotations(in, cpool);
+        Map<Integer, List<ModuleDirectiveAnnotation>> provides = readAnnotations(in, cpool);
+        return new ModuleDirectivesAnnotationsDescriptor(requires, exports, opens, uses, provides);
+    }
+
+    private record ModuleInfoDescriptor(
+            String name,
+            Set<Modifier> modifiers,
+            String version,
+            List<RequiresDescriptor> requires,
+            List<ExportsDescriptor> exports,
+            List<OpensDescriptor> opens,
+            List<UsesDescriptor> uses,
+            List<ProvidesDescriptor> provides
+    ) {
+        private boolean hasVersion() {
+            return version != null;
+        }
+    }
+
+    private record RequiresDescriptor(
+            Set<Requires.Modifier> modifiers,
+            String moduleName,
+            String rawVersion
+    ) {
+
+    }
+
+    private record ExportsDescriptor(
+            Set<Exports.Modifier> modifiers,
+            String packageName,
+            Set<String> targets
+    ) {
+    }
+
+    private record OpensDescriptor(
+            Set<Opens.Modifier> modifiers,
+            String packageName,
+            Set<String> targets
+    ) {
+    }
+
+    private record UsesDescriptor(
+            String serviceName
+    ) {
+
+    }
+
+    private record ProvidesDescriptor(
+            String serviceName,
+            List<String> providers
+    ) {
+
+    }
+
+    private record ModuleDirectivesAnnotationsDescriptor(
+            Map<Integer, List<ModuleDirectiveAnnotation>> requires,
+            Map<Integer, List<ModuleDirectiveAnnotation>> exports,
+            Map<Integer, List<ModuleDirectiveAnnotation>> opens,
+            Map<Integer, List<ModuleDirectiveAnnotation>> uses,
+            Map<Integer, List<ModuleDirectiveAnnotation>> provides
+    ) {
+        private static final ModuleDirectivesAnnotationsDescriptor EMPTY = new ModuleDirectivesAnnotationsDescriptor(
+                Map.of(),
+                Map.of(),
+                Map.of(),
+                Map.of(),
+                Map.of()
+        );
+
+        private static ModuleDirectivesAnnotationsDescriptor empty() {
+            return EMPTY;
+        }
+    }
+
+    private Map<Integer, List<ModuleDirectiveAnnotation>> readAnnotations(DataInput in, ConstantPool cpool) throws IOException {
+        Map<Integer, List<ModuleDirectiveAnnotation>> results = new LinkedHashMap<>();
+        int directives_count = in.readChar();
+        for(var i = 0; i < directives_count; i++) {
+            int directive_index = in.readChar();
+            List<ModuleDirectiveAnnotation> annotations = new ArrayList<>();
+            int attrs_count = in.readChar();
+            for (var j = 0; j < attrs_count; j++) {
+                ModuleDirectiveAnnotation annotation = readAnnotation(in, cpool);
+                annotations.add(annotation);
+            }
+            results.put(directive_index, annotations);
+        }
+        return results;
+    }
+
+    private ModuleDirectiveAnnotation readAnnotation(DataInput in, ConstantPool cpool) throws IOException {
+        int type_signature_index = in.readUnsignedShort();
+        String type_signature = cpool.getUtf8(type_signature_index);
+        int values_count = in.readUnsignedShort();
+        LinkedHashMap<String, ModuleDirectiveAnnotation.AttributeDescriptor> values = new LinkedHashMap<>();
+        for(int k = 0; k < values_count; k++) {
+            int name_index = in.readUnsignedShort();
+            String name = cpool.getUtf8(name_index);
+            ModuleDirectiveAnnotation.AttributeDescriptor value = readAnnotationValue(in, cpool);
+            values.put(name, value);
+        }
+        return ModuleDirectiveAnnotation.of(type_signature, values);
+    }
+
+    private ModuleDirectiveAnnotation.AttributeDescriptor readAnnotationValue(DataInput in, ConstantPool cpool) throws IOException {
+        byte type = in.readByte();
+        return switch(type) {
+            case 'e' -> {
+                int enum_type_index = in.readUnsignedShort();
+                String enum_type = cpool.getUtf8(enum_type_index);
+                int enum_constant_index = in.readUnsignedShort();
+                String enum_constant = cpool.getUtf8(enum_constant_index);
+                yield ModuleDirectiveAnnotation.AttributeDescriptor.ofEnum(enum_type, enum_constant);
+            }
+            case '@' -> {
+                ModuleDirectiveAnnotation annotation = readAnnotation(in, cpool);
+                yield ModuleDirectiveAnnotation.AttributeDescriptor.ofAnnotation(annotation);
+            }
+            case '[' -> {
+                int length = in.readUnsignedShort();
+                ModuleDirectiveAnnotation.AttributeDescriptor[] array = new ModuleDirectiveAnnotation.AttributeDescriptor[length];
+                for(var i = 0; i < length; i++) {
+                    array[i] = readAnnotationValue(in, cpool);
+                }
+                yield ModuleDirectiveAnnotation.AttributeDescriptor.ofArray(array);
+            }
+            case 'B' -> {
+                int value_index = in.readUnsignedShort();
+                byte value = (byte) cpool.getInt(value_index);
+                yield ModuleDirectiveAnnotation.AttributeDescriptor.ofPrimitive(value);
+            }
+            case 'C' -> {
+                int value_index = in.readUnsignedShort();
+                char value = (char) cpool.getInt(value_index);
+                yield ModuleDirectiveAnnotation.AttributeDescriptor.ofPrimitive(value);
+            }
+            case 'D' -> {
+                int value_index = in.readUnsignedShort();
+                double value = cpool.getDouble(value_index);
+                yield ModuleDirectiveAnnotation.AttributeDescriptor.ofPrimitive(value);
+            }
+            case 'F' -> {
+                int value_index = in.readUnsignedShort();
+                float value = cpool.getFloat(value_index);
+                yield ModuleDirectiveAnnotation.AttributeDescriptor.ofPrimitive(value);
+            }
+            case 'I' -> {
+                int value_index = in.readUnsignedShort();
+                int value = cpool.getInt(value_index);
+                yield ModuleDirectiveAnnotation.AttributeDescriptor.ofPrimitive(value);
+            }
+            case 'J' -> {
+                int value_index = in.readUnsignedShort();
+                long value = cpool.getLong(value_index);
+                yield ModuleDirectiveAnnotation.AttributeDescriptor.ofPrimitive(value);
+            }
+            case 'S' -> {
+                int value_index = in.readUnsignedShort();
+                short value = (short) cpool.getInt(value_index);
+                yield ModuleDirectiveAnnotation.AttributeDescriptor.ofPrimitive(value);
+            }
+            case 'Z' -> {
+                int value_index = in.readUnsignedShort();
+                boolean value = cpool.getInt(value_index) != 0;
+                yield ModuleDirectiveAnnotation.AttributeDescriptor.ofPrimitive(value);
+            }
+            case 's' -> {
+                int value_index = in.readUnsignedShort();
+                String value = cpool.getUtf8(value_index);
+                yield ModuleDirectiveAnnotation.AttributeDescriptor.ofString(value);
+            }
+            case 'c' -> {
+                int value_index = in.readUnsignedShort();
+                String value = cpool.getUtf8(value_index);
+                yield ModuleDirectiveAnnotation.AttributeDescriptor.ofClass(value);
+            }
+            default -> throw invalidModuleDescriptor("Unexpected type while parsing annotation in module directive: " + type);
+        };
     }
 
     /**
@@ -856,6 +1088,46 @@ public final class ModuleInfo {
                                               + index);
             }
             return (String) (((ValueEntry) e).value);
+        }
+
+        int getInt(int index) {
+            checkIndex(index);
+            Entry e = pool[index];
+            if (e.tag != CONSTANT_Integer) {
+                throw invalidModuleDescriptor("CONSTANT_Integer expected at entry: "
+                        + index);
+            }
+            return (int) (((ValueEntry) e).value);
+        }
+
+        double getDouble(int index) {
+            checkIndex(index);
+            Entry e = pool[index];
+            if (e.tag != CONSTANT_Double) {
+                throw invalidModuleDescriptor("CONSTANT_Double expected at entry: "
+                        + index);
+            }
+            return (double) (((ValueEntry) e).value);
+        }
+
+        float getFloat(int index) {
+            checkIndex(index);
+            Entry e = pool[index];
+            if (e.tag != CONSTANT_Float) {
+                throw invalidModuleDescriptor("CONSTANT_Float expected at entry: "
+                        + index);
+            }
+            return (float) (((ValueEntry) e).value);
+        }
+
+        long getLong(int index) {
+            checkIndex(index);
+            Entry e = pool[index];
+            if (e.tag != CONSTANT_Long) {
+                throw invalidModuleDescriptor("CONSTANT_Long expected at entry: "
+                        + index);
+            }
+            return (long) (((ValueEntry) e).value);
         }
 
         void checkIndex(int index) {

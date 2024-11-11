@@ -36,6 +36,7 @@ public class ClassFileConstants {
     public static final String MODULE             = "Module";
     public static final String SOURCE_FILE        = "SourceFile";
     public static final String SDE                = "SourceDebugExtension";
+    public static final String MODULE_DIRECTIVES_RUNTIME_VISIBLE_ANNOTATIONS = "ModuleDirectivesRuntimeVisibleAnnotations";
 
     public static final String MODULE_PACKAGES    = "ModulePackages";
     public static final String MODULE_MAIN_CLASS  = "ModuleMainClass";

@@ -29,22 +29,11 @@ import java.io.InputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.AccessFlag;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.EnumSet;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -53,7 +42,10 @@ import static jdk.internal.module.Checks.*;
 import static java.util.Objects.*;
 
 import jdk.internal.module.Checks;
+import jdk.internal.module.ModuleDirectiveAnnotation;
 import jdk.internal.module.ModuleInfo;
+import jdk.internal.reflect.CallerSensitive;
+import jdk.internal.reflect.Reflection;
 
 
 /**
@@ -135,13 +127,55 @@ public class ModuleDescriptor
     }
 
     /**
+     * <p> A directive in a module. </p>
+     *
+     * @since 24
+     */
+    public static sealed abstract class Directive {
+        private final List<? extends ModuleDirectiveAnnotation> annotationsDescriptors;
+        private List<? extends Annotation> annotations;
+
+        Directive() {
+            this(null);
+        }
+
+        Directive(List<? extends ModuleDirectiveAnnotation> annotationsDescriptors) {
+            this.annotationsDescriptors = annotationsDescriptors == null ? List.of() : List.copyOf(annotationsDescriptors);
+        }
+
+        /**
+         * Returns a list of annotations attached to this directive, if any were present at compile time.
+         *
+         * @return A possibly-empty unmodifiable list of annotations
+         * @since 24
+         */
+        @CallerSensitive
+        public List<? extends java.lang.annotation.Annotation> annotations() {
+            if(annotations != null) {
+                return annotations;
+            }
+
+            synchronized (this) {
+                if(annotations != null) {
+                    return annotations;
+                }
+
+                Class<?> caller = Reflection.getCallerClass();
+                return annotations = annotationsDescriptors.stream()
+                        .map(descriptor -> descriptor.toAnnotation(caller))
+                        .toList();
+            }
+        }
+    }
+
+    /**
      * <p> A dependence upon a module. </p>
      *
      * @see ModuleDescriptor#requires()
      * @since 9
      */
 
-    public static final class Requires
+    public static final class Requires extends Directive
         implements Comparable<Requires>
     {
 
@@ -187,6 +221,15 @@ public class ModuleDescriptor
         private final String name;
         private final Version compiledVersion;
         private final String rawCompiledVersion;
+
+        private Requires(Set<Modifier> ms, String mn, Version v, String vs, List<? extends ModuleDirectiveAnnotation> annotations) {
+            super(annotations);
+            assert v == null || vs == null;
+            this.mods = Set.copyOf(ms);
+            this.name = mn;
+            this.compiledVersion = v;
+            this.rawCompiledVersion = vs;
+        }
 
         private Requires(Set<Modifier> ms, String mn, Version v, String vs) {
             assert v == null || vs == null;
@@ -386,7 +429,7 @@ public class ModuleDescriptor
      * @since 9
      */
 
-    public static final class Exports
+    public static final class Exports extends Directive
         implements Comparable<Exports>
     {
 
@@ -424,6 +467,13 @@ public class ModuleDescriptor
         /**
          * Constructs an export
          */
+        private Exports(Set<Modifier> ms, String source, Set<String> targets, List<? extends ModuleDirectiveAnnotation> annotations) {
+            super(annotations);
+            this.mods = Set.copyOf(ms);
+            this.source = source;
+            this.targets = Set.copyOf(targets);
+        }
+
         private Exports(Set<Modifier> ms, String source, Set<String> targets) {
             this.mods = Set.copyOf(ms);
             this.source = source;
@@ -612,7 +662,7 @@ public class ModuleDescriptor
      * @since 9
      */
 
-    public static final class Opens
+    public static final class Opens extends Directive
         implements Comparable<Opens>
     {
         /**
@@ -648,6 +698,13 @@ public class ModuleDescriptor
         /**
          * Constructs an {@code Opens}.
          */
+        private Opens(Set<Modifier> ms, String source, Set<String> targets, List<? extends ModuleDirectiveAnnotation> annotations) {
+            super(annotations);
+            this.mods = Set.copyOf(ms);
+            this.source = source;
+            this.targets = Set.copyOf(targets);
+        }
+
         private Opens(Set<Modifier> ms, String source, Set<String> targets) {
             this.mods = Set.copyOf(ms);
             this.source = source;
@@ -822,6 +879,111 @@ public class ModuleDescriptor
         }
     }
 
+    /**
+     * <p> A service used by a module. </p>
+     *
+     * <p> A <em>uses</em> module directive specifies a service used by this
+     * module-making the module a service consumer. A service is an object of a
+     * class that implements the interface or extends the abstract class specified
+     * in the uses directive. </p>
+     *
+     * @see ModuleDescriptor#uses()
+     * @since 24
+     */
+
+    public static final class Uses extends Directive
+            implements Comparable<Uses>
+    {
+        private final String serviceName;
+
+        /**
+         * Constructs an {@code Uses}.
+         */
+        private Uses(String serviceName) {
+            this.serviceName = serviceName;
+        }
+
+        private Uses(String serviceName, List<? extends ModuleDirectiveAnnotation> annotations) {
+            super(annotations);
+            this.serviceName = serviceName;
+        }
+
+        /**
+         * Returns the used service name.
+         *
+         * @return A string describing the used service name.
+         */
+        public String serviceName() {
+            return serviceName;
+        }
+
+        /**
+         * Compares this module {@code Uses} to another.
+         *
+         * <p> Two {@code Uses} objects are compared by comparing the service
+         * names lexicographically. </p>
+         *
+         * @param  that
+         *         The module {@code Uses} to compare
+         *
+         * @return A negative integer, zero, or a positive integer if this module
+         *         {@code Uses} is less than, equal to, or greater than the given
+         *         module {@code Uses}
+         */
+        @Override
+        public int compareTo(Uses that) {
+            if (this == that) return 0;
+
+            return serviceName.compareTo(that.serviceName);
+        }
+
+        /**
+         * Computes a hash code for this module {@code Uses}.
+         *
+         * <p> The hash code is based upon the service name.
+         * It satisfies the general contract of the
+         * {@link Object#hashCode Object.hashCode} method.
+         *
+         * @return The hash-code value for this module {@code Uses}
+         */
+        @Override
+        public int hashCode() {
+            return serviceName.hashCode();
+        }
+
+        /**
+         * Tests this module {@code Uses} for equality with the given object.
+         *
+         * <p> If the given object is not an {@code Uses} then this method
+         * returns {@code false}. Two {@code Uses} objects are equal if their
+         * service name is equal. </p>
+         *
+         * <p> This method satisfies the general contract of the {@link
+         * java.lang.Object#equals(Object) Object.equals} method. </p>
+         *
+         * @param   ob
+         *          the object to which this object is to be compared
+         *
+         * @return  {@code true} if, and only if, the given object is a used service
+         *          that is equal to this used service
+         */
+        @Override
+        public boolean equals(Object ob) {
+            return (ob instanceof Uses other)
+                    && Objects.equals(this.serviceName, other.serviceName);
+        }
+
+        /**
+         * Returns a string describing the used service.
+         *
+         * @return A string describing the used service
+         */
+        @Override
+        public String toString() {
+            return "uses " + serviceName;
+        }
+    }
+
 
     /**
      * <p> A service that a module provides one or more implementations of. </p>
@@ -830,11 +992,17 @@ public class ModuleDescriptor
      * @since 9
      */
 
-    public static final class Provides
+    public static final class Provides extends Directive
         implements Comparable<Provides>
     {
         private final String service;
         private final List<String> providers;
+
+        private Provides(String service, List<String> providers, List<? extends ModuleDirectiveAnnotation> annotations) {
+            super(annotations);
+            this.service = service;
+            this.providers = List.copyOf(providers);
+        }
 
         private Provides(String service, List<String> providers) {
             this.service = service;
@@ -1262,7 +1430,6 @@ public class ModuleDescriptor
 
     }
 
-
     private final String name;
     private final Version version;
     private final String rawVersionString;
@@ -1272,7 +1439,7 @@ public class ModuleDescriptor
     private final Set<Requires> requires;
     private final Set<Exports> exports;
     private final Set<Opens> opens;
-    private final Set<String> uses;
+    private final Set<Uses> uses;
     private final Set<Provides> provides;
     private final Set<String> packages;
     private final String mainClass;
@@ -1284,7 +1451,7 @@ public class ModuleDescriptor
                              Set<Requires> requires,
                              Set<Exports> exports,
                              Set<Opens> opens,
-                             Set<String> uses,
+                             Set<Uses> uses,
                              Set<Provides> provides,
                              Set<String> packages,
                              String mainClass)
@@ -1318,7 +1485,7 @@ public class ModuleDescriptor
                      Set<Requires> requires,
                      Set<Exports> exports,
                      Set<Opens> opens,
-                     Set<String> uses,
+                     Set<Uses> uses,
                      Set<Provides> provides,
                      Set<String> packages,
                      String mainClass,
@@ -1449,6 +1616,20 @@ public class ModuleDescriptor
      *          binary names} of the service types used
      */
     public Set<String> uses() {
+        return uses.stream()
+                .map(Uses::serviceName)
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /**
+     * <p> Returns the set of the services used by this module. </p>
+     *
+     * <p> If this module is an automatic module then the set of services used is empty. </p>
+     *
+     * @return  A possibly-empty unmodifiable set of services used by this module.
+     * @since 24
+     */
+    public Set<Uses> used() {
         return uses;
     }
 
@@ -1577,7 +1758,7 @@ public class ModuleDescriptor
         final Map<String, Requires> requires = new HashMap<>();
         final Map<String, Exports> exports = new HashMap<>();
         final Map<String, Opens> opens = new HashMap<>();
-        final Set<String> uses = new HashSet<>();
+        final Map<String, Uses> uses = new HashMap<>();
         final Map<String, Provides> provides = new HashMap<>();
         Version version;
         String rawVersionString;
@@ -1661,22 +1842,52 @@ public class ModuleDescriptor
         public Builder requires(Set<Requires.Modifier> ms,
                                 String mn,
                                 Version compiledVersion) {
+            return requires(ms, mn, compiledVersion, List.of());
+        }
+
+        /**
+         * Adds a dependence on a module with the given (and possibly empty)
+         * set of modifiers. The dependence includes the version of the
+         * module that was recorded at compile-time.
+         *
+         * @param  ms
+         *         The set of modifiers
+         * @param  mn
+         *         The module name
+         * @param  compiledVersion
+         *         The version of the module recorded at compile-time
+         * @param annotations
+         *         The annotations of the directive recorded at compile-time
+         *
+         * @return This builder
+         *
+         * @throws IllegalArgumentException
+         *         If the module name is {@code null}, is not a legal module
+         *         name, or is equal to the module name that this builder
+         *         was initialized to build
+         * @throws IllegalStateException
+         *         If the dependence on the module has already been declared
+         *         or this builder is for an automatic module
+         */
+        public Builder requires(Set<Requires.Modifier> ms,
+                                String mn,
+                                Version compiledVersion, List<? extends Annotation> annotations) {
             Objects.requireNonNull(compiledVersion);
             if (strict)
                 mn = requireModuleName(mn);
-            return requires(new Requires(ms, mn, compiledVersion, null));
+            return requires(new Requires(ms, mn, compiledVersion, null, ModuleDirectiveAnnotation.of(annotations)));
         }
 
         /* package */Builder requires(Set<Requires.Modifier> ms,
                                       String mn,
-                                      String rawCompiledVersion) {
+                                      String rawCompiledVersion, List<? extends ModuleDirectiveAnnotation> annotations) {
             Requires r;
             try {
                 Version v = Version.parse(rawCompiledVersion);
-                r = new Requires(ms, mn, v, null);
+                r = new Requires(ms, mn, v, null, annotations);
             } catch (IllegalArgumentException e) {
                 if (strict) throw e;
-                r = new Requires(ms, mn, null, rawCompiledVersion);
+                r = new Requires(ms, mn, null, rawCompiledVersion, annotations);
             }
             return requires(r);
         }
@@ -1701,9 +1912,34 @@ public class ModuleDescriptor
          *         or this builder is for an automatic module
          */
         public Builder requires(Set<Requires.Modifier> ms, String mn) {
+            return requires(ms, mn, List.of());
+        }
+
+        /**
+         * Adds a dependence on a module with the given (and possibly empty)
+         * set of modifiers.
+         *
+         * @param  ms
+         *         The set of modifiers
+         * @param  mn
+         *         The module name
+         * @param annotations
+         *         The annotations of the directive recorded at compile-time
+         *
+         * @return This builder
+         *
+         * @throws IllegalArgumentException
+         *         If the module name is {@code null}, is not a legal module
+         *         name, or is equal to the module name that this builder
+         *         was initialized to build
+         * @throws IllegalStateException
+         *         If the dependence on the module has already been declared
+         *         or this builder is for an automatic module
+         */
+        public Builder requires(Set<Requires.Modifier> ms, String mn, List<? extends Annotation> annotations) {
             if (strict)
                 mn = requireModuleName(mn);
-            return requires(new Requires(ms, mn, null, null));
+            return requires(new Requires(ms, mn, null, null, ModuleDirectiveAnnotation.of(annotations)));
         }
 
         /**
@@ -1779,6 +2015,37 @@ public class ModuleDescriptor
                                String pn,
                                Set<String> targets)
         {
+            return exports(ms, pn, targets, List.of());
+        }
+
+        /**
+         * Adds an exported package with the given (and possibly empty) set of
+         * modifiers. The package is exported to a set of target modules.
+         *
+         * @param  ms
+         *         The set of modifiers
+         * @param  pn
+         *         The package name
+         * @param  targets
+         *         The set of target modules names
+         * @param annotations
+         *         The annotations of the directive recorded at compile-time
+         *
+         * @return This builder
+         *
+         * @throws IllegalArgumentException
+         *         If the package name is {@code null} or is not a legal
+         *         package name, the set of target modules is empty, or the set
+         *         of target modules contains a name that is not a legal module
+         *         name
+         * @throws IllegalStateException
+         *         If the package is already declared as exported
+         *         or this builder is for an automatic module
+         */
+        public Builder exports(Set<Exports.Modifier> ms,
+                               String pn,
+                               Set<String> targets, List<? extends Annotation> annotations)
+        {
             targets = new HashSet<>(targets);
             if (targets.isEmpty())
                 throw new IllegalArgumentException("Empty target set");
@@ -1786,7 +2053,7 @@ public class ModuleDescriptor
                 requirePackageName(pn);
                 targets.forEach(Checks::requireModuleName);
             }
-            Exports e = new Exports(ms, pn, targets);
+            Exports e = new Exports(ms, pn, targets, ModuleDirectiveAnnotation.of(annotations));
             return exports(e);
         }
 
@@ -1809,10 +2076,34 @@ public class ModuleDescriptor
          *         or this builder is for an automatic module
          */
         public Builder exports(Set<Exports.Modifier> ms, String pn) {
+            return exports(ms, pn, List.of());
+        }
+
+        /**
+         * Adds an exported package with the given (and possibly empty) set of
+         * modifiers. The package is exported to all modules.
+         *
+         * @param  ms
+         *         The set of modifiers
+         * @param  pn
+         *         The package name
+         * @param annotations
+         *         The annotations of the directive recorded at compile-time
+         *
+         * @return This builder
+         *
+         * @throws IllegalArgumentException
+         *         If the package name is {@code null} or is not a legal
+         *         package name
+         * @throws IllegalStateException
+         *         If the package is already declared as exported
+         *         or this builder is for an automatic module
+         */
+        public Builder exports(Set<Exports.Modifier> ms, String pn, List<? extends Annotation> annotations) {
             if (strict) {
                 requirePackageName(pn);
             }
-            Exports e = new Exports(ms, pn, Set.of());
+            Exports e = new Exports(ms, pn, Set.of(), ModuleDirectiveAnnotation.of(annotations));
             return exports(e);
         }
 
@@ -1841,6 +2132,32 @@ public class ModuleDescriptor
         }
 
         /**
+         * Adds an exported package. The package is exported to a set of target
+         * modules.
+         *
+         * @param  pn
+         *         The package name
+         * @param  targets
+         *         The set of target modules names
+         * @param annotations
+         *         The annotations of the directive recorded at compile-time
+         *
+         * @return This builder
+         *
+         * @throws IllegalArgumentException
+         *         If the package name is {@code null} or is not a legal
+         *         package name, the set of target modules is empty, or the set
+         *         of target modules contains a name that is not a legal module
+         *         name
+         * @throws IllegalStateException
+         *         If the package is already declared as exported
+         *         or this builder is for an automatic module
+         */
+        public Builder exports(String pn, Set<String> targets, List<? extends Annotation> annotations) {
+            return exports(Set.of(), pn, targets, annotations);
+        }
+
+        /**
          * Adds an exported package. The package is exported to all modules.
          *
          * @param  pn
@@ -1857,6 +2174,27 @@ public class ModuleDescriptor
          */
         public Builder exports(String pn) {
             return exports(Set.of(), pn);
+        }
+
+        /**
+         * Adds an exported package. The package is exported to all modules.
+         *
+         * @param  pn
+         *         The package name
+         * @param annotations
+         *         The annotations of the directive recorded at compile-time
+         *
+         * @return This builder
+         *
+         * @throws IllegalArgumentException
+         *         If the package name is {@code null} or is not a legal
+         *         package name
+         * @throws IllegalStateException
+         *         If the package is already declared as exported
+         *         or this builder is for an automatic module
+         */
+        public Builder exports(String pn, List<? extends Annotation> annotations) {
+            return exports(Set.of(), pn, annotations);
         }
 
         /**
@@ -1886,7 +2224,6 @@ public class ModuleDescriptor
             return this;
         }
 
-
         /**
          * Adds an open package with the given (and possibly empty) set of
          * modifiers. The package is open to a set of target modules.
@@ -1913,6 +2250,37 @@ public class ModuleDescriptor
                              String pn,
                              Set<String> targets)
         {
+            return opens(ms, pn, targets, List.of());
+        }
+
+        /**
+         * Adds an open package with the given (and possibly empty) set of
+         * modifiers. The package is open to a set of target modules.
+         *
+         * @param  ms
+         *         The set of modifiers
+         * @param  pn
+         *         The package name
+         * @param  targets
+         *         The set of target modules names
+         * @param annotations
+         *         The annotations of the directive recorded at compile-time
+         *
+         * @return This builder
+         *
+         * @throws IllegalArgumentException
+         *         If the package name is {@code null} or is not a legal
+         *         package name, the set of target modules is empty, or the set
+         *         of target modules contains a name that is not a legal module
+         *         name
+         * @throws IllegalStateException
+         *         If the package is already declared as open, or this is a
+         *         builder for an open module or automatic module
+         */
+        public Builder opens(Set<Opens.Modifier> ms,
+                             String pn,
+                             Set<String> targets, List<? extends Annotation> annotations)
+        {
             targets = new HashSet<>(targets);
             if (targets.isEmpty())
                 throw new IllegalArgumentException("Empty target set");
@@ -1920,7 +2288,7 @@ public class ModuleDescriptor
                 requirePackageName(pn);
                 targets.forEach(Checks::requireModuleName);
             }
-            Opens opens = new Opens(ms, pn, targets);
+            Opens opens = new Opens(ms, pn, targets, ModuleDirectiveAnnotation.of(annotations));
             return opens(opens);
         }
 
@@ -1943,10 +2311,34 @@ public class ModuleDescriptor
          *         builder for an open module or automatic module
          */
         public Builder opens(Set<Opens.Modifier> ms, String pn) {
+            return opens(ms, pn, List.of());
+        }
+
+        /**
+         * Adds an open package with the given (and possibly empty) set of
+         * modifiers. The package is open to all modules.
+         *
+         * @param  ms
+         *         The set of modifiers
+         * @param  pn
+         *         The package name
+         * @param annotations
+         *         The annotations of the directive recorded at compile-time
+         *
+         * @return This builder
+         *
+         * @throws IllegalArgumentException
+         *         If the package name is {@code null} or is not a legal
+         *         package name
+         * @throws IllegalStateException
+         *         If the package is already declared as open, or this is a
+         *         builder for an open module or automatic module
+         */
+        public Builder opens(Set<Opens.Modifier> ms, String pn, List<? extends Annotation> annotations) {
             if (strict) {
                 requirePackageName(pn);
             }
-            Opens e = new Opens(ms, pn, Set.of());
+            Opens e = new Opens(ms, pn, Set.of(), ModuleDirectiveAnnotation.of(annotations));
             return opens(e);
         }
 
@@ -1970,6 +2362,31 @@ public class ModuleDescriptor
          *         builder for an open module or automatic module
          */
         public Builder opens(String pn, Set<String> targets) {
+            return opens(pn, targets, List.of());
+        }
+
+        /**
+         * Adds an open package. The package is open to a set of target modules.
+         *
+         * @param  pn
+         *         The package name
+         * @param  targets
+         *         The set of target modules names
+         * @param annotations
+         *         The annotations of the directive recorded at compile-time
+         *
+         * @return This builder
+         *
+         * @throws IllegalArgumentException
+         *         If the package name is {@code null} or is not a legal
+         *         package name, the set of target modules is empty, or the set
+         *         of target modules contains a name that is not a legal module
+         *         name
+         * @throws IllegalStateException
+         *         If the package is already declared as open, or this is a
+         *         builder for an open module or automatic module
+         */
+        public Builder opens(String pn, Set<String> targets, List<? extends Annotation> annotations) {
             return opens(Set.of(), pn, targets);
         }
 
@@ -1993,6 +2410,27 @@ public class ModuleDescriptor
         }
 
         /**
+         * Adds an open package. The package is open to all modules.
+         *
+         * @param  pn
+         *         The package name
+         * @param annotations
+         *         The annotations of the directive recorded at compile-time
+         *
+         * @return This builder
+         *
+         * @throws IllegalArgumentException
+         *         If the package name is {@code null} or is not a legal
+         *         package name
+         * @throws IllegalStateException
+         *         If the package is already declared as open, or this is a
+         *         builder for an open module or automatic module
+         */
+        public Builder opens(String pn, List<? extends Annotation> annotations) {
+            return opens(Set.of(), pn, annotations);
+        }
+
+        /**
          * Adds a service dependence.
          *
          * @param  service
@@ -2008,13 +2446,55 @@ public class ModuleDescriptor
          *         or this is a builder for an automatic module
          */
         public Builder uses(String service) {
+            return uses(service, List.of());
+        }
+
+        /**
+         * Adds a service dependence.
+         *
+         * @param  service
+         *         The service type
+         * @param annotations
+         *         The annotations of the directive recorded at compile-time
+         *
+         * @return This builder
+         *
+         * @throws IllegalArgumentException
+         *         If the service type is {@code null} or not a qualified name of
+         *         a class in a named package
+         * @throws IllegalStateException
+         *         If a dependency on the service type has already been declared
+         *         or this is a builder for an automatic module
+         */
+        public Builder uses(String service, List<? extends Annotation> annotations) {
+            return uses(new Uses(service, ModuleDirectiveAnnotation.of(annotations)));
+        }
+
+
+        /**
+         * Adds a service dependence.
+         *
+         * @param  uses
+         *         The service type
+         *
+         * @return This builder
+         *
+         * @throws IllegalArgumentException
+         *         If the service type is {@code null} or not a qualified name of
+         *         a class in a named package
+         * @throws IllegalStateException
+         *         If a dependency on the service type has already been declared
+         *         or this is a builder for an automatic module
+         */
+        public Builder uses(Uses uses) {
             if (automatic)
                 throw new IllegalStateException("Automatic modules can not declare"
-                                                + " service dependences");
-            if (uses.contains(requireServiceTypeName(service)))
+                        + " service dependences");
+            String serviceName = requireServiceTypeName(uses.serviceName());
+            if (this.uses.containsKey(serviceName))
                 throw new IllegalStateException("Dependence upon service "
-                                                + service + " already declared");
-            uses.add(service);
+                        + uses.serviceName() + " already declared");
+            this.uses.put(serviceName, uses);
             return this;
         }
 
@@ -2062,6 +2542,31 @@ public class ModuleDescriptor
          *         declared
          */
         public Builder provides(String service, List<String> providers) {
+            return provides(service, providers, List.of());
+        }
+
+        /**
+         * Provides implementations of a service. The package for each provider
+         * (or provider factory) is added to the module if not already added.
+         *
+         * @param  service
+         *         The service type
+         * @param  providers
+         *         The list of provider or provider factory class names
+         * @param annotations
+         *         The annotations of the directive recorded at compile-time
+         *
+         * @return This builder
+         *
+         * @throws IllegalArgumentException
+         *         If the service type or any of the provider class names is
+         *         {@code null} or not a qualified name of a class in a named
+         *         package, or the list of provider class names is empty
+         * @throws IllegalStateException
+         *         If the providers for the service type have already been
+         *         declared
+         */
+        public Builder provides(String service, List<String> providers, List<? extends Annotation> annotations) {
             providers = new ArrayList<>(providers);
             if (providers.isEmpty())
                 throw new IllegalArgumentException("Empty providers set");
@@ -2083,7 +2588,7 @@ public class ModuleDescriptor
                     }
                 }
             }
-            Provides p = new Provides(service, providers);
+            Provides p = new Provides(service, providers, ModuleDirectiveAnnotation.of(annotations));
             return provides(p);
         }
 
@@ -2209,6 +2714,7 @@ public class ModuleDescriptor
                                           null));
             }
 
+            Set<Uses> uses = new HashSet<>(this.uses.values());
             Set<Provides> provides = new HashSet<>(this.provides.values());
 
             return new ModuleDescriptor(name,
@@ -2688,14 +3194,6 @@ public class ModuleDescriptor
                 }
 
                 @Override
-                public void requires(ModuleDescriptor.Builder builder,
-                                     Set<Requires.Modifier> ms,
-                                     String mn,
-                                     String rawCompiledVersion) {
-                    builder.requires(ms, mn, rawCompiledVersion);
-                }
-
-                @Override
                 public Requires newRequires(Set<Requires.Modifier> ms, String mn, Version v) {
                     return new Requires(ms, mn, v, true);
                 }
@@ -2720,8 +3218,23 @@ public class ModuleDescriptor
                 }
 
                 @Override
+                public Uses newUses(String serviceName) {
+                    return new Uses(serviceName, List.of());
+                }
+
+                @Override
                 public Opens newOpens(Set<Opens.Modifier> ms, String source) {
                     return new Opens(ms, source, Set.of(), true);
+                }
+
+                @Override
+                public Uses newUses(String serviceName, List<ModuleDirectiveAnnotation> annotations) {
+                    return new Uses(serviceName);
+                }
+
+                @Override
+                public Provides newProvides(String s, List<String> providers, List<ModuleDirectiveAnnotation> annotations) {
+                    return new Provides(s, providers, annotations);
                 }
 
                 @Override
@@ -2736,7 +3249,7 @@ public class ModuleDescriptor
                                                             Set<Requires> requires,
                                                             Set<Exports> exports,
                                                             Set<Opens> opens,
-                                                            Set<String> uses,
+                                                            Set<Uses> uses,
                                                             Set<Provides> provides,
                                                             Set<String> packages,
                                                             String mainClass,
@@ -2767,6 +3280,21 @@ public class ModuleDescriptor
                 public Configuration newConfiguration(ModuleFinder finder,
                                                       Map<String, Set<String>> graph) {
                     return new Configuration(finder, graph);
+                }
+
+                @Override
+                public void requires(Builder builder, Set<Requires.Modifier> modifiers, String s, String s1, List<? extends ModuleDirectiveAnnotation> annotations) {
+                    builder.requires(modifiers, s, s1, annotations);
+                }
+
+                @Override
+                public Exports newExports(Set<Exports.Modifier> modifiers, String s, Set<String> targets, List<ModuleDirectiveAnnotation> annotations) {
+                    return new Exports(modifiers, s, targets, annotations);
+                }
+
+                @Override
+                public Opens newOpens(Set<Opens.Modifier> modifiers, String s, Set<String> targets, List<ModuleDirectiveAnnotation> annotations) {
+                    return new Opens(modifiers, s, targets, annotations);
                 }
             });
     }

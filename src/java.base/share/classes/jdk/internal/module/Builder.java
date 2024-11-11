@@ -29,9 +29,11 @@ import java.lang.module.ModuleDescriptor.Exports;
 import java.lang.module.ModuleDescriptor.Opens;
 import java.lang.module.ModuleDescriptor.Provides;
 import java.lang.module.ModuleDescriptor.Requires;
+import java.lang.module.ModuleDescriptor.Uses;
 import java.lang.module.ModuleDescriptor.Version;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import jdk.internal.access.JavaLangModuleAccess;
 import jdk.internal.access.SharedSecrets;
@@ -126,6 +128,14 @@ final class Builder {
         return JLMA.newExports(ms, pn);
     }
 
+
+    /**
+     * Returns a qualified {@link Uses } of the given service.
+     */
+    public static Uses newUses(String serviceName) {
+        return JLMA.newUses(serviceName);
+    }
+
     /**
      * Returns a {@link Provides} for a service with a given list of
      * implementation classes.
@@ -140,7 +150,7 @@ final class Builder {
     Set<Exports> exports;
     Set<Opens> opens;
     Set<String> packages;
-    Set<String> uses;
+    Set<Uses> uses;
     Set<Provides> provides;
     Version version;
     String mainClass;
@@ -205,7 +215,17 @@ final class Builder {
      * Sets the set of service dependences.
      */
     public Builder uses(Set<String> uses) {
-        this.uses = uses;
+        this.uses = uses.stream()
+                .map(JLMA::newUses)
+                .collect(Collectors.toUnmodifiableSet());
+        return this;
+    }
+
+    /**
+     * Sets the set of service dependences.
+     */
+    public Builder uses(Uses[] uses) {
+        this.uses = Set.of(uses);
         return this;
     }
 

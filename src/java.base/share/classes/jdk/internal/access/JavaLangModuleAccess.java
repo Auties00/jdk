@@ -28,16 +28,10 @@ package jdk.internal.access;
 import java.io.PrintStream;
 import java.lang.module.Configuration;
 import java.lang.module.ModuleDescriptor;
-import java.lang.module.ModuleDescriptor.Exports;
-import java.lang.module.ModuleDescriptor.Opens;
-import java.lang.module.ModuleDescriptor.Requires;
-import java.lang.module.ModuleDescriptor.Provides;
-import java.lang.module.ModuleDescriptor.Version;
+import java.lang.module.ModuleDescriptor.*;
+import jdk.internal.module.ModuleDirectiveAnnotation;
 import java.lang.module.ModuleFinder;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Provides access to non-public methods in java.lang.module.
@@ -67,7 +61,8 @@ public interface JavaLangModuleAccess {
     void requires(ModuleDescriptor.Builder builder,
                   Set<Requires.Modifier> ms,
                   String mn,
-                  String rawCompiledVersion);
+                  String rawCompiledVersion,
+                  List<? extends ModuleDirectiveAnnotation> annotations);
 
     /**
      * Returns a {@code ModuleDescriptor.Requires} of the given modifiers
@@ -103,6 +98,11 @@ public interface JavaLangModuleAccess {
     Opens newOpens(Set<Opens.Modifier> ms, String source, Set<String> targets);
 
     /**
+     * Returns a qualified {@code ModuleDescriptor.Uses } of the given service.
+     */
+    Uses newUses(String serviceName);
+
+    /**
      * Returns a {@code ModuleDescriptor.Provides}
      * of the given service name and providers.
      */
@@ -117,7 +117,7 @@ public interface JavaLangModuleAccess {
                                          Set<Requires> requires,
                                          Set<Exports> exports,
                                          Set<Opens> opens,
-                                         Set<String> uses,
+                                         Set<Uses> uses,
                                          Set<Provides> provides,
                                          Set<String> packages,
                                          String mainClass,
@@ -137,4 +137,11 @@ public interface JavaLangModuleAccess {
     Configuration newConfiguration(ModuleFinder finder,
                                    Map<String, Set<String>> graph);
 
+    Exports newExports(Set<Exports.Modifier> modifiers, String s, Set<String> targets, List<ModuleDirectiveAnnotation> annotations);
+
+    Opens newOpens(Set<Opens.Modifier> modifiers, String s, Set<String> targets, List<ModuleDirectiveAnnotation> annotations);
+
+    Uses newUses(String serviceName, List<ModuleDirectiveAnnotation> annotations);
+
+    Provides newProvides(String s, List<String> providers, List<ModuleDirectiveAnnotation> annotations);
 }
