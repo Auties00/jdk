@@ -2741,6 +2741,10 @@ public class CreateSymbols {
                 mhd.moduleMainClass = moduleMainClass.getMainClassName(cf.constant_pool);
                 break;
             }
+            case Attribute.ModuleDirectivesRuntimeInvisibleAnnotations:
+            case Attribute.ModuleDirectivesRuntimeVisibleAnnotations: {
+                break;
+            }
             default:
                 throw new IllegalStateException("Unhandled attribute: " +
                                                 attrName);
