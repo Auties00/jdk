@@ -26,6 +26,7 @@
 package javax.lang.model.element;
 
 import java.util.List;
+import javax.lang.model.AnnotatedConstruct;
 import javax.lang.model.type.TypeMirror;
 
 /**
@@ -168,7 +169,7 @@ public interface ModuleElement extends Element, QualifiedNameable {
      *
      * @since 9
      */
-    interface Directive {
+    interface Directive extends AnnotatedConstruct {
         /**
          * {@return the {@code kind} of this directive}
          * <ul>

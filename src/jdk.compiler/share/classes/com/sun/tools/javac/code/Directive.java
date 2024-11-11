@@ -25,10 +25,12 @@
 
 package com.sun.tools.javac.code;
 
+import java.lang.annotation.Annotation;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Set;
 
+import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.ElementVisitor;
 import javax.lang.model.element.ModuleElement;
 import javax.lang.model.element.ModuleElement.DirectiveVisitor;
@@ -55,6 +57,21 @@ public abstract class Directive implements ModuleElement.Directive {
     public final DirectiveSymbol symbol;
     public Directive(DirectiveSymbol symbol) {
         this.symbol = symbol;
+    }
+
+    @Override
+    public java.util.List<? extends AnnotationMirror> getAnnotationMirrors() {
+        return symbol.getAnnotationMirrors();
+    }
+
+    @Override
+    public <A extends Annotation> A getAnnotation(Class<A> annotationType) {
+        return symbol.getAnnotation(annotationType);
+    }
+
+    @Override
+    public <A extends Annotation> A[] getAnnotationsByType(Class<A> annotationType) {
+        return symbol.getAnnotationsByType(annotationType);
     }
 
     /** Flags for RequiresDirective. */
