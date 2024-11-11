@@ -850,17 +850,14 @@ public class ClassWriter extends ClassFile {
     }
 
     private <D extends Directive> void writeModuleDirectiveAnnotations(List<D> directives, Predicate<D> filter, RetentionPolicy targetRetentionPolicy) {
-        System.err.println(directives);
         Map<Integer, List<? extends Attribute.Compound>> filteredDirectives = new LinkedHashMap<>();
         for (int directiveIndex = 0; directiveIndex < directives.size(); directiveIndex++) {
             D directive = directives.get(directiveIndex);
-            System.err.println(directive);
             if (filter.test(directive)) {
                 List<? extends Attribute.Compound> compounds = directive.symbol.getAnnotationMirrors()
                         .stream()
                         .filter(entry -> types.getRetention(entry) == targetRetentionPolicy)
                         .collect(List.collector());
-                System.err.println(compounds.size() + " -> " + compounds);
                 if(!compounds.isEmpty()) {
                     filteredDirectives.put(directiveIndex, compounds);
                 }
