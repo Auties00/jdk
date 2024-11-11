@@ -75,6 +75,8 @@ public abstract class Attribute {
     public static final String StackMap                 = "StackMap";
     public static final String StackMapTable            = "StackMapTable";
     public static final String Synthetic                = "Synthetic";
+    public static final String ModuleDirectivesRuntimeInvisibleAnnotations = "ModuleDirectivesRuntimeInvisibleAnnotations";
+    public static final String ModuleDirectivesRuntimeVisibleAnnotations = "ModuleDirectivesRuntimeVisibleAnnotations";
 
     public static class Factory {
         public Factory() {

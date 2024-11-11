@@ -148,6 +148,8 @@ public class Names {
     public final Name LocalVariableTypeTable;
     public final Name MethodParameters;
     public final Name Module;
+    public final Name ModuleDirectivesRuntimeInvisibleAnnotations;
+    public final Name ModuleDirectivesRuntimeVisibleAnnotations;
     public final Name ModuleResolution;
     public final Name NestHost;
     public final Name NestMembers;
@@ -181,6 +183,11 @@ public class Names {
     public final Name TYPE_PARAMETER;
     public final Name TYPE_USE;
     public final Name RECORD_COMPONENT;
+    public final Name EXPORTS;
+    public final Name OPENS;
+    public final Name PROVIDES;
+    public final Name REQUIRES;
+    public final Name USES;
 
     // members of java.lang.annotation.RetentionPolicy
     public final Name CLASS;
@@ -336,6 +343,8 @@ public class Names {
         LocalVariableTypeTable = fromString("LocalVariableTypeTable");
         MethodParameters = fromString("MethodParameters");
         Module = fromString("Module");
+        ModuleDirectivesRuntimeInvisibleAnnotations = fromString("ModuleDirectivesRuntimeInvisibleAnnotations");
+        ModuleDirectivesRuntimeVisibleAnnotations = fromString("ModuleDirectivesRuntimeVisibleAnnotations");
         ModuleResolution = fromString("ModuleResolution");
         NestHost = fromString("NestHost");
         NestMembers = fromString("NestMembers");
@@ -369,6 +378,11 @@ public class Names {
         TYPE_PARAMETER = fromString("TYPE_PARAMETER");
         TYPE_USE = fromString("TYPE_USE");
         RECORD_COMPONENT = fromString("RECORD_COMPONENT");
+        EXPORTS = fromString("EXPORTS");
+        OPENS = fromString("OPENS");
+        PROVIDES = fromString("PROVIDES");
+        REQUIRES = fromString("REQUIRES");
+        USES = fromString("USES");
 
         // members of java.lang.annotation.RetentionPolicy
         CLASS = fromString("CLASS");
