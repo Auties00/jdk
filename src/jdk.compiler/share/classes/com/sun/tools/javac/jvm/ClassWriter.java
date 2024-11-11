@@ -28,6 +28,7 @@ package com.sun.tools.javac.jvm;
 import java.io.*;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Predicate;
 import java.util.Set;
 import java.util.LinkedHashSet;
 import java.util.function.ToIntFunction;
@@ -829,6 +830,51 @@ public class ClassWriter extends ClassFile {
 
         endAttr(alenIdx);
         return 1;
+    }
+
+    int writeModuleDirectivesAnnotations(ClassSymbol c, boolean visible) {
+        if(target.majorVersion < Version.V68.major) {
+            return 0;
+        }
+
+        ModuleSymbol moduleSymbol = (ModuleSymbol) c.owner;
+        int attributeIndex = writeAttr(visible ? names.ModuleDirectivesRuntimeVisibleAnnotations : names.ModuleDirectivesRuntimeInvisibleAnnotations);
+        RetentionPolicy targetRetentionPolicy = visible ? RetentionPolicy.RUNTIME : RetentionPolicy.CLASS;
+        writeModuleDirectiveAnnotations(moduleSymbol.requires, export -> !export.flags.contains(RequiresFlag.EXTRA), targetRetentionPolicy);
+        writeModuleDirectiveAnnotations(moduleSymbol.exports, _ -> true, targetRetentionPolicy);
+        writeModuleDirectiveAnnotations(moduleSymbol.opens, _ -> true, targetRetentionPolicy);
+        writeModuleDirectiveAnnotations(moduleSymbol.uses, _ -> true, targetRetentionPolicy);
+        writeModuleDirectiveAnnotations(moduleSymbol.provides, _ -> true, targetRetentionPolicy);
+        endAttr(attributeIndex);
+        return 1;
+    }
+
+    private <D extends Directive> void writeModuleDirectiveAnnotations(List<D> directives, Predicate<D> filter, RetentionPolicy targetRetentionPolicy) {
+        System.err.println(directives);
+        Map<Integer, List<? extends Attribute.Compound>> filteredDirectives = new LinkedHashMap<>();
+        for (int directiveIndex = 0; directiveIndex < directives.size(); directiveIndex++) {
+            D directive = directives.get(directiveIndex);
+            System.err.println(directive);
+            if (filter.test(directive)) {
+                List<? extends Attribute.Compound> compounds = directive.symbol.getAnnotationMirrors()
+                        .stream()
+                        .filter(entry -> types.getRetention(entry) == targetRetentionPolicy)
+                        .collect(List.collector());
+                System.err.println(compounds.size() + " -> " + compounds);
+                if(!compounds.isEmpty()) {
+                    filteredDirectives.put(directiveIndex, compounds);
+                }
+            }
+        }
+
+        databuf.appendChar(filteredDirectives.size());
+        for (Map.Entry<Integer, List<? extends Attribute.Compound>> r: filteredDirectives.entrySet()) {
+            databuf.appendChar(r.getKey());
+            databuf.appendChar(r.getValue().size());
+            for (Attribute.Compound a : r.getValue()) {
+                writeCompoundAttribute(a);
+            }
+        }
     }
 
 /* ********************************************************************
@@ -1675,6 +1721,8 @@ public class ClassWriter extends ClassFile {
         acount += writeEnclosingMethodAttribute(c);
         if (c.owner.kind == MDL) {
             acount += writeModuleAttribute(c);
+            acount += writeModuleDirectivesAnnotations(c, true);
+            acount += writeModuleDirectivesAnnotations(c, false);
             acount += writeFlagAttrs(c.owner.flags() & ~DEPRECATED);
         }
         acount += writeExtraClassAttributes(c);
