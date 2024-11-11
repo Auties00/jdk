@@ -1208,7 +1208,8 @@ public class ClassReader {
                                 }
                             }
                             nextChar(); // skip compiled version
-                            requires.add(new RequiresDirective(rsym, flags));
+                            RequiresDirective r = new RequiresDirective(msym, rsym, flags);
+                            requires.add(r);
                         }
                         msym.requires = requires.toList();
                         directives.addAll(msym.requires);
@@ -1228,7 +1229,8 @@ public class ClassReader {
                                     lb.append(poolReader.getModule(nextChar()));
                                 to = lb.toList();
                             }
-                            exports.add(new ExportsDirective(p, to, flags));
+                            ExportsDirective e = new ExportsDirective(msym, p, to, flags);
+                            exports.add(e);
                         }
                         msym.exports = exports.toList();
                         directives.addAll(msym.exports);
@@ -1250,7 +1252,8 @@ public class ClassReader {
                                     lb.append(poolReader.getModule(nextChar()));
                                 to = lb.toList();
                             }
-                            opens.add(new OpensDirective(p, to, flags));
+                            OpensDirective o = new OpensDirective(msym, p, to, flags);
+                            opens.add(o);
                         }
                         msym.opens = opens.toList();
                         directives.addAll(msym.opens);
@@ -1345,10 +1348,51 @@ public class ClassReader {
                     }
                 }
             },
+
+            // standard v68 attributes
+
+            new ModuleDirectivesAnnotationsReader(names.ModuleDirectivesRuntimeVisibleAnnotations),
+            new ModuleDirectivesAnnotationsReader(names.ModuleDirectivesRuntimeInvisibleAnnotations)
         };
 
         for (AttributeReader r: readers)
             attributeReaders.put(r.name, r);
+    }
+
+    private final class ModuleDirectivesAnnotationsReader extends AttributeReader {
+        private ModuleDirectivesAnnotationsReader(Name name) {
+            super(name, V68, CLASS_ATTRIBUTE);
+        }
+
+        @Override
+        protected boolean accepts(AttributeKind kind) {
+            return super.accepts(kind) && allowModules;
+        }
+
+        @Override
+        protected void read(Symbol sym, int attrLen) {
+            if (sym.kind == TYP && sym.owner.kind == MDL) {
+                ModuleSymbol moduleSymbol = (ModuleSymbol) sym.owner;
+                readAnnotations(moduleSymbol.requires);
+                readAnnotations(moduleSymbol.exports);
+                readAnnotations(moduleSymbol.opens);
+                readAnnotations(moduleSymbol.uses);
+                readAnnotations(moduleSymbol.provides);
+            }
+        }
+
+        private void readAnnotations(List<? extends Directive> directives) {
+            int directivesSize = nextChar();
+            for(var i = 0; i < directivesSize; i++) {
+                int directiveIndex = nextChar();
+                if(directiveIndex >= directives.size()) {
+                    throw badClassFile("bad.enclosing.class");
+                }
+
+                Directive directive = directives.get(directiveIndex);
+                attachAnnotations(directive.symbol);
+            }
+        }
     }
 
     protected void readEnclosingMethodAttr(Symbol sym) {
@@ -3528,7 +3572,7 @@ public class ClassReader {
             directives.addAll(currentModule.directives);
             ListBuffer<UsesDirective> uses = new ListBuffer<>();
             for (InterimUsesDirective interim : interimUsesCopy) {
-                UsesDirective d = new UsesDirective(syms.enterClass(currentModule, interim.service));
+                UsesDirective d = new UsesDirective(currentModule, syms.enterClass(currentModule, interim.service));
                 uses.add(d);
                 directives.add(d);
             }
@@ -3539,7 +3583,7 @@ public class ClassReader {
                 for (Name impl : interim.impls) {
                     impls.append(syms.enterClass(currentModule, impl));
                 }
-                ProvidesDirective d = new ProvidesDirective(syms.enterClass(currentModule, interim.service),
+                ProvidesDirective d = new ProvidesDirective(currentModule, syms.enterClass(currentModule, interim.service),
                                                             impls.toList());
                 provides.add(d);
                 directives.add(d);
