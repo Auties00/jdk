@@ -25,9 +25,18 @@
 
 package com.sun.source.tree;
 
+import java.util.List;
+
 /**
  * A super-type for all the directives in a ModuleTree.
  *
  * @since 9
  */
-public interface DirectiveTree extends Tree { }
+public interface DirectiveTree extends Tree {
+    /**
+     * Returns the annotations associated with this package declaration.
+     * @return the annotations
+     * @since 24
+     */
+    List<? extends AnnotationTree> getAnnotations();
+}
