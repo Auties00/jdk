@@ -454,7 +454,8 @@ protected:
     decl(AVX512_FP16,       avx512_fp16,       62) /* AVX512 FP16 ISA support*/ \
     decl(AVX10_1,           avx10_1,           63) /* AVX10 512 bit vector ISA Version 1 support*/ \
     decl(AVX10_2,           avx10_2,           64) /* AVX10 512 bit vector ISA Version 2 support*/ \
-    decl(HYBRID,            hybrid,            65) /* Hybrid architecture */
+    decl(HYBRID,            hybrid,            65) /* Hybrid architecture */ \
+    decl(FAST_BMI2,         fast_bmi2,         66) /* Native Hardware support for PEXT/PDEP BMI2 instructions */
 
 #define DECLARE_CPU_FEATURE_FLAG(id, name, bit) CPU_##id = (bit),
     CPU_FEATURE_FLAGS(DECLARE_CPU_FEATURE_FLAG)
