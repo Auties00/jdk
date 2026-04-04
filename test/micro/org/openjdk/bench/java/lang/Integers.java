@@ -130,6 +130,14 @@ public class Integers {
         }
     }
 
+    /** Performs carry-less multiply */
+    @Benchmark
+    public void carrylessMultiply(Blackhole bh) {
+        for (int i : intsSmall) {
+            bh.consume(Integer.carrylessMultiply(i, -1));
+        }
+    }
+
     @Benchmark
     public void shiftRight(Blackhole bh) {
         for (int i = 0; i < size; i++) {

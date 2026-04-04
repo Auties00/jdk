@@ -1893,6 +1893,42 @@ public final class Long extends Number
     }
 
     /**
+     * Returns the lower 64 bits of the carry-less (polynomial)
+     * multiplication of two {@code long} values.
+     * <p>
+     * Carry-less multiplication (also known as XOR multiplication or
+     * polynomial multiplication over GF(2)) is similar to standard
+     * multiplication, but addition is replaced by bitwise XOR (no
+     * carry propagation).
+     * <p>
+     * This operation is useful for algorithms that operate on
+     * polynomials over GF(2), such as CRC computation, cryptographic
+     * operations, and data structure hashing.
+     *
+     * @apiNote
+     * <p>The carry-less multiplication of two values can be used to
+     * compute a prefix XOR over the bits of a value:
+     * {@snippet lang="java" :
+     *     long prefixXor = Long.carrylessMultiply(v, -1L); // -1L == 0xFFFFFFFFFFFFFFFFL
+     * }
+     *
+     * @param i the first value
+     * @param j the second value
+     * @return the lower 64 bits of the carry-less product of {@code i} and {@code j}
+     * @since 26
+     */
+    @IntrinsicCandidate
+    public static long carrylessMultiply(long i, long j) {
+        long result = 0;
+        for (int bit = 0; bit < 64; bit++) {
+            if (((j >>> bit) & 1) != 0) {
+                result ^= (i << bit);
+            }
+        }
+        return result;
+    }
+
+    /**
      * Returns the signum function of the specified {@code long} value.  (The
      * return value is -1 if the specified value is negative; 0 if the
      * specified value is zero; and 1 if the specified value is positive.)

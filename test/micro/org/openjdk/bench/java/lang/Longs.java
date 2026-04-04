@@ -109,6 +109,14 @@ public class Longs {
         }
     }
 
+    /** Performs carry-less multiply (prefix XOR use case) */
+    @Benchmark
+    public void carrylessMultiply(Blackhole bh) {
+        for (long i : longArraySmall) {
+            bh.consume(Long.carrylessMultiply(i, -1L));
+        }
+    }
+
     /*
      * Have them public to avoid total unrolling
      */
