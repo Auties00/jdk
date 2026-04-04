@@ -556,6 +556,9 @@ bool LibraryCallKit::try_to_inline(int predicate) {
   case vmIntrinsics::_expand_i:
   case vmIntrinsics::_expand_l:                 return inline_bitshuffle_methods(intrinsic_id());
 
+  case vmIntrinsics::_carrylessMultiply_i:
+  case vmIntrinsics::_carrylessMultiply_l:      return inline_carrylessMultiply(intrinsic_id());
+
   case vmIntrinsics::_compareUnsigned_i:
   case vmIntrinsics::_compareUnsigned_l:        return inline_compare_unsigned(intrinsic_id());
 
@@ -2202,6 +2205,20 @@ bool LibraryCallKit::inline_bitshuffle_methods(vmIntrinsics::ID id) {
     case vmIntrinsics::_expand_i:    n = new ExpandBitsNode(argument(0),  argument(1), TypeInt::INT); break;
     case vmIntrinsics::_compress_l:  n = new CompressBitsNode(argument(0), argument(2), TypeLong::LONG); break;
     case vmIntrinsics::_expand_l:    n = new ExpandBitsNode(argument(0), argument(2), TypeLong::LONG); break;
+    default:  fatal_unexpected_iid(id);  break;
+  }
+  set_result(_gvn.transform(n));
+  return true;
+}
+
+//--------------------------inline_carrylessMultiply---------------------------
+// inline int  Integer.carrylessMultiply(int, int)
+// inline long Long.carrylessMultiply(long, long)
+bool LibraryCallKit::inline_carrylessMultiply(vmIntrinsics::ID id) {
+  Node* n = nullptr;
+  switch (id) {
+    case vmIntrinsics::_carrylessMultiply_i:  n = new CarrylessMultiplyNode(argument(0), argument(1), TypeInt::INT); break;
+    case vmIntrinsics::_carrylessMultiply_l:  n = new CarrylessMultiplyNode(argument(0), argument(2), TypeLong::LONG); break;
     default:  fatal_unexpected_iid(id);  break;
   }
   set_result(_gvn.transform(n));

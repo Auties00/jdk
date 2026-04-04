@@ -304,6 +304,10 @@ bool C2Compiler::is_intrinsic_supported(vmIntrinsics::ID id) {
   case vmIntrinsics::_expand_l:
     if (!Matcher::match_rule_supported(Op_ExpandBits)) return false;
     break;
+  case vmIntrinsics::_carrylessMultiply_i:
+  case vmIntrinsics::_carrylessMultiply_l:
+    if (!Matcher::match_rule_supported(Op_CarrylessMultiply)) return false;
+    break;
   case vmIntrinsics::_numberOfLeadingZeros_i:
     if (!Matcher::match_rule_supported(Op_CountLeadingZerosI)) return false;
     break;

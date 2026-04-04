@@ -308,6 +308,7 @@ class LibraryCallKit : public GraphKit {
   Node* box_fp16_value(const TypeInstPtr* box_class, ciField* field, Node* value);
   bool inline_number_methods(vmIntrinsics::ID id);
   bool inline_bitshuffle_methods(vmIntrinsics::ID id);
+  bool inline_carrylessMultiply(vmIntrinsics::ID id);
   bool inline_compare_unsigned(vmIntrinsics::ID id);
   bool inline_divmod_methods(vmIntrinsics::ID id);
   bool inline_reference_get0();

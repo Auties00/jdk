@@ -261,6 +261,9 @@ class methodHandle;
   do_intrinsic(_compress_l,               java_lang_Long,         compress_name,            long2_long_signature, F_S)  \
   do_intrinsic(_expand_i,                 java_lang_Integer,      expand_name,              int2_int_signature,   F_S)  \
   do_intrinsic(_expand_l,                 java_lang_Long,         expand_name,              long2_long_signature, F_S)  \
+  do_intrinsic(_carrylessMultiply_i,      java_lang_Integer,      carrylessMultiply_name,   int2_int_signature,   F_S)  \
+   do_name(     carrylessMultiply_name,                          "carrylessMultiply")                                    \
+  do_intrinsic(_carrylessMultiply_l,      java_lang_Long,         carrylessMultiply_name,   long2_long_signature, F_S)  \
                                                                                                                         \
   do_intrinsic(_reverse_i,                java_lang_Integer,      reverse_name,             int_int_signature,   F_S)   \
    do_name(     reverse_name,                                    "reverse")                                             \

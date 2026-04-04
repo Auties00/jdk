@@ -131,6 +131,70 @@ SignumFNode* SignumFNode::make(PhaseGVN& gvn, Node* in) {
   return new SignumFNode(in, gvn.makecon(TypeF::ZERO), gvn.makecon(TypeF::ONE));
 }
 
+//----------------------------CarrylessMultiply---------------------------------
+
+jlong CarrylessMultiplyNode::carryless_multiply(jlong a, jlong b, int bit_size) {
+  jlong result = 0;
+  for (int i = 0; i < bit_size; i++) {
+    if ((b >> i) & 1) {
+      result ^= (a << i);
+    }
+  }
+  return result;
+}
+
+Node* CarrylessMultiplyNode::Ideal(PhaseGVN* phase, bool can_reshape) {
+  BasicType bt = bottom_type()->isa_int() ? T_INT : T_LONG;
+  const TypeInteger* t1 = phase->type(in(1))->isa_integer(bt);
+  const TypeInteger* t2 = phase->type(in(2))->isa_integer(bt);
+  // Canonicalize: put constant on the right (commutativity)
+  if (t1 != nullptr && t1->is_con() &&
+      (t2 == nullptr || !t2->is_con())) {
+    swap_edges(1, 2);
+    return this;
+  }
+  return nullptr;
+}
+
+Node* CarrylessMultiplyNode::Identity(PhaseGVN* phase) {
+  BasicType bt = bottom_type()->isa_int() ? T_INT : T_LONG;
+  // carrylessMultiply(x, 0) == 0
+  if (phase->type(in(2))->higher_equal(TypeInteger::zero(bt))) return in(2);
+  if (phase->type(in(1))->higher_equal(TypeInteger::zero(bt))) return in(1);
+  // carrylessMultiply(x, 1) == x
+  if (phase->type(in(2))->higher_equal(TypeInteger::one(bt))) return in(1);
+  if (phase->type(in(1))->higher_equal(TypeInteger::one(bt))) return in(2);
+  return this;
+}
+
+const Type* CarrylessMultiplyNode::Value(PhaseGVN* phase) const {
+  const Type* t1 = phase->type(in(1));
+  const Type* t2 = phase->type(in(2));
+  if (t1 == Type::TOP || t2 == Type::TOP) {
+    return Type::TOP;
+  }
+  BasicType bt = bottom_type()->isa_int() ? T_INT : T_LONG;
+  int bit_count = bt == T_INT ? 32 : 64;
+  const TypeInteger* src_type = t1->isa_integer(bt);
+  const TypeInteger* mask_type = t2->isa_integer(bt);
+  if (src_type == nullptr || mask_type == nullptr) {
+    if (bt == T_INT) return TypeInt::INT;
+    return TypeLong::LONG;
+  }
+  // Constant fold
+  if (src_type->is_con() && mask_type->is_con()) {
+    jlong result = carryless_multiply(src_type->get_con_as_long(bt),
+                                      mask_type->get_con_as_long(bt),
+                                      bit_count);
+    if (bt == T_INT) return TypeInt::make((jint)result);
+    return TypeLong::make(result);
+  }
+  if (bt == T_INT) return TypeInt::INT;
+  return TypeLong::LONG;
+}
+
+//----------------------------CompressBits/ExpandBits---------------------------
+
 Node* CompressBitsNode::Ideal(PhaseGVN* phase, bool can_reshape) {
   Node* src = in(1);
   Node* mask = in(2);

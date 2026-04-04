@@ -302,6 +302,20 @@ class SignumFNode : public Node {
   virtual uint ideal_reg() const { return Op_RegF; }
 };
 
+//----------------------------CarrylessMultiply---------------------------------
+class CarrylessMultiplyNode : public TypeNode {
+ public:
+  CarrylessMultiplyNode(Node* in1, Node* in2, const Type* type) : TypeNode(type, 3) {
+    init_req(1, in1);
+    init_req(2, in2);
+  }
+  virtual int Opcode() const;
+  virtual Node* Ideal(PhaseGVN* phase, bool can_reshape);
+  virtual Node* Identity(PhaseGVN* phase);
+  virtual const Type* Value(PhaseGVN* phase) const;
+  static jlong carryless_multiply(jlong a, jlong b, int bit_size);
+};
+
 //----------------------------CompressBits/ExpandBits---------------------------
 class CompressBitsNode : public TypeNode {
  public:

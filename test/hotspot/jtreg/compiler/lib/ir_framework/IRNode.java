@@ -631,6 +631,11 @@ public class IRNode {
         beforeMatchingNameRegex(ROUND_D, "RoundD");
     }
 
+    public static final String CARRYLESS_MULTIPLY = PREFIX + "CARRYLESS_MULTIPLY" + POSTFIX;
+    static {
+        beforeMatchingNameRegex(CARRYLESS_MULTIPLY, "CarrylessMultiply");
+    }
+
     public static final String COMPRESS_BITS = PREFIX + "COMPRESS_BITS" + POSTFIX;
     static {
         beforeMatchingNameRegex(COMPRESS_BITS, "CompressBits");
