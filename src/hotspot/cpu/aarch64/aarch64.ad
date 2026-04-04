@@ -2304,6 +2304,11 @@ bool Matcher::match_rule_supported(int opcode) {
         return false;
       }
       break;
+    case Op_CarrylessMultiply:
+      if (!VM_Version::supports_pmull()) {
+        return false;
+      }
+      break;
     case Op_FmaF:
     case Op_FmaD:
     case Op_FmaVF:
@@ -16346,6 +16351,88 @@ instruct expandBitsL_memcon(iRegINoSp dst, memory8 mem, immL mask,
     __ ldrd($tmask$$FloatRegister, $constantaddress($mask));
     __ sve_bdep($tdst$$FloatRegister, __ D, $tsrc$$FloatRegister, $tmask$$FloatRegister);
     __ mov($dst$$Register, $tdst$$FloatRegister, __ D, 0);
+  %}
+  ins_pipe(pipe_slow);
+%}
+
+//----------------------------- CarrylessMultiply ------------------------------
+
+instruct carrylessMultiplyL_reg(iRegLNoSp dst, iRegL src1, iRegL src2,
+                                 vRegD tdst, vRegD tsrc1, vRegD tsrc2) %{
+  match(Set dst (CarrylessMultiply src1 src2));
+  effect(TEMP tdst, TEMP tsrc1, TEMP tsrc2);
+  format %{ "mov    $tsrc1, $src1\n\t"
+            "mov    $tsrc2, $src2\n\t"
+            "pmull  $tdst, $tsrc1, $tsrc2\n\t"
+            "mov    $dst, $tdst\t! carry-less multiply (long)"
+          %}
+  ins_encode %{
+    __ mov($tsrc1$$FloatRegister, __ D, 0, $src1$$Register);
+    __ mov($tsrc2$$FloatRegister, __ D, 0, $src2$$Register);
+    __ pmull($tdst$$FloatRegister, __ T1Q, $tsrc1$$FloatRegister, $tsrc2$$FloatRegister, __ T1D);
+    __ mov($dst$$Register, $tdst$$FloatRegister, __ D, 0);
+  %}
+  ins_pipe(pipe_slow);
+%}
+
+instruct carrylessMultiplyI_reg(iRegINoSp dst, iRegIorL2I src1, iRegIorL2I src2,
+                                 vRegD tdst, vRegD tsrc1, vRegD tsrc2) %{
+  match(Set dst (CarrylessMultiply src1 src2));
+  effect(TEMP tdst, TEMP tsrc1, TEMP tsrc2);
+  format %{ "eor    $tsrc1, $tsrc1\n\t"
+            "mov    $tsrc1.S[0], $src1\n\t"
+            "eor    $tsrc2, $tsrc2\n\t"
+            "mov    $tsrc2.S[0], $src2\n\t"
+            "pmull  $tdst, $tsrc1, $tsrc2\n\t"
+            "mov    $dst, $tdst\t! carry-less multiply (int)"
+          %}
+  ins_encode %{
+    // Zero-extend: iRegIorL2I may have garbage in upper 32 bits of X register.
+    // PMULL T1D reads the full 64-bit D[0], so we must clear upper bits first.
+    __ eor($tsrc1$$FloatRegister, __ T8B, $tsrc1$$FloatRegister, $tsrc1$$FloatRegister);
+    __ mov($tsrc1$$FloatRegister, __ S, 0, $src1$$Register);
+    __ eor($tsrc2$$FloatRegister, __ T8B, $tsrc2$$FloatRegister, $tsrc2$$FloatRegister);
+    __ mov($tsrc2$$FloatRegister, __ S, 0, $src2$$Register);
+    __ pmull($tdst$$FloatRegister, __ T1Q, $tsrc1$$FloatRegister, $tsrc2$$FloatRegister, __ T1D);
+    __ mov($dst$$Register, $tdst$$FloatRegister, __ S, 0);
+  %}
+  ins_pipe(pipe_slow);
+%}
+
+instruct carrylessMultiplyL_memcon(iRegLNoSp dst, memory8 mem, immL mask,
+                                    vRegD tdst, vRegD tsrc, vRegD tmask) %{
+  match(Set dst (CarrylessMultiply (LoadL mem) mask));
+  effect(TEMP tdst, TEMP tsrc, TEMP tmask);
+  format %{ "ldrd   $tsrc, $mem\n\t"
+            "ldrd   $tmask, $mask\n\t"
+            "pmull  $tdst, $tsrc, $tmask\n\t"
+            "mov    $dst, $tdst\t! carry-less multiply (long)"
+          %}
+  ins_encode %{
+    loadStore(masm, &MacroAssembler::ldrd, $tsrc$$FloatRegister, $mem->opcode(),
+              as_Register($mem$$base), $mem$$index, $mem$$scale, $mem$$disp, 8);
+    __ ldrd($tmask$$FloatRegister, $constantaddress($mask));
+    __ pmull($tdst$$FloatRegister, __ T1Q, $tsrc$$FloatRegister, $tmask$$FloatRegister, __ T1D);
+    __ mov($dst$$Register, $tdst$$FloatRegister, __ D, 0);
+  %}
+  ins_pipe(pipe_slow);
+%}
+
+instruct carrylessMultiplyI_memcon(iRegINoSp dst, memory4 mem, immI mask,
+                                    vRegF tdst, vRegF tsrc, vRegF tmask) %{
+  match(Set dst (CarrylessMultiply (LoadI mem) mask));
+  effect(TEMP tdst, TEMP tsrc, TEMP tmask);
+  format %{ "ldrs   $tsrc, $mem\n\t"
+            "ldrs   $tmask, $mask\n\t"
+            "pmull  $tdst, $tsrc, $tmask\n\t"
+            "mov    $dst, $tdst\t! carry-less multiply (int)"
+          %}
+  ins_encode %{
+    loadStore(masm, &MacroAssembler::ldrs, $tsrc$$FloatRegister, $mem->opcode(),
+              as_Register($mem$$base), $mem$$index, $mem$$scale, $mem$$disp, 4);
+    __ ldrs($tmask$$FloatRegister, $constantaddress($mask));
+    __ pmull($tdst$$FloatRegister, __ T1Q, $tsrc$$FloatRegister, $tmask$$FloatRegister, __ T1D);
+    __ mov($dst$$Register, $tdst$$FloatRegister, __ S, 0);
   %}
   ins_pipe(pipe_slow);
 %}
