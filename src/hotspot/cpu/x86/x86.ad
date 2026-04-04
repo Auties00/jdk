@@ -3219,6 +3219,11 @@ bool Matcher::match_rule_supported(int opcode) {
         return false;
       }
       break;
+    case Op_CarrylessMultiply:
+      if (!VM_Version::supports_clmul()) {
+        return false;
+      }
+      break;
     case Op_CompressM:
       if (!VM_Version::supports_avx512vl() || !VM_Version::supports_bmi2()) {
         return false;
@@ -12940,6 +12945,42 @@ instruct expandBitsL_mem(rRegL dst, rRegL src, memory mask) %{
   ins_pipe( pipe_slow );
 %}
 
+//----------------------------- CarrylessMultiply ------------------------------
+
+instruct carrylessMultiplyL_reg(rRegL dst, rRegL src1, rRegL src2, vlRegD xtmp1, vlRegD xtmp2) %{
+  predicate(n->bottom_type()->isa_long());
+  match(Set dst (CarrylessMultiply src1 src2));
+  effect(TEMP xtmp1, TEMP xtmp2);
+  format %{ "movq   $xtmp1, $src1\n\t"
+            "movq   $xtmp2, $src2\n\t"
+            "pclmulqdq $xtmp1, $xtmp2, 0x00\n\t"
+            "movq   $dst, $xtmp1\t! carry-less multiply (long)" %}
+  ins_encode %{
+    __ movq($xtmp1$$XMMRegister, $src1$$Register);
+    __ movq($xtmp2$$XMMRegister, $src2$$Register);
+    __ pclmulqdq($xtmp1$$XMMRegister, $xtmp2$$XMMRegister, 0x00);
+    __ movq($dst$$Register, $xtmp1$$XMMRegister);
+  %}
+  ins_pipe( pipe_slow );
+%}
+
+instruct carrylessMultiplyL_mem(rRegL dst, rRegL src, memory mask, vlRegD xtmp1, vlRegD xtmp2) %{
+  predicate(n->bottom_type()->isa_long());
+  match(Set dst (CarrylessMultiply src (LoadL mask)));
+  effect(TEMP xtmp1, TEMP xtmp2);
+  format %{ "movq   $xtmp1, $src\n\t"
+            "movq   $xtmp2, $mask\n\t"
+            "pclmulqdq $xtmp1, $xtmp2, 0x00\n\t"
+            "movq   $dst, $xtmp1\t! carry-less multiply (long)" %}
+  ins_encode %{
+    __ movq($xtmp1$$XMMRegister, $src$$Register);
+    __ movq($xtmp2$$XMMRegister, $mask$$Address);
+    __ pclmulqdq($xtmp1$$XMMRegister, $xtmp2$$XMMRegister, 0x00);
+    __ movq($dst$$Register, $xtmp1$$XMMRegister);
+  %}
+  ins_pipe( pipe_slow );
+%}
+
 
 // Logical Instructions
 
@@ -21216,6 +21257,42 @@ instruct expandBitsI_mem(rRegI dst, rRegI src, memory mask) %{
   format %{ "pdepl  $dst, $src, $mask\t! parallel bit deposit" %}
   ins_encode %{
     __ pdepl($dst$$Register, $src$$Register, $mask$$Address);
+  %}
+  ins_pipe( pipe_slow );
+%}
+
+//----------------------------- CarrylessMultiply ------------------------------
+
+instruct carrylessMultiplyI_reg(rRegI dst, rRegI src1, rRegI src2, vlRegD xtmp1, vlRegD xtmp2) %{
+  predicate(n->bottom_type()->isa_int());
+  match(Set dst (CarrylessMultiply src1 src2));
+  effect(TEMP xtmp1, TEMP xtmp2);
+  format %{ "movd   $xtmp1, $src1\n\t"
+            "movd   $xtmp2, $src2\n\t"
+            "pclmulqdq $xtmp1, $xtmp2, 0x00\n\t"
+            "movd   $dst, $xtmp1\t! carry-less multiply (int)" %}
+  ins_encode %{
+    __ movdl($xtmp1$$XMMRegister, $src1$$Register);
+    __ movdl($xtmp2$$XMMRegister, $src2$$Register);
+    __ pclmulqdq($xtmp1$$XMMRegister, $xtmp2$$XMMRegister, 0x00);
+    __ movdl($dst$$Register, $xtmp1$$XMMRegister);
+  %}
+  ins_pipe( pipe_slow );
+%}
+
+instruct carrylessMultiplyI_mem(rRegI dst, rRegI src, memory mask, vlRegD xtmp1, vlRegD xtmp2) %{
+  predicate(n->bottom_type()->isa_int());
+  match(Set dst (CarrylessMultiply src (LoadI mask)));
+  effect(TEMP xtmp1, TEMP xtmp2);
+  format %{ "movd   $xtmp1, $src\n\t"
+            "movd   $xtmp2, $mask\n\t"
+            "pclmulqdq $xtmp1, $xtmp2, 0x00\n\t"
+            "movd   $dst, $xtmp1\t! carry-less multiply (int)" %}
+  ins_encode %{
+    __ movdl($xtmp1$$XMMRegister, $src$$Register);
+    __ movdl($xtmp2$$XMMRegister, $mask$$Address);
+    __ pclmulqdq($xtmp1$$XMMRegister, $xtmp2$$XMMRegister, 0x00);
+    __ movdl($dst$$Register, $xtmp1$$XMMRegister);
   %}
   ins_pipe( pipe_slow );
 %}
