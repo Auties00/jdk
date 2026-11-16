@@ -2596,7 +2596,6 @@ static void jdk8365196_generate_dump() {
   masm->movl(Address(r8, 0), rax);
   masm->movl(Address(r8, 8), 1);
   masm->ret(0);
-  masm->flush();
   jdk8365196_dump_live = (jdk8365196_dump_fn)start;
 }
 
