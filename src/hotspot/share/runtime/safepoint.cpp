@@ -767,6 +767,10 @@ void ThreadSafepointState::print_on(outputStream *st) const {
 // ---------------------------------------------------------------------------------------------------------------------
 
 // Process pending operation.
+#if defined(_WINDOWS) && defined(AMD64)
+void jdk8365196_hdiag_compare(const RegisterMap* map);
+#endif
+
 void ThreadSafepointState::handle_polling_page_exception() {
   JavaThread* self = thread();
   assert(self == JavaThread::current(), "must be self");
@@ -787,6 +791,9 @@ void ThreadSafepointState::handle_polling_page_exception() {
                   RegisterMap::ProcessFrames::skip,
                   RegisterMap::WalkContinuation::skip);
   frame caller_fr = stub_fr.sender(&map);
+#if defined(_WINDOWS) && defined(AMD64)
+  jdk8365196_hdiag_compare(&map);
+#endif
 
   // Should only be poll_return or poll
   assert( nm->is_at_poll_or_poll_return(real_return_addr), "should not be at call" );

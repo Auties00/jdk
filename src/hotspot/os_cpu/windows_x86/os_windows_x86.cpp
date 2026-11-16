@@ -43,6 +43,7 @@
 #include "runtime/mutexLocker.hpp"
 #include "runtime/os.inline.hpp"
 #include "runtime/osThread.hpp"
+#include "runtime/registerMap.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/stubRoutines.hpp"
 #include "runtime/timer.hpp"
@@ -119,6 +120,45 @@ static void initialize_xstate_info() {
 // example, xmm16-xmm31 across the poll reads zero after the safepoint (JDK-8365196). The
 // thread's registers still hold the state when the handler runs, so the components that the
 // context is missing are completed from them, before any code that may use them runs.
+// JDK-8365196 diagnostics (temporary): what complete_context_xstate did at the last trap of this thread.
+struct HDiag {
+  bool valid;
+  DWORD64 present, in_use, missing, after;
+  uint64_t area[16][2];   // xmm16-31 low 128 bits as saved by XSAVE in the handler
+  uint64_t ctx[16][2];    // xmm16-31 low 128 bits in the context after completion
+  uint64_t traps, reported;
+};
+static THREAD_LOCAL HDiag hdiag;
+static int hdiag_enabled = -1;
+
+void jdk8365196_hdiag_compare(const RegisterMap* map) {
+  if (hdiag_enabled <= 0 || !hdiag.valid) return;
+  hdiag.valid = false;
+  int lost = 0;
+  char line[1400];
+  int pos = jio_snprintf(line, sizeof(line), "HDIAG tid=%u trap=%llu present=0x%llx in_use=0x%llx missing=0x%llx after=0x%llx:",
+                         (unsigned)GetCurrentThreadId(), (unsigned long long)hdiag.traps,
+                         (unsigned long long)hdiag.present, (unsigned long long)hdiag.in_use,
+                         (unsigned long long)hdiag.missing, (unsigned long long)hdiag.after);
+  for (int n = 16; n < 32; n++) {
+    address loc = map->location(as_XMMRegister(n)->as_VMReg(), nullptr);
+    if (loc == nullptr) continue;
+    uint64_t saved0 = ((uint64_t*)loc)[0];
+    if (saved0 != hdiag.area[n - 16][0]) {
+      lost++;
+      if (pos < (int)sizeof(line) - 100) {
+        pos += jio_snprintf(line + pos, sizeof(line) - pos, " xmm%d live=%llx ctx=%llx saved=%llx", n,
+                            (unsigned long long)hdiag.area[n - 16][0], (unsigned long long)hdiag.ctx[n - 16][0],
+                            (unsigned long long)saved0);
+      }
+    }
+  }
+  if (lost > 0 || hdiag.reported < 3) {
+    hdiag.reported++;
+    jio_fprintf(defaultStream::error_stream(), "%s %s\n", line, lost > 0 ? "LOST" : "ok");
+  }
+}
+
 static void complete_context_xstate(PCONTEXT ctx) {
   if (AtomicAccess::load_acquire(&xstate_info_initialized) == 0) {
     initialize_xstate_info();
@@ -137,6 +177,25 @@ static void complete_context_xstate(PCONTEXT ctx) {
     return;
   }
   const DWORD64 missing = in_use & ~present;
+  if (hdiag_enabled < 0) {
+    hdiag_enabled = ::getenv("JDK8365196_TRACE") != nullptr ? 1 : 0;
+  }
+  if (hdiag_enabled > 0) {
+    hdiag.valid = true;
+    hdiag.traps++;
+    hdiag.present = present;
+    hdiag.in_use = in_use;
+    hdiag.missing = missing;
+    hdiag.after = present;
+    if ((in_use & (1ULL << XSTATE_AVX512_ZMM)) != 0) {
+      for (int n = 0; n < 16; n++) {
+        memcpy(hdiag.area[n], area + xstate_offset[XSTATE_AVX512_ZMM] + n * 64, 16);
+      }
+    } else {
+      memset(hdiag.area, 0, sizeof(hdiag.area));
+    }
+    memset(hdiag.ctx, 0, sizeof(hdiag.ctx));
+  }
   if (missing == 0) {
     return;
   }
@@ -151,6 +210,18 @@ static void complete_context_xstate(PCONTEXT ctx) {
     }
   }
   SetXStateFeaturesMask(ctx, present | missing);
+  if (hdiag_enabled > 0) {
+    DWORD64 after = 0;
+    GetXStateFeaturesMask(ctx, &after);
+    hdiag.after = after;
+    DWORD length = 0;
+    uint8_t* p = (uint8_t*)LocateXStateFeature(ctx, XSTATE_AVX512_ZMM, &length);
+    if (p != nullptr) {
+      for (int n = 0; n < 16; n++) {
+        memcpy(hdiag.ctx[n], p + n * 64, 16);
+      }
+    }
+  }
 }
 
 // This is the language specific handler for exceptions
