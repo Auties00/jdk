@@ -34,6 +34,7 @@
 #include "prims/jniFastGetField.hpp"
 #include "prims/jvm_misc.hpp"
 #include "runtime/arguments.hpp"
+#include "runtime/atomicAccess.hpp"
 #include "runtime/frame.inline.hpp"
 #include "runtime/interfaceSupport.inline.hpp"
 #include "runtime/java.hpp"
@@ -74,6 +75,84 @@ void os::os_exception_wrapper(java_call_t f, JavaValue* value, const methodHandl
   }
 }
 
+// The extended state components that generated code keeps live across an exception it resumes
+// from: the upper halves of ymm0-ymm15 (AVX), the opmask registers (AVX-512), the upper halves
+// of zmm0-zmm15 (AVX-512) and zmm16-zmm31 (AVX-512).
+static const DWORD64 code_cache_xstate_features = (1ULL << XSTATE_AVX) |
+                                                  (1ULL << XSTATE_AVX512_KMASK) |
+                                                  (1ULL << XSTATE_AVX512_ZMM_H) |
+                                                  (1ULL << XSTATE_AVX512_ZMM);
+static const int xstate_save_area_size = 2688; // end of the AVX512_ZMM component
+static volatile int xstate_info_initialized = 0;
+static DWORD64 xstate_save_features;  // code_cache_xstate_features that XCR0 enables
+static DWORD xstate_offset[XSTATE_AVX512_ZMM + 1];
+static DWORD xstate_size[XSTATE_AVX512_ZMM + 1];
+
+static void initialize_xstate_info() {
+  DWORD64 features = 0;
+  int cpu_info[4];
+  __cpuid(cpu_info, 1);
+  const bool osxsave = (cpu_info[2] & (1 << 27)) != 0;
+  if (osxsave) {
+    features = _xgetbv(0) & code_cache_xstate_features;
+    for (int i = XSTATE_AVX; i <= XSTATE_AVX512_ZMM; i++) {
+      if ((features & (1ULL << i)) != 0) {
+        // Offset and size of the component in the standard (non-compacted) XSAVE format.
+        __cpuidex(cpu_info, 0xD, i);
+        xstate_size[i] = (DWORD)cpu_info[0];
+        xstate_offset[i] = (DWORD)cpu_info[1];
+        if (xstate_offset[i] + xstate_size[i] > (DWORD)xstate_save_area_size) {
+          features &= ~(1ULL << i);
+        }
+      }
+    }
+  }
+  xstate_save_features = features;
+  AtomicAccess::release_store(&xstate_info_initialized, 1);
+}
+
+// The exception context Windows passes to the handler can report extended state components
+// as being in their initial configuration although the faulting thread was using them, and
+// resuming execution from such a context resets them. On Windows Server 2025 (build 26100)
+// the AVX and AVX-512 components (often all of them) are routinely missing from the context
+// of a thread stopped at a safepoint poll, so compiled code that keeps a value in, for
+// example, xmm16-xmm31 across the poll reads zero after the safepoint (JDK-8365196). The
+// thread's registers still hold the state when the handler runs, so the components that the
+// context is missing are completed from them, before any code that may use them runs.
+static void complete_context_xstate(PCONTEXT ctx) {
+  if (AtomicAccess::load_acquire(&xstate_info_initialized) == 0) {
+    initialize_xstate_info();
+  }
+  const DWORD64 features = xstate_save_features;
+  if (features == 0 || (ctx->ContextFlags & CONTEXT_XSTATE) != CONTEXT_XSTATE) {
+    return;
+  }
+  // Save the registers first, before anything else can use them.
+  alignas(64) uint8_t area[xstate_save_area_size];
+  _xsave64(area, features);
+  const DWORD64 in_use = *(DWORD64*)(area + 512) & features; // XSTATE_BV of the XSAVE header
+
+  DWORD64 present = 0;
+  if (!GetXStateFeaturesMask(ctx, &present)) {
+    return;
+  }
+  const DWORD64 missing = in_use & ~present;
+  if (missing == 0) {
+    return;
+  }
+  for (int i = XSTATE_AVX; i <= XSTATE_AVX512_ZMM; i++) {
+    if ((missing & (1ULL << i)) != 0) {
+      DWORD length = 0;
+      void* dst = LocateXStateFeature(ctx, i, &length);
+      if (dst == nullptr || length < xstate_size[i]) {
+        return;
+      }
+      memcpy(dst, area + xstate_offset[i], xstate_size[i]);
+    }
+  }
+  SetXStateFeaturesMask(ctx, present | missing);
+}
+
 // This is the language specific handler for exceptions
 // originating from dynamically generated code.
 // We call the standard structured exception handler
@@ -86,6 +165,8 @@ LONG HandleExceptionFromCodeCache(
   IN OUT PDISPATCHER_CONTEXT DispatcherContext) {
   EXCEPTION_POINTERS ep;
   LONG result;
+
+  complete_context_xstate(ContextRecord);
 
   ep.ExceptionRecord = ExceptionRecord;
   ep.ContextRecord = ContextRecord;
