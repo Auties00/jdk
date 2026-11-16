@@ -147,3 +147,78 @@ jobs:
           name: repro-${{ matrix.os }}-${{ matrix.slot }}
           path: out
           retention-days: 30
+
+  jtreg:
+    name: jtreg (${{ matrix.name }})
+    needs: build-windows-x64
+    runs-on: windows-latest
+    timeout-minutes: 240
+    env:
+      MSYS2_PATH_TYPE: minimal
+      CHERE_INVOKING: 1
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: 'vectorapi'
+            test: 'test/hotspot/jtreg/compiler/vectorapi'
+          - name: 'safepoints'
+            test: 'test/hotspot/jtreg/runtime/Safepoint test/hotspot/jtreg/runtime/handshake test/hotspot/jtreg/compiler/runtime/Test7196199.java test/hotspot/jtreg/compiler/vectorization/TestVectorAlgorithms.java'
+          - name: 'tier1_compiler_1'
+            test: 'test/hotspot/jtreg/:tier1_compiler_1'
+          - name: 'tier1_compiler_2'
+            test: 'test/hotspot/jtreg/:tier1_compiler_2'
+          - name: 'tier1_compiler_3'
+            test: 'test/hotspot/jtreg/:tier1_compiler_3'
+          - name: 'tier1_runtime'
+            test: 'test/hotspot/jtreg/:tier1_runtime'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/get-msys2
+        with:
+          architecture: 'x86.x64'
+      - id: bootjdk
+        uses: ./.github/actions/get-bootjdk
+        with:
+          platform: windows-x64
+      - id: jtreg
+        uses: ./.github/actions/get-jtreg
+      - id: bundles
+        uses: ./.github/actions/get-bundles
+        with:
+          platform: windows-x64
+          debug-suffix: ''
+      - name: 'Host'
+        shell: pwsh
+        run: |
+          (Get-CimInstance Win32_Processor | Select-Object -First 1).Name
+          $v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; "$($v.ProductName) $($v.CurrentBuild).$($v.UBR)"
+      - name: 'Run tests'
+        run: >
+          make test-prebuilt
+          TEST='${{ matrix.test }}'
+          BOOT_JDK=${{ steps.bootjdk.outputs.path }}
+          JT_HOME=${{ steps.jtreg.outputs.path }}
+          JDK_IMAGE_DIR=${{ steps.bundles.outputs.jdk-path }}
+          SYMBOLS_IMAGE_DIR=${{ steps.bundles.outputs.symbols-path }}
+          TEST_IMAGE_DIR=${{ steps.bundles.outputs.tests-path }}
+          JTREG='JAVA_OPTIONS=-XX:-CreateCoredumpOnCrash;VERBOSE=fail,error,time;KEYWORDS=!headful'
+          && bash ./.github/scripts/gen-test-summary.sh "$GITHUB_STEP_SUMMARY" "$GITHUB_OUTPUT"
+        env:
+          PATH: ''
+      - name: 'Package test results'
+        if: always()
+        run: |
+          mkdir -p results
+          [ -d build/run-test-prebuilt/test-results ] && (cd build/run-test-prebuilt/test-results && zip -qr -9 "$GITHUB_WORKSPACE/results/test-results.zip" .)
+          [ -d build/run-test-prebuilt/test-support ] && (cd build/run-test-prebuilt/test-support && zip -qr -9 "$GITHUB_WORKSPACE/results/test-support.zip" . -i '*.jtr' -i '*/hs_err*.log')
+          true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: jtreg-${{ matrix.name }}
+          path: results
+          retention-days: 30
