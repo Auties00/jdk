@@ -1,0 +1,149 @@
+name: 'JDK-8365196'
+
+# Builds windows-x64 (release) and runs the JDK-8365196 reproducers on several windows-latest
+# (Server 2025) and windows-2022 runners. Test infrastructure only; not part of the fix.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci*'
+  workflow_dispatch:
+    inputs:
+      seeds:
+        description: 'StressSeed values for the Vector API reproducer'
+        default: '1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30'
+      seconds:
+        description: 'Seconds per reproducer run'
+        default: '4'
+      jobs:
+        description: 'Reproducer jobs (JSON list of {os, slot})'
+        default: '[{"os":"windows-latest","slot":1},{"os":"windows-latest","slot":2},{"os":"windows-latest","slot":3},{"os":"windows-latest","slot":4},{"os":"windows-latest","slot":5},{"os":"windows-latest","slot":6},{"os":"windows-2022","slot":1},{"os":"windows-2022","slot":2}]'
+      t7196199-repeat:
+        description: 'Runs of compiler/runtime/Test7196199 per job'
+        default: '40'
+
+jobs:
+  prepare:
+    name: 'Prepare'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+      - name: 'Build JTReg'
+        uses: ./.github/actions/build-jtreg
+
+  build-windows-x64:
+    name: build windows-x64 release
+    needs: prepare
+    runs-on: windows-2022
+    env:
+      MSYS2_PATH_TYPE: minimal
+      CHERE_INVOKING: 1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/get-msys2
+        with:
+          architecture: 'x86.x64'
+      - id: bootjdk
+        uses: ./.github/actions/get-bootjdk
+        with:
+          platform: windows-x64
+      - id: jtreg
+        uses: ./.github/actions/get-jtreg
+      - id: gtest
+        uses: ./.github/actions/get-gtest
+      - name: 'Install toolchain'
+        shell: pwsh
+        run: |
+          & 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\vc\auxiliary\build\vcvars64.bat' -vcvars_ver=14.44
+          if ($LASTEXITCODE -ne 0) {
+            & 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vs_installer.exe' modify --quiet --installPath 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise' --add Microsoft.VisualStudio.Component.VC.14.44.x86.x64 | Out-Default
+          }
+          exit 0
+      - name: 'Configure'
+        run: >
+          bash configure
+          --with-conf-name=windows-x64
+          --with-version-opt=${GITHUB_ACTOR}-${GITHUB_SHA}
+          --with-boot-jdk=${{ steps.bootjdk.outputs.path }}
+          --with-jtreg=${{ steps.jtreg.outputs.path }}
+          --with-gtest=${{ steps.gtest.outputs.path }}
+          --with-msvc-toolset-version=14.44
+          --with-jmod-compress=zip-1
+          --with-external-symbols-in-bundles=none || (
+          echo "Dumping config.log:" &&
+          cat config.log &&
+          exit 1)
+        env:
+          PATH: ''
+        shell: env /usr/bin/bash --login -eo pipefail {0}
+      - uses: ./.github/actions/do-build
+        with:
+          make-target: 'product-bundles test-bundles'
+          platform: windows-x64
+          debug-suffix: ''
+      - uses: ./.github/actions/upload-bundles
+        with:
+          platform: windows-x64
+          debug-suffix: ''
+
+  repro:
+    name: repro (${{ matrix.os }}, ${{ matrix.slot }})
+    needs: build-windows-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.jobs || '[{"os":"windows-latest","slot":1},{"os":"windows-latest","slot":2},{"os":"windows-latest","slot":3},{"os":"windows-latest","slot":4},{"os":"windows-latest","slot":5},{"os":"windows-latest","slot":6},{"os":"windows-2022","slot":1},{"os":"windows-2022","slot":2}]') }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: bundles
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Auties00/jdk-c2-avx512-windows-repro
+          path: repro
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: jdksrc
+          sparse-checkout: |
+            test/hotspot/jtreg/compiler/runtime/Test7196199.java
+          sparse-checkout-cone-mode: false
+      - name: 'Run the reproducer'
+        env:
+          SEEDS: ${{ inputs.seeds || '1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30' }}
+          SECONDS_PER_RUN: ${{ inputs.seconds || '4' }}
+        run: bash repro/.github/scripts/jdk-under-test.sh bundles/jdk-windows-x64.zip
+      - name: 'Test7196199 (problem-listed for JDK-8365196), repeated'
+        env:
+          REPEAT: ${{ inputs.t7196199-repeat || '40' }}
+        run: |
+          set +e
+          bin=$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")
+          mkdir -p out/t7196199 t7
+          "$bin/javac" -d t7 jdksrc/test/hotspot/jtreg/compiler/runtime/Test7196199.java
+          fails=0
+          for i in $(seq 1 "$REPEAT"); do
+            JDK8365196_TRACE=1 "$bin/java" -Xmx128m -Xbatch -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockDiagnosticVMOptions -XX:-TieredCompilation -XX:+SafepointALot -XX:GuaranteedSafepointInterval=100 -XX:CompileCommand=exclude,compiler.runtime.Test7196199::test -XX:-CreateCoredumpOnCrash -cp t7 compiler.runtime.Test7196199 > out/t7196199/run$i.log 2>&1
+            code=$?
+            if [ $code != 0 ]; then fails=$((fails + 1)); echo "run $i: exit $code $(grep -m1 -E 'FAILED|!=' out/t7196199/run$i.log)"; fi
+          done
+          echo "Test7196199: $fails of $REPEAT runs failed" | tee out/t7196199/summary.txt
+          echo "Test7196199: $fails of $REPEAT runs failed" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: repro-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
