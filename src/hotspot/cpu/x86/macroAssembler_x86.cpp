@@ -2585,6 +2585,14 @@ void MacroAssembler::round_to(Register reg, int modulus) {
   andptr(reg, -modulus);
 }
 
+bool MacroAssembler::loop_safepoint_poll_uses_branch() {
+#ifdef _WINDOWS
+  return UseAVX > 2;
+#else
+  return false;
+#endif
+}
+
 void MacroAssembler::safepoint_poll(Label& slow_path, bool at_return, bool in_nmethod) {
   if (at_return) {
     // Note that when in_nmethod is set, the stack pointer is incremented before the poll. Therefore,

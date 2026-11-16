@@ -775,6 +775,16 @@ public:
 
   void safepoint_poll(Label& slow_path, bool at_return, bool in_nmethod);
 
+  // Whether compiled code tests the poll word and branches to the safepoint handler blob at
+  // loop safepoint polls, instead of taking the polling page trap. On Windows the AVX and
+  // AVX-512 register state (the upper halves of ymm/zmm, the opmask registers and
+  // xmm16-xmm31) is not reliably preserved across the access violation that a trapping poll
+  // raises: Windows Server 2025 builds the exception context without these components
+  // although the thread is using them, the handler cannot add them back, and resuming
+  // execution from that context resets them to zero. Compiled code keeps values in these
+  // registers across loop polls, so on Windows with UseAVX > 2 loop polls must not trap.
+  static bool loop_safepoint_poll_uses_branch();
+
   void verify_tlab();
 
   static Condition negate_condition(Condition cond);
