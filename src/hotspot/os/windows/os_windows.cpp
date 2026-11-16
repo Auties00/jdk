@@ -94,6 +94,7 @@
 #endif
 
 #include <windows.h>
+#include <intrin.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/timeb.h>
@@ -2571,17 +2572,38 @@ struct Jdk8365196Record {
   uint64_t mismatches;
 };
 static THREAD_LOCAL Jdk8365196Record jdk8365196_record;
+static THREAD_LOCAL uint64_t jdk8365196_pre[2 + 16 * 2];
 
 static bool jdk8365196_enabled() {
   if (jdk8365196_trace < 0) {
-    jdk8365196_trace = ::getenv("JDK8365196_TRACE") != nullptr ? 1 : 0;
+    int enabled = ::getenv("JDK8365196_TRACE") != nullptr ? 1 : 0;
+    if (enabled) {
+      int regs[4];
+      __cpuidex(regs, 0xD, 1);
+      if ((regs[0] & 4) == 0) {
+        // xgetbv(1) (XINUSE) is not supported: no pre-poll snapshot
+        enabled = 2;
+      }
+    }
+    jdk8365196_trace = enabled;
   }
-  return jdk8365196_trace == 1;
+  return jdk8365196_trace != 0;
+}
+
+bool jdk8365196_instrument_polls() {
+  return jdk8365196_enabled() && jdk8365196_trace == 1 && UseAVX > 2 && VM_Version::supports_avx512vl();
 }
 
 static void jdk8365196_record_context(PCONTEXT ctx) {
   if (!jdk8365196_enabled()) return;
   Jdk8365196Record* r = &jdk8365196_record;
+  Thread* t = Thread::current_or_null();
+  if (t != nullptr && t->is_Java_thread()) {
+    memcpy(jdk8365196_pre, JavaThread::cast(t)->_jdk8365196_pre, sizeof(jdk8365196_pre));
+    memset(JavaThread::cast(t)->_jdk8365196_pre, 0, sizeof(jdk8365196_pre));
+  } else {
+    memset(jdk8365196_pre, 0, sizeof(jdk8365196_pre));
+  }
   r->traps++;
   r->flags = ctx->ContextFlags;
   r->mask = 0;
@@ -2608,29 +2630,49 @@ void jdk8365196_compare(Thread* thread, const RegisterMap* map) {
   Jdk8365196Record* r = &jdk8365196_record;
   if (!r->valid) return;
   r->valid = false;
-  int bad = 0;
-  char line[1024];
-  int pos = jio_snprintf(line, sizeof(line), "JDK8365196 tid=%u trap=%llu flags=0x%lx mask=0x%llx hi16=%d:",
+  // pre: what the compiled code had in xmm16-31 right before the poll (zero if this poll was not
+  // instrumented, e.g. a C1 or return poll); ctx: the exception CONTEXT; saved: what the handler blob saved.
+  uint64_t xinuse = jdk8365196_pre[0];
+  bool have_pre = jdk8365196_pre[1] != 0;
+  bool ctx_has_hi16 = (r->mask & (1ULL << XSTATE_AVX512_ZMM)) != 0;
+  bool pre_nonzero = false;
+  int lost = 0;
+  char line[1400];
+  int pos = jio_snprintf(line, sizeof(line), "JDK8365196 tid=%u trap=%llu flags=0x%lx mask=0x%llx xinuse=0x%llx:",
                          (unsigned)GetCurrentThreadId(), (unsigned long long)r->traps, (unsigned long)r->flags,
-                         (unsigned long long)r->mask, r->has_hi16 ? 1 : 0);
+                         (unsigned long long)r->mask, (unsigned long long)xinuse);
   for (int n = 16; n < 32; n++) {
     address loc = map->location(as_XMMRegister(n)->as_VMReg(), nullptr);
     if (loc == nullptr) continue;
     uint64_t saved0 = ((uint64_t*)loc)[0];
     uint64_t saved1 = ((uint64_t*)loc)[1];
-    uint64_t ctx0 = r->has_hi16 ? r->hi16[n - 16][0] : 0;
-    uint64_t ctx1 = r->has_hi16 ? r->hi16[n - 16][1] : 0;
-    if (saved0 != ctx0 || saved1 != ctx1) {
-      bad++;
-      if (pos < (int)sizeof(line) - 80) {
-        pos += jio_snprintf(line + pos, sizeof(line) - pos, " xmm%d ctx=%llx saved=%llx", n,
-                            (unsigned long long)ctx0, (unsigned long long)saved0);
+    uint64_t pre0 = jdk8365196_pre[2 + (n - 16) * 2];
+    uint64_t pre1 = jdk8365196_pre[3 + (n - 16) * 2];
+    uint64_t ctx0 = ctx_has_hi16 ? r->hi16[n - 16][0] : 0;
+    if (pre0 != 0 || pre1 != 0) pre_nonzero = true;
+    if (have_pre && (saved0 != pre0 || saved1 != pre1)) {
+      lost++;
+      if (pos < (int)sizeof(line) - 100) {
+        pos += jio_snprintf(line + pos, sizeof(line) - pos, " xmm%d pre=%llx ctx=%llx saved=%llx", n,
+                            (unsigned long long)pre0, (unsigned long long)ctx0, (unsigned long long)saved0);
       }
     }
   }
-  if (bad > 0 || r->traps <= 2) {
-    if (bad > 0) r->mismatches++;
-    jio_fprintf(defaultStream::error_stream(), "%s%s\n", line, bad > 0 ? " MISMATCH" : " ok");
+  if (have_pre) {
+    const char* verdict;
+    if (lost == 0) {
+      verdict = "ok";
+    } else if ((xinuse & (1ULL << XSTATE_AVX512_ZMM)) == 0) {
+      verdict = "LOST xinuse-bit7-clear-before-trap";
+    } else if (!ctx_has_hi16) {
+      verdict = "LOST context-mask-dropped-bit7";
+    } else {
+      verdict = "LOST context-has-it-restore-dropped";
+    }
+    if (lost > 0) r->mismatches++;
+    if (lost > 0 || r->traps <= 2) {
+      jio_fprintf(defaultStream::error_stream(), "%s pre_nonzero=%d %s\n", line, pre_nonzero ? 1 : 0, verdict);
+    }
   }
 }
 #endif

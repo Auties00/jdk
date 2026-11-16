@@ -17034,6 +17034,25 @@ instruct safePoint_poll_tls(rFlagsReg cr, rRegP poll)
             "# Safepoint: poll for GC" %}
   ins_cost(125);
   ins_encode %{
+#ifdef _WINDOWS
+    if (jdk8365196_instrument_polls()) {
+      // JDK-8365196 instrumentation (temporary): snapshot XINUSE and xmm16-31 right before the poll.
+      int base = in_bytes(JavaThread::jdk8365196_pre_offset());
+      __ push(rax);
+      __ push(rcx);
+      __ push(rdx);
+      __ movl(rcx, 1);
+      __ xgetbv();
+      __ movl(Address(r15_thread, base), rax);
+      __ movl(Address(r15_thread, base + 8), 1);
+      __ pop(rdx);
+      __ pop(rcx);
+      __ pop(rax);
+      for (int n = 16; n < 32; n++) {
+        __ evmovdqul(Address(r15_thread, base + 16 + (n - 16) * 16), as_XMMRegister(n), Assembler::AVX_128bit);
+      }
+    }
+#endif
     __ relocate(relocInfo::poll_type);
     address pre_pc = __ pc();
     __ testl(rax, Address($poll$$Register, 0));
