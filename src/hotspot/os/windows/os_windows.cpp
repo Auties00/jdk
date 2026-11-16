@@ -24,7 +24,9 @@
 
 // API level must be at least Windows Vista or Server 2008 to use InitOnceExecuteOnce
 
+#include "asm/macroAssembler.hpp"
 #include "asm/register.hpp"
+#include "code/codeBlob.hpp"
 #include "classfile/vmSymbols.hpp"
 #include "code/codeCache.hpp"
 #include "code/nativeInst.hpp"
@@ -2573,6 +2575,30 @@ struct Jdk8365196Record {
 };
 static THREAD_LOCAL Jdk8365196Record jdk8365196_record;
 static THREAD_LOCAL uint64_t jdk8365196_pre[2 + 16 * 2];
+// xmm16-31 (low 128 bits) and XINUSE as live in the handler (when it detects the poll)
+static THREAD_LOCAL uint64_t jdk8365196_live[2 + 16 * 2];
+typedef void (*jdk8365196_dump_fn)(uint64_t* buf);
+static volatile jdk8365196_dump_fn jdk8365196_dump_live = nullptr;
+
+static void jdk8365196_generate_dump() {
+  if (jdk8365196_dump_live != nullptr) return;
+  BufferBlob* blob = BufferBlob::create("jdk8365196_dump", 1024);
+  if (blob == nullptr) return;
+  CodeBuffer buffer(blob);
+  MacroAssembler* masm = new MacroAssembler(&buffer);
+  address start = masm->pc();
+  for (int n = 16; n < 32; n++) {
+    masm->evmovdqul(Address(c_rarg0, 16 + (n - 16) * 16), as_XMMRegister(n), Assembler::AVX_128bit);
+  }
+  masm->mov(r8, c_rarg0);
+  masm->movl(rcx, 1);
+  masm->xgetbv();
+  masm->movl(Address(r8, 0), rax);
+  masm->movl(Address(r8, 8), 1);
+  masm->ret(0);
+  masm->flush();
+  jdk8365196_dump_live = (jdk8365196_dump_fn)start;
+}
 
 static bool jdk8365196_enabled() {
   if (jdk8365196_trace < 0) {
@@ -2591,11 +2617,21 @@ static bool jdk8365196_enabled() {
 }
 
 bool jdk8365196_instrument_polls() {
-  return jdk8365196_enabled() && jdk8365196_trace == 1 && UseAVX > 2 && VM_Version::supports_avx512vl();
+  bool on = jdk8365196_enabled() && jdk8365196_trace == 1 && UseAVX > 2 && VM_Version::supports_avx512vl();
+  if (on) {
+    jdk8365196_generate_dump();
+  }
+  return on;
 }
 
 static void jdk8365196_record_context(PCONTEXT ctx) {
   if (!jdk8365196_enabled()) return;
+  jdk8365196_dump_fn dump = jdk8365196_dump_live;
+  if (dump != nullptr) {
+    dump(jdk8365196_live);
+  } else {
+    memset(jdk8365196_live, 0, sizeof(jdk8365196_live));
+  }
   Jdk8365196Record* r = &jdk8365196_record;
   Thread* t = Thread::current_or_null();
   if (t != nullptr && t->is_Java_thread()) {
@@ -2637,10 +2673,12 @@ void jdk8365196_compare(Thread* thread, const RegisterMap* map) {
   bool ctx_has_hi16 = (r->mask & (1ULL << XSTATE_AVX512_ZMM)) != 0;
   bool pre_nonzero = false;
   int lost = 0;
+  int live_differs = 0;
   char line[1400];
-  int pos = jio_snprintf(line, sizeof(line), "JDK8365196 tid=%u trap=%llu flags=0x%lx mask=0x%llx xinuse=0x%llx:",
+  int pos = jio_snprintf(line, sizeof(line), "JDK8365196 tid=%u trap=%llu flags=0x%lx mask=0x%llx xinuse=0x%llx live_xinuse=0x%llx:",
                          (unsigned)GetCurrentThreadId(), (unsigned long long)r->traps, (unsigned long)r->flags,
-                         (unsigned long long)r->mask, (unsigned long long)xinuse);
+                         (unsigned long long)r->mask, (unsigned long long)xinuse,
+                         (unsigned long long)(jdk8365196_live[1] != 0 ? jdk8365196_live[0] : 0));
   for (int n = 16; n < 32; n++) {
     address loc = map->location(as_XMMRegister(n)->as_VMReg(), nullptr);
     if (loc == nullptr) continue;
@@ -2652,9 +2690,11 @@ void jdk8365196_compare(Thread* thread, const RegisterMap* map) {
     if (pre0 != 0 || pre1 != 0) pre_nonzero = true;
     if (have_pre && (saved0 != pre0 || saved1 != pre1)) {
       lost++;
+      if (jdk8365196_live[2 + (n - 16) * 2] != pre0 || jdk8365196_live[3 + (n - 16) * 2] != pre1) live_differs++;
       if (pos < (int)sizeof(line) - 100) {
-        pos += jio_snprintf(line + pos, sizeof(line) - pos, " xmm%d pre=%llx ctx=%llx saved=%llx", n,
-                            (unsigned long long)pre0, (unsigned long long)ctx0, (unsigned long long)saved0);
+        pos += jio_snprintf(line + pos, sizeof(line) - pos, " xmm%d pre=%llx ctx=%llx live=%llx saved=%llx", n,
+                            (unsigned long long)pre0, (unsigned long long)ctx0,
+                            (unsigned long long)jdk8365196_live[2 + (n - 16) * 2], (unsigned long long)saved0);
       }
     }
   }
@@ -2671,7 +2711,8 @@ void jdk8365196_compare(Thread* thread, const RegisterMap* map) {
     }
     if (lost > 0) r->mismatches++;
     if (lost > 0 || r->traps <= 2) {
-      jio_fprintf(defaultStream::error_stream(), "%s pre_nonzero=%d %s\n", line, pre_nonzero ? 1 : 0, verdict);
+      jio_fprintf(defaultStream::error_stream(), "%s pre_nonzero=%d live_differs=%d %s\n", line, pre_nonzero ? 1 : 0,
+                  live_differs, verdict);
     }
   }
 }
