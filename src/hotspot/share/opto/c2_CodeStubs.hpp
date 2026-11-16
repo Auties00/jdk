@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, 2025, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, 2026, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -74,10 +74,12 @@ public:
 class C2SafepointPollStub : public C2CodeStub {
 private:
   uintptr_t _safepoint_offset;
+  const bool _at_return;
 
 public:
-  C2SafepointPollStub(uintptr_t safepoint_offset) :
-    _safepoint_offset(safepoint_offset) {}
+  C2SafepointPollStub(uintptr_t safepoint_offset, bool at_return = true) :
+    _safepoint_offset(safepoint_offset), _at_return(at_return) {}
+  bool at_return() const { return _at_return; }
   int max_size() const;
   void emit(C2_MacroAssembler& masm);
 };
