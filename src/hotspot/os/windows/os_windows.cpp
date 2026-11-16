@@ -24,6 +24,7 @@
 
 // API level must be at least Windows Vista or Server 2008 to use InitOnceExecuteOnce
 
+#include "asm/register.hpp"
 #include "classfile/vmSymbols.hpp"
 #include "code/codeCache.hpp"
 #include "code/nativeInst.hpp"
@@ -55,6 +56,7 @@
 #include "runtime/orderAccess.hpp"
 #include "runtime/osInfo.hpp"
 #include "runtime/osThread.hpp"
+#include "runtime/registerMap.hpp"
 #include "runtime/park.hpp"
 #include "runtime/perfMemory.hpp"
 #include "runtime/safefetch.hpp"
@@ -2554,6 +2556,85 @@ int os::signal_wait() {
   return check_pending_signals();
 }
 
+// JDK-8365196 instrumentation (temporary): records the AVX-512 upper bank as the exception
+// CONTEXT holds it at a polling-page trap, then compares it with what the safepoint handler
+// blob saved. Enabled with the environment variable JDK8365196_TRACE.
+#if defined(_M_AMD64)
+static int jdk8365196_trace = -1;
+struct Jdk8365196Record {
+  bool     valid;
+  DWORD    flags;
+  DWORD64  mask;
+  bool     has_hi16;
+  uint64_t hi16[16][2];
+  uint64_t traps;
+  uint64_t mismatches;
+};
+static THREAD_LOCAL Jdk8365196Record jdk8365196_record;
+
+static bool jdk8365196_enabled() {
+  if (jdk8365196_trace < 0) {
+    jdk8365196_trace = ::getenv("JDK8365196_TRACE") != nullptr ? 1 : 0;
+  }
+  return jdk8365196_trace == 1;
+}
+
+static void jdk8365196_record_context(PCONTEXT ctx) {
+  if (!jdk8365196_enabled()) return;
+  Jdk8365196Record* r = &jdk8365196_record;
+  r->traps++;
+  r->flags = ctx->ContextFlags;
+  r->mask = 0;
+  r->has_hi16 = false;
+  if ((ctx->ContextFlags & CONTEXT_XSTATE) == CONTEXT_XSTATE) {
+    DWORD64 mask = 0;
+    if (GetXStateFeaturesMask(ctx, &mask)) {
+      r->mask = mask;
+    }
+    DWORD len = 0;
+    uint8_t* hi16 = (uint8_t*)LocateXStateFeature(ctx, XSTATE_AVX512_ZMM, &len);
+    if (hi16 != nullptr && len >= 16 * 64) {
+      for (int i = 0; i < 16; i++) {
+        memcpy(r->hi16[i], hi16 + i * 64, 16);
+      }
+      r->has_hi16 = true;
+    }
+  }
+  r->valid = true;
+}
+
+void jdk8365196_compare(Thread* thread, const RegisterMap* map) {
+  if (!jdk8365196_enabled()) return;
+  Jdk8365196Record* r = &jdk8365196_record;
+  if (!r->valid) return;
+  r->valid = false;
+  int bad = 0;
+  char line[1024];
+  int pos = jio_snprintf(line, sizeof(line), "JDK8365196 tid=%u trap=%llu flags=0x%lx mask=0x%llx hi16=%d:",
+                         (unsigned)GetCurrentThreadId(), (unsigned long long)r->traps, (unsigned long)r->flags,
+                         (unsigned long long)r->mask, r->has_hi16 ? 1 : 0);
+  for (int n = 16; n < 32; n++) {
+    address loc = map->location(as_XMMRegister(n)->as_VMReg(), nullptr);
+    if (loc == nullptr) continue;
+    uint64_t saved0 = ((uint64_t*)loc)[0];
+    uint64_t saved1 = ((uint64_t*)loc)[1];
+    uint64_t ctx0 = r->has_hi16 ? r->hi16[n - 16][0] : 0;
+    uint64_t ctx1 = r->has_hi16 ? r->hi16[n - 16][1] : 0;
+    if (saved0 != ctx0 || saved1 != ctx1) {
+      bad++;
+      if (pos < (int)sizeof(line) - 80) {
+        pos += jio_snprintf(line + pos, sizeof(line) - pos, " xmm%d ctx=%llx saved=%llx", n,
+                            (unsigned long long)ctx0, (unsigned long long)saved0);
+      }
+    }
+  }
+  if (bad > 0 || r->traps <= 2) {
+    if (bad > 0) r->mismatches++;
+    jio_fprintf(defaultStream::error_stream(), "%s%s\n", line, bad > 0 ? " MISMATCH" : " ok");
+  }
+}
+#endif
+
 // Implicit OS exception handling
 
 LONG Handle_Exception(struct _EXCEPTION_POINTERS* exceptionInfo,
@@ -2801,6 +2882,7 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
         CodeBlob* cb = CodeCache::find_blob(pc);
         if (cb != nullptr) {
           if (SafepointMechanism::is_poll_address(addr)) {
+            jdk8365196_record_context(exceptionInfo->ContextRecord);
             address stub = SharedRuntime::get_poll_stub(pc);
             return Handle_Exception(exceptionInfo, stub);
           }
