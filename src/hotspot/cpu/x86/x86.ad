@@ -1892,9 +1892,11 @@ void MachPrologNode::format(PhaseRegAlloc* ra_, outputStream* st) const {
 }
 #endif
 
-// JDK-8365196 prototype: whether the register allocator gave any node of this compilation an XMM
-// or opmask register. Code without one keeps no state that an incomplete exception context can
-// lose: its callers have nothing live in registers either, since every register is caller-saved.
+// JDK-8365196 prototype: whether this compilation can hold state that an incomplete exception
+// context loses: a vector wider than 128 bits, or a value in xmm16-xmm31 or in an opmask register.
+// The low 128 bits of xmm0-xmm15 are legacy SSE state and are in every context. Code without such
+// state has nothing to lose, and its callers have nothing live in registers either, since every
+// register is caller-saved.
 static bool c2_code_uses_xstate_registers() {
   static THREAD_LOCAL int cached_compile_id = -1;
   static THREAD_LOCAL bool cached_result = true;
@@ -1907,7 +1909,7 @@ static bool c2_code_uses_xstate_registers() {
   }
   PhaseRegAlloc* ra = C->regalloc();
   PhaseCFG* cfg = C->cfg();
-  bool result = false;
+  bool result = C->max_vector_size() > 16;
   for (uint i = 0; i < cfg->number_of_blocks() && !result; i++) {
     Block* block = cfg->get_block(i);
     for (uint j = 0; j < block->number_of_nodes(); j++) {
@@ -1918,8 +1920,7 @@ static bool c2_code_uses_xstate_registers() {
       }
       OptoReg::Name reg = ra->get_reg_first(n);
       if (OptoReg::is_reg(reg)) {
-        VMReg r = OptoReg::as_VMReg(reg);
-        if (r->is_XMMRegister() || r->is_KRegister()) {
+        if (((int)reg >= (int)XMM16_num && (int)reg <= (int)XMM31p_num) || OptoReg::as_VMReg(reg)->is_KRegister()) {
           result = true;
           break;
         }
