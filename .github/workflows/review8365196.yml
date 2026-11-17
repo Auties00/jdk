@@ -62,20 +62,25 @@ jobs:
           "$jfix" -XX:+PrintFlagsFinal -version 2>/dev/null | grep -E ' (UseAVX|MaxVectorSize) ' | tee -a out/host.txt
           "$(dirname $jfix)/javac" -d c-npe review8365196/NpeLeftover.java
           "$(dirname $jfix)/javac" --add-modules jdk.incubator.vector -d c-repro repro/Repro.java 2>&1 | grep -v -i warning
-          common="-XX:-TieredCompilation -Xbatch -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000 -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1 -XX:CompileCommand=quiet -XX:CompileCommand=exclude,NpeLeftover::reference -XX:-CreateCoredumpOnCrash -XX:+UnlockDiagnosticVMOptions"
-          run_npe() { # build variant seed extra...
-            local j=$1 tag=$2 seed=$3; shift 3
-            "$j" $common -XX:+StressGCM -XX:+StressLCM -XX:StressSeed=$seed "$@" -Xlog:deoptimization=debug:file=out/deopt-$tag-$seed.log -cp c-npe NpeLeftover "$SECS" > out/npe-$tag-$seed.log 2>&1
+          common="-XX:-TieredCompilation -Xbatch -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000 -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1 -XX:CompileCommand=quiet -XX:-CreateCoredumpOnCrash -XX:+UnlockDiagnosticVMOptions"
+          "$(dirname $jfix)/javac" --add-modules jdk.incubator.vector -d c-npe review8365196/NpeVector.java 2>&1 | grep -v -i warning
+          run_npe() { # java tag prog seed extra...
+            local j=$1 tag=$2 prog=$3 seed=$4; shift 4
+            "$j" $common -XX:CompileCommand=exclude,$prog::reference --add-modules jdk.incubator.vector -XX:+StressGCM -XX:+StressLCM -XX:StressSeed=$seed "$@" -Xlog:deoptimization=debug:file=out/deopt-$prog-$tag-$seed.log -cp c-npe $prog "$SECS" > out/npe-$prog-$tag-$seed.log 2>&1
             local code=$?
-            local traps=$(grep -c null_check out/deopt-$tag-$seed.log)
-            echo "NPE $tag seed=$seed exit=$code traps=$traps $(grep -m1 RESULT out/npe-$tag-$seed.log) $(grep -m1 MISMATCH out/npe-$tag-$seed.log)" | tee -a out/summary.txt
+            local traps=$(grep -c "$prog.kernel.*null_check" out/deopt-$prog-$tag-$seed.log)
+            echo "NPE $prog $tag seed=$seed exit=$code traps=$traps $(grep -m1 RESULT out/npe-$prog-$tag-$seed.log) $(grep -m1 -E 'MISMATCH|EXCEPTION|Error' out/npe-$prog-$tag-$seed.log)" | tee -a out/summary.txt
           }
-          for seed in 1 2 3 4 5 6; do
-            run_npe "$jfix" fix $seed
-            run_npe "$jfix" fix-noinc $seed -XX:-ImplicitNullChecks
-            run_npe "$jbase" base $seed
+          sp="-XX:+SafepointALot -XX:GuaranteedSafepointInterval=1"
+          for prog in NpeVector NpeLeftover; do
+            for seed in 1 2 3 4; do
+              run_npe "$jfix" fix $prog $seed
+              run_npe "$jbase" base $prog $seed
+              run_npe "$jbase" base-sp $prog $seed $sp
+              run_npe "$jfix" fix-sp $prog $seed $sp
+            done
           done
-          for seed in 25 29; do
+          for seed in 29; do
             "$jbase" -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:+StressGCM -XX:+StressLCM -XX:StressSeed=$seed -XX:-CreateCoredumpOnCrash -XX:ErrorFile=out/hs_err_base_$seed.log --add-modules jdk.incubator.vector -cp c-repro Repro field 4 4 > out/repro-base-$seed.log 2>&1
             echo "CONTROL base Repro seed=$seed exit=$? $(ls out/hs_err_base_$seed.log 2>/dev/null)" | tee -a out/summary.txt
           done
