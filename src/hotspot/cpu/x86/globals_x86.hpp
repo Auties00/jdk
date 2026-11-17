@@ -108,6 +108,11 @@ define_pd_global(bool, ValueTypeReturnedAsFields, true);
   product(bool, UseAPX, false,                                              \
           "Use Intel Advanced Performance Extensions")                      \
                                                                             \
+  product(bool, ScrubExceptionLandingSlotAlways, false, DIAGNOSTIC,         \
+          "Prototype. With ScrubExceptionLandingSlot, scrub in every C2 "   \
+          "compilation, not only in those whose register allocation uses "  \
+          "an XMM or opmask register")                                      \
+                                                                            \
   product(int, ScrubExceptionLandingSlot, 0, DIAGNOSTIC,                    \
           "Prototype. When not 0, the length L of the XSAVE area in the "   \
           "exception contexts of this system: C2 code then stores 0 at "    \

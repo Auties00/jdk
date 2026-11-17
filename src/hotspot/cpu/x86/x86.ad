@@ -1892,6 +1892,52 @@ void MachPrologNode::format(PhaseRegAlloc* ra_, outputStream* st) const {
 }
 #endif
 
+// JDK-8365196 prototype: whether the register allocator gave any node of this compilation an XMM
+// or opmask register. Code without one keeps no state that an incomplete exception context can
+// lose: its callers have nothing live in registers either, since every register is caller-saved.
+static bool c2_code_uses_xstate_registers() {
+  static THREAD_LOCAL int cached_compile_id = -1;
+  static THREAD_LOCAL bool cached_result = true;
+  Compile* C = Compile::current();
+  if (C->stub_function() != nullptr) {
+    return true; // stubs share compile id 0
+  }
+  if (cached_compile_id == C->compile_id()) {
+    return cached_result;
+  }
+  PhaseRegAlloc* ra = C->regalloc();
+  PhaseCFG* cfg = C->cfg();
+  bool result = false;
+  for (uint i = 0; i < cfg->number_of_blocks() && !result; i++) {
+    Block* block = cfg->get_block(i);
+    for (uint j = 0; j < block->number_of_nodes(); j++) {
+      Node* n = block->get_node(j);
+      if (n->_idx >= ra->node_regs_max_index()) {
+        result = true; // not known to the allocator: assume the worst
+        break;
+      }
+      OptoReg::Name reg = ra->get_reg_first(n);
+      if (OptoReg::is_reg(reg)) {
+        VMReg r = OptoReg::as_VMReg(reg);
+        if (r->is_XMMRegister() || r->is_KRegister()) {
+          result = true;
+          break;
+        }
+      }
+    }
+  }
+  cached_compile_id = C->compile_id();
+  cached_result = result;
+  return result;
+}
+
+static void c2_scrub_exception_landing_slot(C2_MacroAssembler* masm) {
+  if (ScrubExceptionLandingSlot > 0 &&
+      (ScrubExceptionLandingSlotAlways || c2_code_uses_xstate_registers())) {
+    __ scrub_exception_landing_slot();
+  }
+}
+
 void MachPrologNode::emit(C2_MacroAssembler *masm, PhaseRegAlloc *ra_) const {
   Compile* C = ra_->C;
 
@@ -1908,7 +1954,7 @@ void MachPrologNode::emit(C2_MacroAssembler *masm, PhaseRegAlloc *ra_) const {
   C->output()->set_frame_complete(__ offset());
 
   // Earlier callees of the caller have used the stack below this frame.
-  __ scrub_exception_landing_slot();
+  c2_scrub_exception_landing_slot(masm);
 
   if (C->has_mach_constant_base_node()) {
     // NOTE: We set the table base offset here because users might be
@@ -4639,7 +4685,7 @@ encode %{
   // After a call: the callee has used the stack below this frame. rscratch1 and the flags are
   // dead after every call.
   enc_class scrub_landing %{
-    __ scrub_exception_landing_slot();
+    c2_scrub_exception_landing_slot(masm);
   %}
 
   enc_class call_epilog %{
@@ -17202,7 +17248,7 @@ instruct CallLeafNoFPInDirect(rRegP target)
   format %{ "call_leaf_nofp,runtime indirect " %}
   ins_encode %{
      __ call($target$$Register);
-     __ scrub_exception_landing_slot();
+     c2_scrub_exception_landing_slot(masm);
   %}
 
   ins_pipe(pipe_slow);
@@ -17293,7 +17339,7 @@ instruct CreateException(rax_RegP ex_oop)
   format %{ "# exception oop is in rax" %}
   ins_encode %{
     // The callee that threw has used the stack below this frame.
-    __ scrub_exception_landing_slot();
+    c2_scrub_exception_landing_slot(masm);
   %}
   ins_pipe(empty);
 %}
