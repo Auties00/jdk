@@ -433,6 +433,7 @@ public:
   do_var(int,   AllocatePrefetchStepSize)               /* stubs and nmethods */ \
   do_var(uint,  CodeEntryAlignment)                     /* array copy stubs and nmethods */ \
   do_var(bool,  EnableContended)                        /* nmethods */ \
+  do_var(bool,  ImplicitNullChecks)                     /* nmethods */ \
   do_var(intx,  OptoLoopAlignment)                      /* array copy stubs and nmethods */ \
   do_var(bool,  RestrictContended)                      /* nmethods */ \
   do_var(int,   ContendedPaddingWidth) \
@@ -542,6 +543,7 @@ public:
   do_var(int,   CopyAVX3Threshold) \
   do_var(bool,  EnableX86ECoreOpts)                     /* nmethods */ \
   do_var(bool,  UseCountTrailingZerosInstruction) \
+  do_var(bool,  UseBranchLoopSafepointPolls)            /* nmethods */ \
   do_var(bool,  UseLibmIntrinsic) \
   do_var(bool,  UseSSE42Intrinsics) \
   do_var(bool,  CheckJNICalls) \
