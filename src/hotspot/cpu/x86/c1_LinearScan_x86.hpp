@@ -62,6 +62,10 @@ inline void LinearScan::pd_add_temps(LIR_Op* op) {
 
 inline bool LinearScanWalker::pd_init_regs_for_alloc(Interval* cur) {
   int last_xmm_reg = pd_first_xmm_reg + XMMRegister::available_xmm_registers() - 1;
+  if (!UseUpperXMMRegistersInC1) {
+    // The low 128 bits of xmm0-xmm15 are legacy SSE state, which every exception context has.
+    last_xmm_reg = MIN2(last_xmm_reg, pd_first_xmm_reg + 15);
+  }
   if (allocator()->gen()->is_vreg_flag_set(cur->reg_num(), LIRGenerator::byte_reg)) {
     assert(cur->type() != T_FLOAT && cur->type() != T_DOUBLE, "cpu regs only");
     _first_reg = pd_first_byte_reg;
