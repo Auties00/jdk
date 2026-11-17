@@ -14,7 +14,9 @@
  *      RtlAddFunctionTable entry, the way HotSpot handles traps in its code heap) records
  *      ContextFlags and GetXStateFeaturesMask and skips the 2-byte instruction;
  *   4. stores every register and compares with the patterns.
- * Optionally (env PROBE_DUMMY=n) an extra trap with no live state is taken before step 2.
+ * Optionally (env PROBE_DUMMY=n) an extra trap with no live state is taken before step 2. PROBE_FX=1 runs
+ * fxsave64/fxrstor64 between loading the patterns and the trap; PROBE_FX=2 runs fxsave64 before step 2 and
+ * fxrstor64 after it, as HotSpot's safepoint handler blob does around its call into the VM.
  *
  * Usage: xstate_block_probe <veh|seh> <low|vzu|high> <none|yield|sleep|wait> <seconds> <threads> [jvmthreads]
  *   threads 0: the probe runs on the calling thread (useful from the probe_entry DLL export).
@@ -263,6 +265,110 @@ static void round_trip(const uint64_t *in, const uint16_t *kin, uint64_t *out, u
         : "memory", "cc", "r11", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15", "xmm16", "xmm17", "xmm18", "xmm19", "xmm20", "xmm21", "xmm22", "xmm23", "xmm24", "xmm25", "xmm26", "xmm27", "xmm28", "xmm29", "xmm30", "xmm31", "k1", "k2", "k3", "k4", "k5", "k6", "k7");
 }
 
+static _Alignas(64) _Thread_local unsigned char fx_area[512];
+static int fx_mode;
+
+__attribute__((noinline))
+static void fx_save(void) { __asm__ volatile("fxsave64 (%0)" : : "r"(fx_area) : "memory"); }
+
+__attribute__((noinline))
+static void fx_restore(void) { __asm__ volatile("fxrstor64 (%0)" : : "r"(fx_area) : "memory", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15"); }
+
+/* round_trip with `fxsave64; fxrstor64` between loading the patterns and the trap. */
+__attribute__((noinline, target("avx512f,avx512bw")))
+static void round_trip_fx(const uint64_t *in, const uint16_t *kin, uint64_t *out, uint16_t *kout) {
+    register const uint16_t *kin_r __asm__("r8") = kin;
+    register uint16_t *kout_r __asm__("r9") = kout;
+    register unsigned char *thunk __asm__("r10") = trap_thunk;
+    register unsigned char *fx __asm__("r11") = fx_area;
+    __asm__ volatile(
+        "vmovdqu64 0(%%rax), %%zmm0\n\t"
+        "vmovdqu64 64(%%rax), %%zmm1\n\t"
+        "vmovdqu64 128(%%rax), %%zmm2\n\t"
+        "vmovdqu64 192(%%rax), %%zmm3\n\t"
+        "vmovdqu64 256(%%rax), %%zmm4\n\t"
+        "vmovdqu64 320(%%rax), %%zmm5\n\t"
+        "vmovdqu64 384(%%rax), %%zmm6\n\t"
+        "vmovdqu64 448(%%rax), %%zmm7\n\t"
+        "vmovdqu64 512(%%rax), %%zmm8\n\t"
+        "vmovdqu64 576(%%rax), %%zmm9\n\t"
+        "vmovdqu64 640(%%rax), %%zmm10\n\t"
+        "vmovdqu64 704(%%rax), %%zmm11\n\t"
+        "vmovdqu64 768(%%rax), %%zmm12\n\t"
+        "vmovdqu64 832(%%rax), %%zmm13\n\t"
+        "vmovdqu64 896(%%rax), %%zmm14\n\t"
+        "vmovdqu64 960(%%rax), %%zmm15\n\t"
+        "vmovdqu64 1024(%%rax), %%zmm16\n\t"
+        "vmovdqu64 1088(%%rax), %%zmm17\n\t"
+        "vmovdqu64 1152(%%rax), %%zmm18\n\t"
+        "vmovdqu64 1216(%%rax), %%zmm19\n\t"
+        "vmovdqu64 1280(%%rax), %%zmm20\n\t"
+        "vmovdqu64 1344(%%rax), %%zmm21\n\t"
+        "vmovdqu64 1408(%%rax), %%zmm22\n\t"
+        "vmovdqu64 1472(%%rax), %%zmm23\n\t"
+        "vmovdqu64 1536(%%rax), %%zmm24\n\t"
+        "vmovdqu64 1600(%%rax), %%zmm25\n\t"
+        "vmovdqu64 1664(%%rax), %%zmm26\n\t"
+        "vmovdqu64 1728(%%rax), %%zmm27\n\t"
+        "vmovdqu64 1792(%%rax), %%zmm28\n\t"
+        "vmovdqu64 1856(%%rax), %%zmm29\n\t"
+        "vmovdqu64 1920(%%rax), %%zmm30\n\t"
+        "vmovdqu64 1984(%%rax), %%zmm31\n\t"
+        "kmovw 2(%%r8), %%k1\n\t"
+        "kmovw 4(%%r8), %%k2\n\t"
+        "kmovw 6(%%r8), %%k3\n\t"
+        "kmovw 8(%%r8), %%k4\n\t"
+        "kmovw 10(%%r8), %%k5\n\t"
+        "kmovw 12(%%r8), %%k6\n\t"
+        "kmovw 14(%%r8), %%k7\n\t"
+        "fxsave64 (%%r11)\n\t"
+        "fxrstor64 (%%r11)\n\t"
+        "sub $40, %%rsp\n\t"
+        "call *%%r10\n\t"
+        "add $40, %%rsp\n\t"
+        "vmovdqu64 %%zmm0, 0(%%rdx)\n\t"
+        "vmovdqu64 %%zmm1, 64(%%rdx)\n\t"
+        "vmovdqu64 %%zmm2, 128(%%rdx)\n\t"
+        "vmovdqu64 %%zmm3, 192(%%rdx)\n\t"
+        "vmovdqu64 %%zmm4, 256(%%rdx)\n\t"
+        "vmovdqu64 %%zmm5, 320(%%rdx)\n\t"
+        "vmovdqu64 %%zmm6, 384(%%rdx)\n\t"
+        "vmovdqu64 %%zmm7, 448(%%rdx)\n\t"
+        "vmovdqu64 %%zmm8, 512(%%rdx)\n\t"
+        "vmovdqu64 %%zmm9, 576(%%rdx)\n\t"
+        "vmovdqu64 %%zmm10, 640(%%rdx)\n\t"
+        "vmovdqu64 %%zmm11, 704(%%rdx)\n\t"
+        "vmovdqu64 %%zmm12, 768(%%rdx)\n\t"
+        "vmovdqu64 %%zmm13, 832(%%rdx)\n\t"
+        "vmovdqu64 %%zmm14, 896(%%rdx)\n\t"
+        "vmovdqu64 %%zmm15, 960(%%rdx)\n\t"
+        "vmovdqu64 %%zmm16, 1024(%%rdx)\n\t"
+        "vmovdqu64 %%zmm17, 1088(%%rdx)\n\t"
+        "vmovdqu64 %%zmm18, 1152(%%rdx)\n\t"
+        "vmovdqu64 %%zmm19, 1216(%%rdx)\n\t"
+        "vmovdqu64 %%zmm20, 1280(%%rdx)\n\t"
+        "vmovdqu64 %%zmm21, 1344(%%rdx)\n\t"
+        "vmovdqu64 %%zmm22, 1408(%%rdx)\n\t"
+        "vmovdqu64 %%zmm23, 1472(%%rdx)\n\t"
+        "vmovdqu64 %%zmm24, 1536(%%rdx)\n\t"
+        "vmovdqu64 %%zmm25, 1600(%%rdx)\n\t"
+        "vmovdqu64 %%zmm26, 1664(%%rdx)\n\t"
+        "vmovdqu64 %%zmm27, 1728(%%rdx)\n\t"
+        "vmovdqu64 %%zmm28, 1792(%%rdx)\n\t"
+        "vmovdqu64 %%zmm29, 1856(%%rdx)\n\t"
+        "vmovdqu64 %%zmm30, 1920(%%rdx)\n\t"
+        "vmovdqu64 %%zmm31, 1984(%%rdx)\n\t"
+        "kmovw %%k1, 2(%%r9)\n\t"
+        "kmovw %%k2, 4(%%r9)\n\t"
+        "kmovw %%k3, 6(%%r9)\n\t"
+        "kmovw %%k4, 8(%%r9)\n\t"
+        "kmovw %%k5, 10(%%r9)\n\t"
+        "kmovw %%k6, 12(%%r9)\n\t"
+        "kmovw %%k7, 14(%%r9)\n\t"
+        : : "a"(in), "d"(out), "b"(trap_page), "c"(0), "r"(kin_r), "r"(kout_r), "r"(thunk), "r"(fx)
+        : "memory", "cc", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15", "xmm16", "xmm17", "xmm18", "xmm19", "xmm20", "xmm21", "xmm22", "xmm23", "xmm24", "xmm25", "xmm26", "xmm27", "xmm28", "xmm29", "xmm30", "xmm31", "k1", "k2", "k3", "k4", "k5", "k6", "k7");
+}
+
 static unsigned __stdcall vm_main(void *arg) {
     (void) arg;
     while (!stop) { SetEvent(vm_event); Sleep(1); }
@@ -285,13 +391,15 @@ static unsigned __stdcall worker(void *arg) {
         if (pre_mode == PRE_LOW) set_low();
         else set_patterns(in, kin, pre_mode == PRE_VZU);
         for (int d = 0; d < dummy_traps; d++) dummy_trap();
+        if (fx_mode == 2) fx_save();
         switch (block_mode) {
             case B_YIELD: SwitchToThread(); break;
             case B_SLEEP: Sleep(1); break;
             case B_WAIT: WaitForSingleObject(vm_event, 50); break;
             default: break;
         }
-        round_trip(in, kin, out, kout);
+        if (fx_mode == 2) fx_restore();
+        if (fx_mode == 1) round_trip_fx(in, kin, out, kout); else round_trip(in, kin, out, kout);
         int bad = 0;
         for (int r = 0; r < 32; r++) for (int q = 0; q < 8; q++) if (out[r * 8 + q] != in[r * 8 + q]) {
             int c = r >= 16 ? 3 : q < 2 ? 0 : q < 4 ? 1 : 2;
@@ -327,6 +435,7 @@ static int run_probe(int argc, char **argv) {
     int threads = atoi(argv[5]);
     int jvmthreads = argc > 6 && !strcmp(argv[6], "jvmthreads");
     dummy_traps = getenv("PROBE_DUMMY") ? atoi(getenv("PROBE_DUMMY")) : 0;
+    fx_mode = getenv("PROBE_FX") ? atoi(getenv("PROBE_FX")) : 0;
     trap_page = VirtualAlloc(NULL, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     DWORD old;
     VirtualProtect(trap_page, 4096, PAGE_NOACCESS, &old);
@@ -350,8 +459,8 @@ static int run_probe(int argc, char **argv) {
     if (threads > 0) WaitForMultipleObjects(threads, hs, TRUE, INFINITE);
     stop = 1;
     WaitForSingleObject(vm, INFINITE);
-    printf("RESULT handler=%s pre=%s block=%s threads=%d%s dummy=%d traps=%lld ctx_no_xstate=%lld ctx_no_hi16=%lld bad_iterations=%lld\n",
-           argv[1], argv[2], argv[3], threads, jvmthreads ? " jvmthreads" : "", dummy_traps, traps, ctx_no_xstate,
+    printf("RESULT handler=%s pre=%s block=%s threads=%d%s dummy=%d fx=%d traps=%lld ctx_no_xstate=%lld ctx_no_hi16=%lld bad_iterations=%lld\n",
+           argv[1], argv[2], argv[3], threads, jvmthreads ? " jvmthreads" : "", dummy_traps, fx_mode, traps, ctx_no_xstate,
            ctx_no_hi16, bad_iters);
     printf("  masks:");
     for (int m = 0; m < 256; m++) if (mask_hist[m]) printf(" 0x%x=%lld", m, mask_hist[m]);
