@@ -83,6 +83,10 @@ public class TestBranchLoopSafepointPollsDefault {
         if (!nullChecks.equals(Boolean.toString(!expected))) {
             throw new RuntimeException("ImplicitNullChecks = " + nullChecks + ", expected " + !expected);
         }
+        String upperXmm = flag(out, "UseUpperXMMRegistersInC1");
+        if (!upperXmm.equals(Boolean.toString(!expected))) {
+            throw new RuntimeException("UseUpperXMMRegistersInC1 = " + upperXmm + ", expected " + !expected);
+        }
         if (!flag(flags("-XX:+ImplicitNullChecks"), "ImplicitNullChecks").equals("true")) {
             throw new RuntimeException("cannot enable ImplicitNullChecks");
         }

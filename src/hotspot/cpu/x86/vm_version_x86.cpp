@@ -1122,6 +1122,11 @@ void VM_Version::get_processor_features() {
     if (FLAG_IS_DEFAULT(ImplicitNullChecks)) {
       FLAG_SET_DEFAULT(ImplicitNullChecks, false);
     }
+    // C1 keeps its implicit null and division checks. It only has scalar floating point
+    // values in XMM registers, so restricting it to xmm0-xmm15 leaves it nothing to lose.
+    if (FLAG_IS_DEFAULT(UseUpperXMMRegistersInC1)) {
+      FLAG_SET_DEFAULT(UseUpperXMMRegistersInC1, false);
+    }
   }
 #endif
 
