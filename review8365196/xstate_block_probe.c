@@ -274,6 +274,7 @@ static void round_trip(const uint64_t *in, const uint16_t *kin, uint64_t *out, u
 }
 
 static int align_off = -1, align_inline, sparse_state;
+static int mxcsr_value = -1; /* PROBE_MXCSR=hex: MXCSR loaded before each trap (the JVM traps with 0x1fa5) */
 
 /* Like round_trip, but the state at the trap is JVM-like: ymm0-15 (VEX.256, zmm0-15 upper halves init),
  * xmm16-31 (EVEX.128: Hi16_ZMM in use with zero upper bits) and k1-k7: XINUSE 0xA7. */
@@ -630,6 +631,7 @@ static unsigned __stdcall worker(void *arg) {
             default: break;
         }
         if (fx_mode == 2) fx_restore();
+        if (mxcsr_value >= 0) __asm__ volatile("ldmxcsr %0" : : "m"(mxcsr_value));
         if (sparse_state) {
             for (int r = 0; r < 32; r++) for (int q = (r < 16 ? 4 : 2); q < 8; q++) in[r * 8 + q] = 0;
             memset(out, 0, sizeof out);
@@ -675,6 +677,7 @@ static int run_probe(int argc, char **argv) {
     align_off = getenv("PROBE_ALIGN") ? atoi(getenv("PROBE_ALIGN")) : -1;
     align_inline = getenv("PROBE_INLINE") != NULL;
     sparse_state = getenv("PROBE_SPARSE") != NULL;
+    mxcsr_value = getenv("PROBE_MXCSR") ? (int) strtol(getenv("PROBE_MXCSR"), NULL, 16) : -1;
     trap_page = VirtualAlloc(NULL, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     DWORD old;
     VirtualProtect(trap_page, 4096, PAGE_NOACCESS, &old);

@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        slot: [1, 2, 3, 4, 5, 6, 7, 8]
+        slot: [1, 2, 3, 4]
     defaults:
       run:
         shell: bash
@@ -53,14 +53,11 @@ jobs:
           "$jb/javac" -d ph review8365196/ProbeHost.java
           "$jb/javac" --add-modules jdk.incubator.vector -d c-repro repro/Repro.java 2>&1 | grep -v -i warning
           sp="-XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1"
-          for d in 0 1; do for h in seh veh; do for pre in high low; do for b in none wait sleep; do
-            echo "## sparse dummy=$d: $h $pre $b" >> out/probe.txt
-            PROBE_SPARSE=1 PROBE_DUMMY=$d ./probe.exe $h $pre $b 2 4 >> out/probe.txt 2>&1
-          done; done; done; done
-          for b in none wait; do
-            echo "## jvm+load+safepointalot sparse: seh high $b 3 0" >> out/probe.txt
-            PROBE_SPARSE=1 "$jbase" $sp --enable-native-access=ALL-UNNAMED -cp ph ProbeHost ./probe.dll "seh high $b 3 0" load >> out/probe.txt 2>&1
-          done
+          for mx in 1fa5 1fa0 1f81; do for sp in 0 1; do for b in none wait; do
+            echo "## mxcsr=$mx sparse=$sp: seh high $b" >> out/probe.txt
+            if [ $sp = 1 ]; then PROBE_SPARSE=1 PROBE_MXCSR=$mx ./probe.exe seh high $b 2 4 >> out/probe.txt 2>&1
+            else PROBE_MXCSR=$mx ./probe.exe seh high $b 2 4 >> out/probe.txt 2>&1; fi
+          done; done; done
           "$jbase" -Xmx512m $sp -XX:+StressGCM -XX:+StressLCM -XX:StressSeed=29 -XX:-CreateCoredumpOnCrash --add-modules jdk.incubator.vector -cp c-repro Repro field 4 4 > out/repro-29.log 2>&1
           echo "REPRO control seed=29 exit=$?" | tee -a out/summary.txt
           cat out/probe.txt
