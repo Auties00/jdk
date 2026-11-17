@@ -53,14 +53,15 @@ jobs:
           "$jb/javac" -d ph review8365196/ProbeHost.java
           "$jb/javac" --add-modules jdk.incubator.vector -d c-repro repro/Repro.java 2>&1 | grep -v -i warning
           sp="-XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1"
-          for r in 1 2; do
-            for a in "seh high none 3 4" "veh high wait 3 4"; do echo "## standalone: $a" >> out/probe.txt; ./probe.exe $a >> out/probe.txt 2>&1; done
-            for a in "seh high none 3 4" "veh high wait 3 4" "seh high wait 3 4" "seh high none 3 0" "seh high wait 3 0" "seh vzu wait 3 0"; do
-              echo "## jvm: $a" >> out/probe.txt
-              "$jbase" --enable-native-access=ALL-UNNAMED -cp ph ProbeHost ./probe.dll "$a" >> out/probe.txt 2>&1
-              echo "## jvm+load+safepointalot: $a" >> out/probe.txt
-              "$jbase" $sp --enable-native-access=ALL-UNNAMED -cp ph ProbeHost ./probe.dll "$a" load >> out/probe.txt 2>&1
-            done
+          for b in wait sleep yield none; do for h in seh veh; do
+            echo "## standalone dummy-low: $h low $b" >> out/probe.txt
+            PROBE_DUMMY=1 ./probe.exe $h low $b 4 4 >> out/probe.txt 2>&1
+            echo "## standalone dummy-vzu: $h vzu $b" >> out/probe.txt
+            PROBE_DUMMY=1 ./probe.exe $h vzu $b 4 4 >> out/probe.txt 2>&1
+          done; done
+          for b in wait none; do
+            echo "## jvm+load+safepointalot dummy-low: seh low $b 4 0" >> out/probe.txt
+            PROBE_DUMMY=1 "$jbase" $sp --enable-native-access=ALL-UNNAMED -cp ph ProbeHost ./probe.dll "seh low $b 4 0" load >> out/probe.txt 2>&1
           done
           "$jbase" -Xmx512m $sp -XX:+StressGCM -XX:+StressLCM -XX:StressSeed=29 -XX:-CreateCoredumpOnCrash --add-modules jdk.incubator.vector -cp c-repro Repro field 4 4 > out/repro-29.log 2>&1
           echo "REPRO control seed=29 exit=$?" | tee -a out/summary.txt
