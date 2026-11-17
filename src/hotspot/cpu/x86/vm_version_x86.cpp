@@ -1037,9 +1037,16 @@ void VM_Version::get_processor_features() {
   }
 
 #ifdef _WINDOWS
-  // JDK-8365196: Windows can resume a polling page trap without the AVX-512 state it was taken with.
-  if (FLAG_IS_DEFAULT(UseBranchLoopSafepointPolls)) {
-    FLAG_SET_DEFAULT(UseBranchLoopSafepointPolls, UseAVX > 2);
+  // JDK-8365196: Windows can resume an access violation in compiled code without the AVX-512
+  // state the thread had when it was raised. Compiled code keeps values in these registers
+  // across loop safepoint polls and C2 implicit null checks, so avoid both traps.
+  if (UseAVX > 2) {
+    if (FLAG_IS_DEFAULT(UseBranchLoopSafepointPolls)) {
+      FLAG_SET_DEFAULT(UseBranchLoopSafepointPolls, true);
+    }
+    if (FLAG_IS_DEFAULT(ImplicitNullChecks)) {
+      FLAG_SET_DEFAULT(ImplicitNullChecks, false);
+    }
   }
 #endif
 
