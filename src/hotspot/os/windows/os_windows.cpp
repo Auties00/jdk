@@ -24,7 +24,9 @@
 
 // API level must be at least Windows Vista or Server 2008 to use InitOnceExecuteOnce
 
+#include "asm/macroAssembler.hpp"
 #include "classfile/vmSymbols.hpp"
+#include "code/codeBlob.hpp"
 #include "code/codeCache.hpp"
 #include "code/nativeInst.hpp"
 #include "code/vtableStubs.hpp"
@@ -92,6 +94,7 @@
 #endif
 
 #include <windows.h>
+#include <intrin.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/timeb.h>
@@ -2554,6 +2557,116 @@ int os::signal_wait() {
   return check_pending_signals();
 }
 
+// JDK-8365196 diagnostics (review only). Enabled with JDK8365196_TRACE. At each C2 loop poll trap whose
+// snapshot (taken by the compiled code right before the poll, same rsp) is valid, compares the exception
+// CONTEXT with that snapshot: XSTATE mask, legacy xmm0-15, MXCSR, rsp alignment, and the live xmm16-31.
+#if defined(_M_AMD64)
+static int jdk8365196_trace = -1;
+typedef void (*jdk8365196_dump_fn)(uint64_t* buf);
+static volatile jdk8365196_dump_fn jdk8365196_dump_live = nullptr;
+static volatile int64_t d_total, d_invalid, d_dropped, d_kept, d_drop_legacy_bad, d_kept_legacy_bad,
+                        d_drop_mxcsr_bad, d_kept_mxcsr_bad, d_drop_live_bad, d_kept_live_bad, d_printed,
+                        d_drop_align[8], d_kept_align[8], d_drop_mask[256], d_kept_mask[256];
+
+static bool jdk8365196_enabled() {
+  if (jdk8365196_trace < 0) {
+    int enabled = ::getenv("JDK8365196_TRACE") != nullptr ? 1 : 0;
+    if (enabled) {
+      int regs[4];
+      __cpuidex(regs, 0xD, 1);
+      if ((regs[0] & 4) == 0) enabled = 0;
+    }
+    jdk8365196_trace = enabled;
+  }
+  return jdk8365196_trace == 1;
+}
+
+bool jdk8365196_instrument_polls() {
+  bool on = jdk8365196_enabled() && UseAVX > 2 && VM_Version::supports_avx512vl();
+  if (on && jdk8365196_dump_live == nullptr) {
+    BufferBlob* blob = BufferBlob::create("jdk8365196_dump", 1024);
+    if (blob != nullptr) {
+      CodeBuffer buffer(blob);
+      MacroAssembler* masm = new MacroAssembler(&buffer);
+      address start = masm->pc();
+      masm->mov(r8, c_rarg0);
+      masm->movl(rcx, 1);
+      masm->xgetbv();
+      masm->movl(Address(r8, 0), rax);
+      masm->movl(Address(r8, 4), rdx);
+      for (int n = 16; n < 32; n++) {
+        masm->evmovdqul(Address(r8, 16 + (n - 16) * 16), as_XMMRegister(n), Assembler::AVX_128bit);
+      }
+      masm->ret(0);
+      jdk8365196_dump_live = (jdk8365196_dump_fn)start;
+    }
+  }
+  return on;
+}
+
+static void jdk8365196_print(const char* tag) {
+  char line[2400];
+  int pos = jio_snprintf(line, sizeof(line),
+      "JDK8365196DIAG %s total=%lld invalid=%lld dropped=%lld kept=%lld drop_legacy_bad=%lld kept_legacy_bad=%lld"
+      " drop_mxcsr_bad=%lld kept_mxcsr_bad=%lld drop_live_hi16_bad=%lld kept_live_hi16_bad=%lld drop_align=",
+      tag, (long long)d_total, (long long)d_invalid, (long long)d_dropped, (long long)d_kept,
+      (long long)d_drop_legacy_bad, (long long)d_kept_legacy_bad, (long long)d_drop_mxcsr_bad,
+      (long long)d_kept_mxcsr_bad, (long long)d_drop_live_bad, (long long)d_kept_live_bad);
+  for (int a = 0; a < 8; a++) pos += jio_snprintf(line + pos, sizeof(line) - pos, "%s%lld", a ? "/" : "", (long long)d_drop_align[a]);
+  pos += jio_snprintf(line + pos, sizeof(line) - pos, " kept_align=");
+  for (int a = 0; a < 8; a++) pos += jio_snprintf(line + pos, sizeof(line) - pos, "%s%lld", a ? "/" : "", (long long)d_kept_align[a]);
+  pos += jio_snprintf(line + pos, sizeof(line) - pos, " drop_masks=");
+  for (int m = 0; m < 256; m++) if (d_drop_mask[m]) pos += jio_snprintf(line + pos, sizeof(line) - pos, "0x%x:%lld,", m, (long long)d_drop_mask[m]);
+  pos += jio_snprintf(line + pos, sizeof(line) - pos, " kept_masks=");
+  for (int m = 0; m < 256; m++) if (d_kept_mask[m]) pos += jio_snprintf(line + pos, sizeof(line) - pos, "0x%x:%lld,", m, (long long)d_kept_mask[m]);
+  jio_fprintf(defaultStream::error_stream(), "%s\n", line);
+}
+
+static void jdk8365196_diag(JavaThread* thread, PCONTEXT ctx) {
+  if (!jdk8365196_enabled()) return;
+  uint64_t live[2 + 32];
+  memset(live, 0, sizeof(live));
+  jdk8365196_dump_fn dump = jdk8365196_dump_live;
+  if (dump != nullptr) dump(live);
+  uint64_t* pre = thread->_jdk8365196_pre;
+  bool valid = pre[3] == 1 && pre[2] == ctx->Rsp;
+  pre[3] = 0;
+  int64_t total = AtomicAccess::add(&d_total, (int64_t)1);
+  if (!valid) { AtomicAccess::inc(&d_invalid); return; }
+  DWORD64 mask = 0;
+  if ((ctx->ContextFlags & CONTEXT_XSTATE) == CONTEXT_XSTATE) GetXStateFeaturesMask(ctx, &mask);
+  bool dropped = (pre[0] & 0x80) != 0 && (mask & 0x80) == 0;
+  bool legacy_bad = false;
+  for (int i = 0; i < 16; i++) {
+    if (memcmp(&ctx->FltSave.XmmRegisters[i], &pre[4 + 2 * i], 16) != 0) legacy_bad = true;
+  }
+  bool mxcsr_bad = ctx->MxCsr != (DWORD)pre[1];
+  bool live_bad = dump != nullptr && memcmp(&live[2], &pre[36], 256) != 0;
+  int align = (int)((ctx->Rsp & 63) >> 3);
+  if (dropped) {
+    AtomicAccess::inc(&d_dropped); AtomicAccess::inc(&d_drop_align[align]); AtomicAccess::inc(&d_drop_mask[mask & 0xff]);
+    if (legacy_bad) AtomicAccess::inc(&d_drop_legacy_bad);
+    if (mxcsr_bad) AtomicAccess::inc(&d_drop_mxcsr_bad);
+    if (live_bad) AtomicAccess::inc(&d_drop_live_bad);
+    if (AtomicAccess::add(&d_printed, (int64_t)1) <= 5) {
+      jio_fprintf(defaultStream::error_stream(),
+          "JDK8365196DIAG dropped: pre_xinuse=0x%llx live_xinuse=0x%llx mask=0x%llx flags=0x%lx rsp=0x%llx "
+          "ctx_mxcsr=0x%lx pre_mxcsr=0x%llx ctx_xmm0=%016llx%016llx pre_xmm0=%016llx%016llx legacy_bad=%d live_hi16_bad=%d\n",
+          (unsigned long long)pre[0], (unsigned long long)live[0], (unsigned long long)mask, (unsigned long)ctx->ContextFlags,
+          (unsigned long long)ctx->Rsp, (unsigned long)ctx->MxCsr, (unsigned long long)pre[1],
+          (unsigned long long)ctx->FltSave.XmmRegisters[0].High, (unsigned long long)ctx->FltSave.XmmRegisters[0].Low,
+          (unsigned long long)pre[5], (unsigned long long)pre[4], legacy_bad ? 1 : 0, live_bad ? 1 : 0);
+    }
+  } else {
+    AtomicAccess::inc(&d_kept); AtomicAccess::inc(&d_kept_align[align]); AtomicAccess::inc(&d_kept_mask[mask & 0xff]);
+    if (legacy_bad) AtomicAccess::inc(&d_kept_legacy_bad);
+    if (mxcsr_bad) AtomicAccess::inc(&d_kept_mxcsr_bad);
+    if (live_bad) AtomicAccess::inc(&d_kept_live_bad);
+  }
+  if (total % 1000 == 0) jdk8365196_print("progress");
+}
+#endif
+
 // Implicit OS exception handling
 
 LONG Handle_Exception(struct _EXCEPTION_POINTERS* exceptionInfo,
@@ -2801,6 +2914,7 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
         CodeBlob* cb = CodeCache::find_blob(pc);
         if (cb != nullptr) {
           if (SafepointMechanism::is_poll_address(addr)) {
+            jdk8365196_diag(thread, exceptionInfo->ContextRecord);
             address stub = SharedRuntime::get_poll_stub(pc);
             return Handle_Exception(exceptionInfo, stub);
           }

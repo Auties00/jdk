@@ -85,6 +85,10 @@ typedef void (*ThreadFunction)(JavaThread*, TRAPS);
 class EventVirtualThreadPinned;
 class ThreadWXEnable;
 
+#ifdef _WINDOWS
+bool jdk8365196_instrument_polls(); // JDK-8365196 diagnostics (review only)
+#endif
+
 class JavaThread: public Thread {
   friend class VMStructs;
   friend class WhiteBox;
@@ -273,6 +277,11 @@ class JavaThread: public Thread {
   volatile JavaThreadState _thread_state;
   ThreadSafepointState*          _safepoint_state;              // Holds information about a thread during a safepoint
   address                        _saved_exception_pc;           // Saved pc of instruction where last implicit exception happened
+ public:
+  // JDK-8365196 diagnostics (review only), written by C2 code right before each loop poll:
+  // [0] XINUSE, [1] MXCSR, [2] rsp, [3] valid, [4..35] xmm0-15 (low 128), [36..67] xmm16-31 (low 128)
+  uint64_t                       _jdk8365196_pre[72];
+ private:
   NOT_PRODUCT(bool               _requires_cross_modify_fence;) // State used by VerifyCrossModifyFence
 #ifdef ASSERT
   // Debug support for checking if code allows safepoints or not.
@@ -812,6 +821,7 @@ public:
   static ByteSize vm_result_metadata_offset()    { return byte_offset_of(JavaThread, _vm_result_metadata); }
   static ByteSize thread_state_offset()          { return byte_offset_of(JavaThread, _thread_state); }
   static ByteSize saved_exception_pc_offset()    { return byte_offset_of(JavaThread, _saved_exception_pc); }
+  static ByteSize jdk8365196_pre_offset()        { return byte_offset_of(JavaThread, _jdk8365196_pre); }
   static ByteSize osthread_offset()              { return byte_offset_of(JavaThread, _osthread); }
   static ByteSize exception_oop_offset()         { return byte_offset_of(JavaThread, _exception_oop); }
   static ByteSize exception_pc_offset()          { return byte_offset_of(JavaThread, _exception_pc); }
