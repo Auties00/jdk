@@ -42,6 +42,7 @@
  * @requires vm.jvmti
  * @requires vm.compMode != "Xcomp"
  * @requires os.arch == "amd64" | os.arch == "x86_64"
+ * @requires vm.flavor != "zero"
  * @modules java.base/java.lang:+open
  * @library /test/lib
  * @run main/othervm/native -XX:+UnlockDiagnosticVMOptions -XX:+UseBranchLoopSafepointPolls

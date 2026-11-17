@@ -28,6 +28,7 @@
  *          Windows with UseAVX > 2, and both can be overridden.
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.flagless
+ * @requires vm.flavor != "zero"
  * @library /test/lib
  * @run driver compiler.runtime.safepoints.TestBranchLoopSafepointPollsDefault
  */
