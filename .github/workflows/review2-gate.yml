@@ -1,0 +1,135 @@
+name: 'JDK-8365196 review 2: AVX-512 gate fix'
+
+# Review-only: builds windows-x64 release of the gate fix (default on whenever the processor has AVX-512)
+# and runs Test7196199 with -XX:UseAVX=2 on windows-latest, with the new default and with the old code shape.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-review2-gate*'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  prepare:
+    name: 'Prepare'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+      - name: 'Build JTReg'
+        uses: ./.github/actions/build-jtreg
+
+  build-windows-x64:
+    name: build windows-x64 release
+    needs: prepare
+    runs-on: windows-2022
+    env:
+      MSYS2_PATH_TYPE: minimal
+      CHERE_INVOKING: 1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/get-msys2
+        with:
+          architecture: 'x86.x64'
+      - id: bootjdk
+        uses: ./.github/actions/get-bootjdk
+        with:
+          platform: windows-x64
+      - id: jtreg
+        uses: ./.github/actions/get-jtreg
+      - id: gtest
+        uses: ./.github/actions/get-gtest
+      - name: 'Install toolchain'
+        shell: pwsh
+        run: |
+          & 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\vc\auxiliary\build\vcvars64.bat' -vcvars_ver=14.44
+          if ($LASTEXITCODE -ne 0) {
+            & 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vs_installer.exe' modify --quiet --installPath 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise' --add Microsoft.VisualStudio.Component.VC.14.44.x86.x64 | Out-Default
+          }
+          exit 0
+      - name: 'Configure'
+        run: >
+          bash configure
+          --with-conf-name=windows-x64
+          --with-version-opt=${GITHUB_ACTOR}-${GITHUB_SHA}
+          --with-boot-jdk=${{ steps.bootjdk.outputs.path }}
+          --with-jtreg=${{ steps.jtreg.outputs.path }}
+          --with-gtest=${{ steps.gtest.outputs.path }}
+          --with-msvc-toolset-version=14.44
+          --with-jmod-compress=zip-1
+          --with-external-symbols-in-bundles=none || (
+          echo "Dumping config.log:" &&
+          cat config.log &&
+          exit 1)
+        env:
+          PATH: ''
+        shell: env /usr/bin/bash --login -eo pipefail {0}
+      - uses: ./.github/actions/do-build
+        with:
+          make-target: 'product-bundles test-bundles'
+          platform: windows-x64
+          debug-suffix: ''
+      - uses: ./.github/actions/upload-bundles
+        with:
+          platform: windows-x64
+          debug-suffix: ''
+
+
+  gate:
+    name: gate (${{ matrix.slot }})
+    needs: build-windows-x64
+    runs-on: windows-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2, 3, 4, 5, 6]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: bundles
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: jdksrc
+          sparse-checkout: |
+            test/hotspot/jtreg/compiler/runtime
+      - name: 'UseAVX=2 with the new default'
+        run: |
+          set +e
+          mkdir -p out jdk; unzip -q bundles/jdk-windows-x64.zip -d jdk
+          bin=$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")
+          cpu=$(powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()")
+          build=$(powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"")
+          echo "$cpu | $build" | tee out/cpu.txt
+          for v in "" "-XX:UseAVX=2" "-XX:UseAVX=1"; do echo "[$v]"; "$bin/java" -XX:+UnlockDiagnosticVMOptions $v -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|UseBranchLoopSafepointPolls|ImplicitNullChecks) '; done | tee out/flags.txt
+          "$bin/javac" -d t7 jdksrc/test/hotspot/jtreg/compiler/runtime/Test7196199.java
+          for round in 1 2 3; do
+            for c in "new-avx2:-XX:UseAVX=2" "old-avx2:-XX:UseAVX=2 -XX:-UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks"; do
+              n=${c%%:*}; fl=${c#*:}
+              f=0; for i in $(seq 1 10); do
+                "$bin/java" -Xmx128m -Xbatch -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockDiagnosticVMOptions $fl -XX:-TieredCompilation -XX:+SafepointALot -XX:GuaranteedSafepointInterval=100 -XX:CompileCommand=exclude,compiler.runtime.Test7196199::test -XX:-CreateCoredumpOnCrash -cp t7 compiler.runtime.Test7196199 > out/t7.log 2>&1 || { f=$((f+1)); cp out/t7.log out/t7-$n-$round-$i.log; }
+              done; echo "RESULT Test7196199 $n $f 10" | tee -a out/raw.txt
+            done
+          done
+          awk '/^RESULT/ {k=$2" "$3; f[k]+=$4; n[k]+=$5} END {for (k in f) printf "SUMMARY %s: %d of %d failed\n", k, f[k], n[k]}' out/raw.txt | sort | tee -a out/summary.txt
+          { echo "### $(cat out/cpu.txt)"; echo '```'; cat out/flags.txt out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: gatefix-${{ matrix.slot }}
+          path: out
+          retention-days: 30
