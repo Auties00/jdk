@@ -53,18 +53,15 @@ jobs:
           "$jb/javac" -d ph review8365196/ProbeHost.java
           "$jb/javac" --add-modules jdk.incubator.vector -d c-repro repro/Repro.java 2>&1 | grep -v -i warning
           sp="-XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1"
-          for fx in 1 2; do for h in seh veh; do for pre in high vzu low; do for b in none wait; do
-            echo "## standalone fx=$fx: $h $pre $b" >> out/probe.txt
-            PROBE_FX=$fx ./probe.exe $h $pre $b 3 4 >> out/probe.txt 2>&1
-          done; done; done; done
-          for fx in 1 2; do
-            echo "## jvm+load+safepointalot fx=$fx: seh high wait 3 0" >> out/probe.txt
-            PROBE_FX=$fx "$jbase" $sp --enable-native-access=ALL-UNNAMED -cp ph ProbeHost ./probe.dll "seh high wait 3 0" load >> out/probe.txt 2>&1
-          done
+          for inl in 1 0; do for off in 0 8 16 24 32 40 48 56; do
+            echo "## align off=$off inline=$inl" >> out/probe.txt
+            if [ $inl = 1 ]; then PROBE_INLINE=1 PROBE_ALIGN=$off ./probe.exe veh high none 2 4 >> out/probe.txt 2>&1
+            else PROBE_ALIGN=$off ./probe.exe seh high none 2 4 >> out/probe.txt 2>&1; fi
+          done; done
           "$jbase" -Xmx512m $sp -XX:+StressGCM -XX:+StressLCM -XX:StressSeed=29 -XX:-CreateCoredumpOnCrash --add-modules jdk.incubator.vector -cp c-repro Repro field 4 4 > out/repro-29.log 2>&1
           echo "REPRO control seed=29 exit=$?" | tee -a out/summary.txt
           cat out/probe.txt
-          { echo "### $(head -1 out/host.txt)"; echo '```'; grep -E "^##|RESULT|masks|corrupted" out/probe.txt; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### $(head -1 out/host.txt)"; echo '```'; grep -E "^##|RESULT|masks|rsp%64|corrupted" out/probe.txt; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit 0
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

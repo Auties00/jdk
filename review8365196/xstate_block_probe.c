@@ -15,6 +15,8 @@
  *      ContextFlags and GetXStateFeaturesMask and skips the 2-byte instruction;
  *   4. stores every register and compares with the patterns.
  * Optionally (env PROBE_DUMMY=n) an extra trap with no live state is taken before step 2. PROBE_FX=1 runs
+ * PROBE_ALIGN=k sets rsp so that it is k mod 64 below a 64-byte boundary before the trap (PROBE_INLINE=1: the
+ * load traps in place, vectored handler only). The output reports the context masks per rsp%64 at the fault.
  * fxsave64/fxrstor64 between loading the patterns and the trap; PROBE_FX=2 runs fxsave64 before step 2 and
  * fxrstor64 after it, as HotSpot's safepoint handler blob does around its call into the VM.
  *
@@ -43,12 +45,17 @@ static HANDLE vm_event;
 enum { PRE_LOW, PRE_VZU, PRE_HIGH };
 enum { B_NONE, B_YIELD, B_SLEEP, B_WAIT };
 
+static volatile LONG64 align_hist[8][256], align_traps[8];
+
 static void record(PCONTEXT ctx) {
     InterlockedIncrement64(&traps);
+    int al = (int) ((ctx->Rsp & 63) >> 3);
+    InterlockedIncrement64(&align_traps[al]);
     if ((ctx->ContextFlags & CONTEXT_XSTATE) != CONTEXT_XSTATE) { InterlockedIncrement64(&ctx_no_xstate); return; }
     DWORD64 m = 0;
     if (!GetXStateFeaturesMask(ctx, &m)) { InterlockedIncrement64(&ctx_no_xstate); return; }
     InterlockedIncrement64(&mask_hist[m & 0xff]);
+    InterlockedIncrement64(&align_hist[al][m & 0xff]);
     if (!(m & (1ull << XSTATE_AVX512_ZMM))) InterlockedIncrement64(&ctx_no_hi16);
 }
 
@@ -265,6 +272,112 @@ static void round_trip(const uint64_t *in, const uint16_t *kin, uint64_t *out, u
         : "memory", "cc", "r11", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15", "xmm16", "xmm17", "xmm18", "xmm19", "xmm20", "xmm21", "xmm22", "xmm23", "xmm24", "xmm25", "xmm26", "xmm27", "xmm28", "xmm29", "xmm30", "xmm31", "k1", "k2", "k3", "k4", "k5", "k6", "k7");
 }
 
+static int align_off = -1, align_inline;
+
+/* round_trip with the stack pointer set to (64-aligned - 256 - align_off) before the trap; inline: the
+ * trapping load is executed in place (needs the vectored handler), else through the thunk (rsp - 8 at the fault). */
+__attribute__((noinline, target("avx512f,avx512bw")))
+static void round_trip_aligned(const uint64_t *in, const uint16_t *kin, uint64_t *out, uint16_t *kout) {
+    register const uint16_t *kin_r __asm__("r8") = kin;
+    register uint16_t *kout_r __asm__("r9") = kout;
+    register unsigned char *thunk __asm__("r10") = trap_thunk;
+    register long long off __asm__("r12") = align_off;
+    register long long inl __asm__("r13") = align_inline;
+    __asm__ volatile(
+        "vmovdqu64 0(%%rax), %%zmm0\n\t"
+        "vmovdqu64 64(%%rax), %%zmm1\n\t"
+        "vmovdqu64 128(%%rax), %%zmm2\n\t"
+        "vmovdqu64 192(%%rax), %%zmm3\n\t"
+        "vmovdqu64 256(%%rax), %%zmm4\n\t"
+        "vmovdqu64 320(%%rax), %%zmm5\n\t"
+        "vmovdqu64 384(%%rax), %%zmm6\n\t"
+        "vmovdqu64 448(%%rax), %%zmm7\n\t"
+        "vmovdqu64 512(%%rax), %%zmm8\n\t"
+        "vmovdqu64 576(%%rax), %%zmm9\n\t"
+        "vmovdqu64 640(%%rax), %%zmm10\n\t"
+        "vmovdqu64 704(%%rax), %%zmm11\n\t"
+        "vmovdqu64 768(%%rax), %%zmm12\n\t"
+        "vmovdqu64 832(%%rax), %%zmm13\n\t"
+        "vmovdqu64 896(%%rax), %%zmm14\n\t"
+        "vmovdqu64 960(%%rax), %%zmm15\n\t"
+        "vmovdqu64 1024(%%rax), %%zmm16\n\t"
+        "vmovdqu64 1088(%%rax), %%zmm17\n\t"
+        "vmovdqu64 1152(%%rax), %%zmm18\n\t"
+        "vmovdqu64 1216(%%rax), %%zmm19\n\t"
+        "vmovdqu64 1280(%%rax), %%zmm20\n\t"
+        "vmovdqu64 1344(%%rax), %%zmm21\n\t"
+        "vmovdqu64 1408(%%rax), %%zmm22\n\t"
+        "vmovdqu64 1472(%%rax), %%zmm23\n\t"
+        "vmovdqu64 1536(%%rax), %%zmm24\n\t"
+        "vmovdqu64 1600(%%rax), %%zmm25\n\t"
+        "vmovdqu64 1664(%%rax), %%zmm26\n\t"
+        "vmovdqu64 1728(%%rax), %%zmm27\n\t"
+        "vmovdqu64 1792(%%rax), %%zmm28\n\t"
+        "vmovdqu64 1856(%%rax), %%zmm29\n\t"
+        "vmovdqu64 1920(%%rax), %%zmm30\n\t"
+        "vmovdqu64 1984(%%rax), %%zmm31\n\t"
+        "kmovw 2(%%r8), %%k1\n\t"
+        "kmovw 4(%%r8), %%k2\n\t"
+        "kmovw 6(%%r8), %%k3\n\t"
+        "kmovw 8(%%r8), %%k4\n\t"
+        "kmovw 10(%%r8), %%k5\n\t"
+        "kmovw 12(%%r8), %%k6\n\t"
+        "kmovw 14(%%r8), %%k7\n\t"
+        "mov %%rsp, %%r11\n\t"
+        "and $-64, %%rsp\n\t"
+        "sub $256, %%rsp\n\t"
+        "sub %%r12, %%rsp\n\t"
+        "test %%r13, %%r13\n\t"
+        "jz 2f\n\t"
+        "test %%ecx, (%%rbx)\n\t"
+        "jmp 3f\n\t"
+        "2:\n\t"
+        "call *%%r10\n\t"
+        "3:\n\t"
+        "mov %%r11, %%rsp\n\t"
+        "vmovdqu64 %%zmm0, 0(%%rdx)\n\t"
+        "vmovdqu64 %%zmm1, 64(%%rdx)\n\t"
+        "vmovdqu64 %%zmm2, 128(%%rdx)\n\t"
+        "vmovdqu64 %%zmm3, 192(%%rdx)\n\t"
+        "vmovdqu64 %%zmm4, 256(%%rdx)\n\t"
+        "vmovdqu64 %%zmm5, 320(%%rdx)\n\t"
+        "vmovdqu64 %%zmm6, 384(%%rdx)\n\t"
+        "vmovdqu64 %%zmm7, 448(%%rdx)\n\t"
+        "vmovdqu64 %%zmm8, 512(%%rdx)\n\t"
+        "vmovdqu64 %%zmm9, 576(%%rdx)\n\t"
+        "vmovdqu64 %%zmm10, 640(%%rdx)\n\t"
+        "vmovdqu64 %%zmm11, 704(%%rdx)\n\t"
+        "vmovdqu64 %%zmm12, 768(%%rdx)\n\t"
+        "vmovdqu64 %%zmm13, 832(%%rdx)\n\t"
+        "vmovdqu64 %%zmm14, 896(%%rdx)\n\t"
+        "vmovdqu64 %%zmm15, 960(%%rdx)\n\t"
+        "vmovdqu64 %%zmm16, 1024(%%rdx)\n\t"
+        "vmovdqu64 %%zmm17, 1088(%%rdx)\n\t"
+        "vmovdqu64 %%zmm18, 1152(%%rdx)\n\t"
+        "vmovdqu64 %%zmm19, 1216(%%rdx)\n\t"
+        "vmovdqu64 %%zmm20, 1280(%%rdx)\n\t"
+        "vmovdqu64 %%zmm21, 1344(%%rdx)\n\t"
+        "vmovdqu64 %%zmm22, 1408(%%rdx)\n\t"
+        "vmovdqu64 %%zmm23, 1472(%%rdx)\n\t"
+        "vmovdqu64 %%zmm24, 1536(%%rdx)\n\t"
+        "vmovdqu64 %%zmm25, 1600(%%rdx)\n\t"
+        "vmovdqu64 %%zmm26, 1664(%%rdx)\n\t"
+        "vmovdqu64 %%zmm27, 1728(%%rdx)\n\t"
+        "vmovdqu64 %%zmm28, 1792(%%rdx)\n\t"
+        "vmovdqu64 %%zmm29, 1856(%%rdx)\n\t"
+        "vmovdqu64 %%zmm30, 1920(%%rdx)\n\t"
+        "vmovdqu64 %%zmm31, 1984(%%rdx)\n\t"
+        "kmovw %%k1, 2(%%r9)\n\t"
+        "kmovw %%k2, 4(%%r9)\n\t"
+        "kmovw %%k3, 6(%%r9)\n\t"
+        "kmovw %%k4, 8(%%r9)\n\t"
+        "kmovw %%k5, 10(%%r9)\n\t"
+        "kmovw %%k6, 12(%%r9)\n\t"
+        "kmovw %%k7, 14(%%r9)\n\t"
+        : : "a"(in), "d"(out), "b"(trap_page), "c"(0), "r"(kin_r), "r"(kout_r), "r"(thunk), "r"(off), "r"(inl)
+        : "memory", "cc", "r11", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15", "xmm16", "xmm17", "xmm18", "xmm19", "xmm20", "xmm21", "xmm22", "xmm23", "xmm24", "xmm25", "xmm26", "xmm27", "xmm28", "xmm29", "xmm30", "xmm31", "k1", "k2", "k3", "k4", "k5", "k6", "k7");
+}
+
 static _Alignas(64) _Thread_local unsigned char fx_area[512];
 static int fx_mode;
 
@@ -399,7 +512,8 @@ static unsigned __stdcall worker(void *arg) {
             default: break;
         }
         if (fx_mode == 2) fx_restore();
-        if (fx_mode == 1) round_trip_fx(in, kin, out, kout); else round_trip(in, kin, out, kout);
+        if (align_off >= 0) round_trip_aligned(in, kin, out, kout);
+        else if (fx_mode == 1) round_trip_fx(in, kin, out, kout); else round_trip(in, kin, out, kout);
         int bad = 0;
         for (int r = 0; r < 32; r++) for (int q = 0; q < 8; q++) if (out[r * 8 + q] != in[r * 8 + q]) {
             int c = r >= 16 ? 3 : q < 2 ? 0 : q < 4 ? 1 : 2;
@@ -436,6 +550,8 @@ static int run_probe(int argc, char **argv) {
     int jvmthreads = argc > 6 && !strcmp(argv[6], "jvmthreads");
     dummy_traps = getenv("PROBE_DUMMY") ? atoi(getenv("PROBE_DUMMY")) : 0;
     fx_mode = getenv("PROBE_FX") ? atoi(getenv("PROBE_FX")) : 0;
+    align_off = getenv("PROBE_ALIGN") ? atoi(getenv("PROBE_ALIGN")) : -1;
+    align_inline = getenv("PROBE_INLINE") != NULL;
     trap_page = VirtualAlloc(NULL, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     DWORD old;
     VirtualProtect(trap_page, 4096, PAGE_NOACCESS, &old);
@@ -464,6 +580,12 @@ static int run_probe(int argc, char **argv) {
            ctx_no_hi16, bad_iters);
     printf("  masks:");
     for (int m = 0; m < 256; m++) if (mask_hist[m]) printf(" 0x%x=%lld", m, mask_hist[m]);
+    printf("\n  rsp%%64 at fault:");
+    for (int a = 0; a < 8; a++) if (align_traps[a]) {
+        printf(" [%d: n=%lld", a * 8, align_traps[a]);
+        for (int m = 0; m < 256; m++) if (align_hist[a][m]) printf(" 0x%x=%lld", m, align_hist[a][m]);
+        printf("]");
+    }
     printf("\n  corrupted: sse=%lld avx=%lld zmm_hi256=%lld hi16_zmm=%lld opmask=%lld\n",
            bad_comp[0], bad_comp[1], bad_comp[2], bad_comp[3], bad_comp[4]);
     fflush(stdout);
