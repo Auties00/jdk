@@ -111,8 +111,9 @@ define_pd_global(bool, ValueTypeReturnedAsFields, true);
   product(bool, UseBranchLoopSafepointPolls, false, DIAGNOSTIC,             \
           "Compiled loop safepoint polls test the thread's poll word and "  \
           "branch to the safepoint handler instead of loading from the "    \
-          "polling page. On by default on Windows with UseAVX > 2, where "  \
-          "resuming from the polling page trap can lose AVX-512 state")     \
+          "polling page. On by default on Windows on processors with "      \
+          "AVX-512, where resuming from the polling page trap can lose "    \
+          "AVX and AVX-512 state")                                          \
                                                                             \
   product(bool, UseKNLSetting, false, DIAGNOSTIC,                           \
           "Control whether Knights platform setting should be used")        \

@@ -1037,10 +1037,12 @@ void VM_Version::get_processor_features() {
   }
 
 #ifdef _WINDOWS
-  // JDK-8365196: Windows can resume an access violation in compiled code without the AVX-512
-  // state the thread had when it was raised. Compiled code keeps values in these registers
-  // across loop safepoint polls and C2 implicit null checks, so avoid both traps.
-  if (UseAVX > 2) {
+  // JDK-8365196: Windows can resume an access violation in compiled code without the AVX and
+  // AVX-512 state the thread had when it was raised. Compiled code keeps values in these registers
+  // across loop safepoint polls and C2 implicit null checks, so avoid both traps. The upper halves
+  // of the ymm registers are lost too, so this depends on the processor and the OS enabling
+  // AVX-512, not on UseAVX.
+  if (supports_evex()) {
     if (FLAG_IS_DEFAULT(UseBranchLoopSafepointPolls)) {
       FLAG_SET_DEFAULT(UseBranchLoopSafepointPolls, true);
     }

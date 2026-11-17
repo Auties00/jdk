@@ -25,7 +25,7 @@
  * @test
  * @bug 8365196
  * @summary UseBranchLoopSafepointPolls is on and ImplicitNullChecks off by default exactly on
- *          Windows with UseAVX > 2, and both can be overridden.
+ *          Windows on processors with AVX-512, whatever UseAVX is, and both can be overridden.
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.flagless
  * @library /test/lib
@@ -64,7 +64,9 @@ public class TestBranchLoopSafepointPollsDefault {
     public static void main(String[] args) throws Exception {
         OutputAnalyzer out = flags();
         int useAVX = Integer.parseInt(flag(out, "UseAVX"));
-        boolean expected = Platform.isWindows() && useAVX > 2;
+        // UseAVX=3 is kept only where the processor and the OS support AVX-512.
+        boolean avx512 = Integer.parseInt(flag(flags("-XX:UseAVX=3"), "UseAVX")) == 3;
+        boolean expected = Platform.isWindows() && avx512;
         String actual = flag(out, "UseBranchLoopSafepointPolls");
         if (!actual.equals(Boolean.toString(expected))) {
             throw new RuntimeException("UseBranchLoopSafepointPolls = " + actual + ", expected " + expected
@@ -83,11 +85,9 @@ public class TestBranchLoopSafepointPollsDefault {
         if (!flag(flags("-XX:-UseBranchLoopSafepointPolls"), "UseBranchLoopSafepointPolls").equals("false")) {
             throw new RuntimeException("cannot disable UseBranchLoopSafepointPolls");
         }
-        if (useAVX > 2 && Platform.isWindows()) {
-            // A lower UseAVX turns the default off again.
-            if (!flag(flags("-XX:UseAVX=2"), "UseBranchLoopSafepointPolls").equals("false")) {
-                throw new RuntimeException("UseBranchLoopSafepointPolls should be off with -XX:UseAVX=2");
-            }
+        // A lower UseAVX does not change the default: the ymm state is lost too.
+        if (!flag(flags("-XX:UseAVX=2"), "UseBranchLoopSafepointPolls").equals(Boolean.toString(expected))) {
+            throw new RuntimeException("UseBranchLoopSafepointPolls with -XX:UseAVX=2 should be " + expected);
         }
     }
 }
