@@ -25,7 +25,7 @@
  * @test
  * @bug 8365196
  * @summary UseBranchLoopSafepointPolls is on and ImplicitNullChecks off by default exactly on
- *          Windows on processors with AVX-512, whatever UseAVX is, and both can be overridden.
+ *          Windows on processors with AVX, whatever UseAVX is, and both can be overridden.
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.flagless
  * @library /test/lib
@@ -64,9 +64,9 @@ public class TestBranchLoopSafepointPollsDefault {
     public static void main(String[] args) throws Exception {
         OutputAnalyzer out = flags();
         int useAVX = Integer.parseInt(flag(out, "UseAVX"));
-        // UseAVX=3 is kept only where the processor and the OS support AVX-512.
-        boolean avx512 = Integer.parseInt(flag(flags("-XX:UseAVX=3"), "UseAVX")) == 3;
-        boolean expected = Platform.isWindows() && avx512;
+        // UseAVX=1 is kept only where the processor and the OS support AVX.
+        boolean avx = Integer.parseInt(flag(flags("-XX:UseAVX=1"), "UseAVX")) == 1;
+        boolean expected = Platform.isWindows() && avx;
         String actual = flag(out, "UseBranchLoopSafepointPolls");
         if (!actual.equals(Boolean.toString(expected))) {
             throw new RuntimeException("UseBranchLoopSafepointPolls = " + actual + ", expected " + expected

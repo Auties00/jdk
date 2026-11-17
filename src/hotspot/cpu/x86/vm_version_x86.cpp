@@ -1037,12 +1037,12 @@ void VM_Version::get_processor_features() {
   }
 
 #ifdef _WINDOWS
-  // JDK-8365196: Windows can resume an access violation in compiled code without the AVX and
-  // AVX-512 state the thread had when it was raised. Compiled code keeps values in these registers
-  // across loop safepoint polls and C2 implicit null checks, so avoid both traps. The upper halves
-  // of the ymm registers are lost too, so this depends on the processor and the OS enabling
-  // AVX-512, not on UseAVX.
-  if (supports_evex()) {
+  // JDK-8365196: Windows Server 2025 can resume an access violation in compiled code without the
+  // AVX and AVX-512 state the thread had when it was raised: the kernel takes stale stack contents
+  // for the XSAVE header of the exception context. Compiled code keeps values in these registers
+  // across loop safepoint polls and C2 implicit null checks, so avoid both traps whenever the
+  // processor and the OS have AVX enabled, whatever UseAVX is.
+  if (supports_avx()) {
     if (FLAG_IS_DEFAULT(UseBranchLoopSafepointPolls)) {
       FLAG_SET_DEFAULT(UseBranchLoopSafepointPolls, true);
     }
