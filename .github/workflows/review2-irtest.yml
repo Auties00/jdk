@@ -1,0 +1,82 @@
+name: 'JDK-8365196 review 2: IR test and stress'
+
+# Review-only. Runs the new deterministic IR test and the series' tests with the linux-x64 debug build of run
+# 44027964926 (final code a0210e6a270 with UseBranchLoopSafepointPolls forced on by default), then hotspot test
+# directories touched by the change with explicit null checks and extra stress flags.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-review2-irtest*'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  jtreg:
+    name: jtreg (${{ matrix.set }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        set: [new, stress1, stress2]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            test/hotspot/jtreg
+            test/lib
+            test/jtreg-ext
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64-debug
+          path: bundles
+          run-id: 44027964926
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-jtreg-8.3+1
+          path: jtreg
+          run-id: 44027964926
+          github-token: ${{ github.token }}
+      - name: 'jtreg'
+        run: |
+          set +e
+          mkdir -p jdk tb out
+          ls bundles
+          tar xzf bundles/jdk-linux-x64-debug.tar.gz -C jdk
+          tar xzf bundles/tests-linux-x64-debug.tar.gz -C tb
+          JDK=$(dirname "$(dirname "$(find jdk -name java -path '*/bin/*' -type f | head -1)")")
+          JT=$(find jtreg -name jtreg.jar | head -1)
+          NAT=$(dirname "$(find tb -name 'libThreadStateTest2.so' | head -1)")
+          grep -m1 'model name' /proc/cpuinfo | tee out/cpu.txt
+          "$JDK/bin/java" -version 2>&1 | tee -a out/cpu.txt
+          run() { # name, javaoptions, tests...
+            local name=$1 opts=$2; shift 2
+            "$JDK/bin/java" -jar "$JT" -jdk:"$JDK" -dir:test/hotspot/jtreg -nativepath:"$NAT" -exclude:test/hotspot/jtreg/ProblemList.txt \
+              -conc:4 -timeoutFactor:4 -verbose:summary -retain:fail,error -w:work-$name -r:out/report-$name ${opts:+"-javaoptions:$opts"} "$@" > out/jtreg-$name.txt 2>&1
+            { echo "== $name [$opts]: $(grep -E '^Test results' out/jtreg-$name.txt)"; grep -E '^(FAILED|Error)' out/jtreg-$name.txt | head -40; } | tee -a out/summary.txt
+          }
+          case "${{ matrix.set }}" in
+            new)
+              run new "" compiler/runtime/safepoints serviceability/jvmti/vthread/ThreadStateTest2 compiler/runtime/Test7196199.java
+              run new-explicitnc "-XX:+UnlockDiagnosticVMOptions -XX:-ImplicitNullChecks" compiler/runtime/safepoints/TestBranchLoopSafepointPollsIR.java compiler/runtime/safepoints/TestBranchLoopSafepointPolls.java
+              ;;
+            stress1)
+              run explicitnc "-XX:+UnlockDiagnosticVMOptions -XX:+UseBranchLoopSafepointPolls -XX:-ImplicitNullChecks" compiler/loopstripmining compiler/runtime compiler/uncommontrap compiler/c2/TestDeadLoopSplitIfLoop.java runtime/handshake runtime/Thread serviceability/jvmti/vthread compiler/exceptions compiler/intrinsics/unsafe
+              ;;
+            stress2)
+              run zgc-sfalot "-XX:+UnlockDiagnosticVMOptions -XX:+UseBranchLoopSafepointPolls -XX:-ImplicitNullChecks -XX:+UseZGC -XX:+SafepointALot" runtime/handshake serviceability/jvmti/vthread compiler/loopstripmining compiler/runtime/safepoints
+              run deoptalot "-XX:+UnlockDiagnosticVMOptions -XX:+UseBranchLoopSafepointPolls -XX:-ImplicitNullChecks -XX:+DeoptimizeALot -XX:+SafepointALot" compiler/loopstripmining compiler/runtime/safepoints compiler/uncommontrap runtime/Thread
+              ;;
+          esac
+          { echo '```'; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: jtreg-${{ matrix.set }}
+          path: out
+          retention-days: 30
