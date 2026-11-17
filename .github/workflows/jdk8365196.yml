@@ -6,7 +6,7 @@ name: 'JDK-8365196'
 on:
   push:
     branches:
-      - 'JDK-8365196-ci*'
+      - 'JDK-8365196-review-diag*'
   workflow_dispatch:
     inputs:
       seeds:
@@ -122,12 +122,12 @@ jobs:
           sparse-checkout-cone-mode: false
       - name: 'Run the reproducer'
         env:
-          SEEDS: ${{ inputs.seeds || '1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30' }}
+          SEEDS: ${{ inputs.seeds || '25 29 87112 31677 15 17 6 7' }}
           SECONDS_PER_RUN: ${{ inputs.seconds || '4' }}
         run: bash repro/.github/scripts/jdk-under-test.sh bundles/jdk-windows-x64.zip
       - name: 'Test7196199 (problem-listed for JDK-8365196), repeated'
         env:
-          REPEAT: ${{ inputs.t7196199-repeat || '40' }}
+          REPEAT: ${{ inputs.t7196199-repeat || '10' }}
         run: |
           bin=$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")
           mkdir -p out/t7196199 t7
