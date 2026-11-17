@@ -1,6 +1,6 @@
 name: 'JDK-8365196 review: benchmarks of the workaround'
 
-# Review-only: runs review8365196/PollBench.java with the workaround build of run 44015885522
+# Review-only: runs review8365196/PollBench.java with the workaround build of run 44027944984
 # (branch JDK-8365196-workaround-ci, final code), flag on and off in the same binary, interleaved.
 
 on:
@@ -32,7 +32,7 @@ jobs:
         with:
           name: bundles-windows-x64
           path: bundles
-          run-id: 44015885522
+          run-id: 44027944984
           github-token: ${{ github.token }}
       - name: 'Benchmarks'
         run: |
