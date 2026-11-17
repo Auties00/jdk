@@ -2586,11 +2586,9 @@ void MacroAssembler::round_to(Register reg, int modulus) {
 }
 
 bool MacroAssembler::loop_safepoint_poll_uses_branch() {
-#ifdef _WINDOWS
-  return UseAVX > 2;
-#else
-  return false;
-#endif
+  // REVIEW STRESS ONLY: force the branch-based loop poll on every x86_64 platform and every
+  // UseAVX level, so that debug builds and tier1 exercise the new C1/C2 code paths.
+  return true;
 }
 
 void MacroAssembler::safepoint_poll(Label& slow_path, bool at_return, bool in_nmethod) {
