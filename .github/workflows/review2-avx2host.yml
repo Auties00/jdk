@@ -1,0 +1,73 @@
+name: 'JDK-8365196 review 2: stale header probes, AVX2 hosts, C1'
+
+# Review-only. On windows-latest (Server 2025) hosts, AVX2-only or AVX-512: the JVM-free stale-header reproducer
+# (native/xstate_stale_header.c of the reproducer repository), and review2/StaleProbe.java on the final workaround
+# build (run 44027944984), which plants Long.MIN_VALUE below rsp before a trap with live vector state.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-review2-avx2host*'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  probe:
+    name: probe (${{ matrix.slot }})
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2, 3, 4, 5, 6, 7, 8]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: review2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Auties00/jdk-c2-avx512-windows-repro
+          path: repro
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: bundles
+          run-id: 44027944984
+          github-token: ${{ github.token }}
+      - name: 'Probes'
+        run: |
+          set +e
+          mkdir -p out jdk; unzip -q bundles/jdk-windows-x64.zip -d jdk
+          bin=$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")
+          cpu=$(powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()")
+          build=$(powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"")
+          echo "$cpu | $build" | tee out/cpu.txt
+          "$bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|UseBranchLoopSafepointPolls|ImplicitNullChecks) ' | tee out/flags.txt
+          clang -O2 -mxsave -o stale.exe repro/native/xstate_stale_header.c -ladvapi32 && ./stale.exe > out/stale.txt 2>&1; echo "stale-header exit $?" | tee -a out/stale.txt
+          grep -E "^xcr0|stack filled|contexts without|=> " out/stale.txt | head -20
+          "$bin/javac" --add-modules jdk.incubator.vector -d sp review2/StaleProbe.java 2>&1 | grep -v -i warning
+          COMMON="--add-modules jdk.incubator.vector -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:CompileCommand=quiet -XX:CompileCommand=exclude,StaleProbe::fill -XX:-CreateCoredumpOnCrash -XX:ErrorFile=NUL"
+          OLD="-XX:-UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks"
+          for round in 1 2 3; do
+            for c in "c2poll-old:c2poll:-XX:-TieredCompilation $OLD" "c2poll-old-avx2:c2poll:-XX:-TieredCompilation -XX:UseAVX=2 $OLD" "c2poll-new:c2poll:-XX:-TieredCompilation" \
+                     "npe-c1-new:npe:-XX:TieredStopAtLevel=1" "npe-c2-old:npe:-XX:-TieredCompilation $OLD" "npe-c2-new:npe:-XX:-TieredCompilation"; do
+              n=${c%%:*}; rest=${c#*:}; mode=${rest%%:*}; fl=${rest#*:}
+              "$bin/java" $COMMON $fl -cp sp StaleProbe $mode 10 > out/p.log 2>&1; code=$?
+              [ $code != 0 ] && cp out/p.log out/fail-$n-$round.log
+              echo "RESULT $n $code $(grep StaleProbe out/p.log | tail -1)" | tee -a out/raw.txt
+            done
+          done
+          awk '/^RESULT/ {n[$2]++; if ($3!="0") f[$2]++} END {for (k in n) printf "SUMMARY %s: %d of %d failed\n", k, f[k]+0, n[k]}' out/raw.txt | sort | tee out/summary.txt
+          { echo "### $(cat out/cpu.txt)"; echo '```'; cat out/flags.txt; tail -3 out/stale.txt; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: avx2host-${{ matrix.slot }}
+          path: out
+          retention-days: 30
