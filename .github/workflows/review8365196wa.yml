@@ -1,0 +1,167 @@
+name: 'JDK-8365196 workaround CI'
+
+# Review-only: builds windows-x64 release of the workaround branch and runs the reproducers, the new
+# tests, NpeVector, ThreadStateTest2 reruns and benchmarks on windows-latest.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-workaround-ci*'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  prepare:
+    name: 'Prepare'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+      - name: 'Build JTReg'
+        uses: ./.github/actions/build-jtreg
+
+  build-windows-x64:
+    name: build windows-x64 release
+    needs: prepare
+    runs-on: windows-2022
+    env:
+      MSYS2_PATH_TYPE: minimal
+      CHERE_INVOKING: 1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/get-msys2
+        with:
+          architecture: 'x86.x64'
+      - id: bootjdk
+        uses: ./.github/actions/get-bootjdk
+        with:
+          platform: windows-x64
+      - id: jtreg
+        uses: ./.github/actions/get-jtreg
+      - id: gtest
+        uses: ./.github/actions/get-gtest
+      - name: 'Install toolchain'
+        shell: pwsh
+        run: |
+          & 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\vc\auxiliary\build\vcvars64.bat' -vcvars_ver=14.44
+          if ($LASTEXITCODE -ne 0) {
+            & 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vs_installer.exe' modify --quiet --installPath 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise' --add Microsoft.VisualStudio.Component.VC.14.44.x86.x64 | Out-Default
+          }
+          exit 0
+      - name: 'Configure'
+        run: >
+          bash configure
+          --with-conf-name=windows-x64
+          --with-version-opt=${GITHUB_ACTOR}-${GITHUB_SHA}
+          --with-boot-jdk=${{ steps.bootjdk.outputs.path }}
+          --with-jtreg=${{ steps.jtreg.outputs.path }}
+          --with-gtest=${{ steps.gtest.outputs.path }}
+          --with-msvc-toolset-version=14.44
+          --with-jmod-compress=zip-1
+          --with-external-symbols-in-bundles=none || (
+          echo "Dumping config.log:" &&
+          cat config.log &&
+          exit 1)
+        env:
+          PATH: ''
+        shell: env /usr/bin/bash --login -eo pipefail {0}
+      - uses: ./.github/actions/do-build
+        with:
+          make-target: 'product-bundles test-bundles'
+          platform: windows-x64
+          debug-suffix: ''
+      - uses: ./.github/actions/upload-bundles
+        with:
+          platform: windows-x64
+          debug-suffix: ''
+
+
+  repro:
+    name: repro (${{ matrix.slot }})
+    needs: build-windows-x64
+    runs-on: windows-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2, 3, 4, 5, 6]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: bundles
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Auties00/jdk-c2-avx512-windows-repro
+          path: repro
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: jdksrc
+          sparse-checkout: |
+            review8365196
+            test/hotspot/jtreg/compiler/runtime
+            test/hotspot/jtreg/serviceability/jvmti/vthread/ThreadStateTest2
+            test/jdk/java/lang/ScopedValue
+            test/lib
+      - name: 'Reproducers'
+        env:
+          SEEDS: '1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30'
+          SECONDS_PER_RUN: '4'
+        run: bash repro/.github/scripts/jdk-under-test.sh bundles/jdk-windows-x64.zip
+      - name: 'Test7196199, new tests, NpeVector, ThreadStateTest2'
+        run: |
+          set +e
+          bin=$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")
+          "$bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|UseBranchLoopSafepointPolls|ImplicitNullChecks) ' | tee out/flags2.txt
+          mkdir -p out/t7 t7
+          "$bin/javac" -d t7 jdksrc/test/hotspot/jtreg/compiler/runtime/Test7196199.java jdksrc/test/hotspot/jtreg/compiler/runtime/safepoints/TestBranchLoopSafepointPolls.java
+          f=0; for i in $(seq 1 40); do
+            "$bin/java" -Xmx128m -Xbatch -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockDiagnosticVMOptions -XX:-TieredCompilation -XX:+SafepointALot -XX:GuaranteedSafepointInterval=100 -XX:CompileCommand=exclude,compiler.runtime.Test7196199::test -XX:-CreateCoredumpOnCrash -cp t7 compiler.runtime.Test7196199 > out/t7/run$i.log 2>&1 || f=$((f+1))
+          done; echo "SUMMARY Test7196199: $f of 40 failed" | tee -a out/summary.txt
+          for v in "-XX:-TieredCompilation -XX:+UseBranchLoopSafepointPolls" "-XX:-TieredCompilation -XX:+UseBranchLoopSafepointPolls -XX:+StressGCM -XX:+StressLCM -XX:+UseFPUForSpilling" "-XX:-TieredCompilation -XX:-UseBranchLoopSafepointPolls" "-XX:TieredStopAtLevel=1 -XX:+UseBranchLoopSafepointPolls"; do
+            f=0; for i in $(seq 1 5); do
+              "$bin/java" -Xbatch -XX:+UnlockDiagnosticVMOptions $v -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:-CreateCoredumpOnCrash -cp t7 compiler.runtime.safepoints.TestBranchLoopSafepointPolls > out/t7/new.log 2>&1 || f=$((f+1))
+            done; echo "SUMMARY TestBranchLoopSafepointPolls [$v]: $f of 5 failed" | tee -a out/summary.txt
+          done
+          "$bin/javac" --add-modules jdk.incubator.vector -d npe jdksrc/review8365196/NpeVector.java 2>&1 | grep -v -i warning
+          common="-XX:-TieredCompilation -Xbatch -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000 -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1 -XX:CompileCommand=quiet -XX:-CreateCoredumpOnCrash -XX:+UnlockDiagnosticVMOptions -XX:CompileCommand=exclude,NpeVector::reference --add-modules jdk.incubator.vector -XX:+StressGCM -XX:+StressLCM -XX:StressSeed=1"
+          for v in "" "-XX:-ImplicitNullChecks"; do
+            f=0; for i in 1 2 3 4; do "$bin/java" $common $v -cp npe NpeVector 8 > out/npe.log 2>&1 || f=$((f+1)); done
+            echo "SUMMARY NpeVector [$v]: $f of 4 wrong" | tee -a out/summary.txt
+          done
+          # ThreadStateTest2 with the branch form forced on, and forced off as a control
+          mkdir -p tb; tar xzf bundles/tests-windows-x64.tar.gz -C tb hotspot/jtreg/native/ThreadStateTest2.dll
+          agent=$(cygpath -w "$PWD/tb/hotspot/jtreg/native/ThreadStateTest2.dll")
+          "$bin/javac" -d ts2 --add-exports java.base/java.lang=ALL-UNNAMED -sourcepath jdksrc/test/lib jdksrc/test/hotspot/jtreg/serviceability/jvmti/vthread/ThreadStateTest2/ThreadStateTest2.java
+          for v in "-XX:+UseBranchLoopSafepointPolls" "-XX:-UseBranchLoopSafepointPolls"; do
+            f=0; t=0; for i in $(seq 1 100); do
+              timeout 60 "$bin/java" -XX:+UnlockDiagnosticVMOptions $v --add-opens java.base/java.lang=ALL-UNNAMED --add-exports java.base/java.lang=ALL-UNNAMED --enable-native-access=ALL-UNNAMED "-agentpath:$agent" -cp ts2 ThreadStateTest2 > out/ts2.log 2>&1
+              c=$?; [ $c = 124 ] && t=$((t+1)); [ $c != 0 ] && { f=$((f+1)); cp out/ts2.log out/ts2-fail-$f.log; }
+            done; echo "SUMMARY ThreadStateTest2 [$v]: $f of 100 failed, $t timeouts" | tee -a out/summary.txt
+          done
+          # StressStackOverflow (one forced-on GHA run crashed with STATUS_STACK_OVERFLOW)
+          "$bin/javac" -d sso jdksrc/test/jdk/java/lang/ScopedValue/StressStackOverflow.java 2>&1 | tail -2
+          for v in "" "-XX:-TieredCompilation" "-XX:TieredStopAtLevel=1"; do
+            f=0; for i in 1 2 3 4 5; do timeout 200 "$bin/java" -Xmx768m -XX:MaxRAMPercentage=25 -ea -esa -XX:-CreateCoredumpOnCrash $v -cp sso StressStackOverflow > out/sso.log 2>&1 || { f=$((f+1)); cp out/sso.log out/sso-fail-$f.log; }; done
+            echo "SUMMARY StressStackOverflow [$v]: $f of 5 failed" | tee -a out/summary.txt
+          done
+          { echo "### $(cat out/cpu.txt)"; echo '```'; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: repro-${{ matrix.slot }}
+          path: out
+          retention-days: 30
+

@@ -29,6 +29,8 @@ on:
   push:
     branches-ignore:
       - pr/*
+      - JDK-8365196-review-*
+      - JDK-8365196-workaround-ci*
   workflow_dispatch:
     inputs:
       platforms:
