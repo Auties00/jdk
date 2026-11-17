@@ -42,7 +42,7 @@ jobs:
           powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
           "$bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|UseBranchLoopSafepointPolls|ImplicitNullChecks) ' | tee out/flags.txt
           "$bin/javac" -d pb review8365196/PollBench.java
-          for round in 1 2 3 4; do
+          for round in 1 2 3 4 5 6; do
             for v in "-XX:+UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks" "-XX:-UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks" "-XX:+UseBranchLoopSafepointPolls -XX:-ImplicitNullChecks"; do
               "$bin/java" -XX:+UnlockDiagnosticVMOptions $v -cp pb PollBench all 3 1 9 2>&1 | sed "s|^|round=$round [$v] |" | tee -a out/bench.txt
             done

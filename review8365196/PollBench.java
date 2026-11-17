@@ -96,7 +96,7 @@ public final class PollBench {
             double[] r = new double[iters];
             for (int i = 0; i < iters; i++) r[i] = measure(benches[k], meas);
             Arrays.sort(r);
-            System.out.printf("BENCH %s median=%.4f min=%.4f max=%.4f ops/us%n", names[k], r[iters / 2], r[0], r[iters - 1]);
+            System.out.printf("BENCH %s median=%.3f min=%.3f max=%.3f ns/op%n", names[k], 1000 / r[iters / 2], 1000 / r[iters - 1], 1000 / r[0]);
         }
     }
 }
