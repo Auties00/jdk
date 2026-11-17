@@ -44,6 +44,10 @@ jobs:
           sparse-checkout: |
             review8365196
             test/hotspot/jtreg/compiler/runtime
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: c1npe
+          sparse-checkout: review2
       - name: 'Gate and controls'
         run: |
           set +e
@@ -61,6 +65,7 @@ jobs:
           "$bin/javac" -d t7 jdksrc/test/hotspot/jtreg/compiler/runtime/Test7196199.java jdksrc/test/hotspot/jtreg/compiler/runtime/safepoints/TestBranchLoopSafepointPolls.java
           "$bin/javac" --add-modules jdk.incubator.vector -d npe jdksrc/review8365196/NpeVector.java 2>&1 | grep -v -i warning
           "$bin/javac" --add-modules jdk.incubator.vector -d rc repro/Repro.java 2>&1 | grep -v -i warning
+          "$bin/javac" -d c1 c1npe/review2/C1Npe.java
           # interleave the configurations so that host noise hits all of them
           for round in 1 2 3; do
             for c in $ORDER; do
@@ -76,6 +81,11 @@ jobs:
               f=0; for i in 1 2; do
                 "$bin/java" -Xbatch ${CFG[$c]} -XX:-TieredCompilation -XX:+StressGCM -XX:+StressLCM -XX:+UseFPUForSpilling -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:-CreateCoredumpOnCrash -cp t7 compiler.runtime.safepoints.TestBranchLoopSafepointPolls > out/nt.log 2>&1 || { f=$((f+1)); cp out/nt.log out/nt-$c-$round-$i.log; }
               done; echo "RESULT TestBranchLoopSafepointPolls $c $f 2" | tee -a out/raw.txt
+              for lvl in 1 3; do
+                f=0; for i in 1 2; do
+                  "$bin/java" ${CFG[$c]} -XX:TieredStopAtLevel=$lvl -XX:CompileCommand=quiet -XX:CompileCommand=exclude,C1Npe::reference -XX:-CreateCoredumpOnCrash -cp c1 C1Npe 8 > out/c1.log 2>&1 || { f=$((f+1)); cp out/c1.log out/c1-$c-$lvl-$round-$i.log; }
+                done; echo "RESULT C1Npe-tier$lvl $c $f 2" | tee -a out/raw.txt
+              done
             done
           done
           awk '/^RESULT/ {k=$2" "$3; f[k]+=$4; n[k]+=$5} END {for (k in f) printf "SUMMARY %s: %d of %d failed\n", k, f[k], n[k]}' out/raw.txt | sort | tee -a out/summary.txt
