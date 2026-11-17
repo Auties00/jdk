@@ -51,7 +51,7 @@ jobs:
           clang -O2 -mxsave -o stale.exe repro/native/xstate_stale_header.c -ladvapi32 && ./stale.exe > out/stale.txt 2>&1; echo "stale-header exit $?" | tee -a out/stale.txt
           grep -E "^xcr0|stack filled|contexts without|=> " out/stale.txt | head -20
           "$bin/javac" --add-modules jdk.incubator.vector -d sp review2/StaleProbe.java 2>&1 | grep -v -i warning
-          COMMON="--add-modules jdk.incubator.vector -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:CompileCommand=quiet -XX:CompileCommand=exclude,StaleProbe::fill -XX:-CreateCoredumpOnCrash -XX:ErrorFile=NUL"
+          COMMON="--add-modules jdk.incubator.vector -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:CompileCommand=quiet -XX:CompileCommand=exclude,StaleProbe::fill -XX:CompileCommand=exclude,StaleProbe::sink48 -XX:-CreateCoredumpOnCrash -XX:ErrorFile=NUL"
           OLD="-XX:-UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks"
           for round in 1 2 3; do
             for c in "c2poll-old:c2poll:-XX:-TieredCompilation $OLD" "c2poll-old-avx2:c2poll:-XX:-TieredCompilation -XX:UseAVX=2 $OLD" "c2poll-new:c2poll:-XX:-TieredCompilation" \

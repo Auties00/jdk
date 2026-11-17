@@ -10,7 +10,7 @@ import jdk.incubator.vector.VectorSpecies;
  *   npe:    implicit null check caught in the same method with 24 double accumulators (C1 with
  *           TieredStopAtLevel=1, or C2 with +ImplicitNullChecks)
  * The first call runs in the interpreter and gives the expected result.
- * Usage: java --add-modules jdk.incubator.vector -XX:CompileCommand=exclude,StaleProbe::fill StaleProbe <mode> <seconds>
+ * Usage: java --add-modules jdk.incubator.vector -XX:CompileCommand=exclude,StaleProbe::fill -XX:CompileCommand=exclude,StaleProbe::sink48 StaleProbe <mode> <seconds>
  */
 public final class StaleProbe {
     static final VectorSpecies<Float> S = FloatVector.SPECIES_256;
@@ -22,13 +22,16 @@ public final class StaleProbe {
         H(double v) { this.v = v; }
     }
 
+    // Interpreted (excluded from compilation). The interpreter pushes each long argument as the pair
+    // (value, 0) on the caller's expression stack, and the arguments become the callee's locals, so the frames
+    // below the caller's rsp hold runs of 0x8000000000000000 next to 0 in both phases.
     static long fill(int d) {
-        long a0 = M, a1 = M, a2 = M, a3 = M, a4 = M, a5 = M, a6 = M, a7 = M, a8 = M, a9 = M;
-        long b0 = M, b1 = M, b2 = M, b3 = M, b4 = M, b5 = M, b6 = M, b7 = M, b8 = M, b9 = M;
-        long c0 = M, c1 = M, c2 = M, c3 = M, c4 = M, c5 = M, c6 = M, c7 = M, c8 = M, c9 = M;
-        long r = d > 0 ? fill(d - 1) : 0;
-        return r ^ a0 ^ a1 ^ a2 ^ a3 ^ a4 ^ a5 ^ a6 ^ a7 ^ a8 ^ a9 ^ b0 ^ b1 ^ b2 ^ b3 ^ b4 ^ b5 ^ b6 ^ b7 ^ b8 ^ b9
-                 ^ c0 ^ c1 ^ c2 ^ c3 ^ c4 ^ c5 ^ c6 ^ c7 ^ c8 ^ c9;
+        return d > 0 ? sink48(d - 1, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M) : 0;
+    }
+
+    static long sink48(int d, long p0, long p1, long p2, long p3, long p4, long p5, long p6, long p7, long p8, long p9, long p10, long p11, long p12, long p13, long p14, long p15, long p16, long p17, long p18, long p19, long p20, long p21, long p22, long p23, long p24, long p25, long p26, long p27, long p28, long p29, long p30, long p31, long p32, long p33, long p34, long p35, long p36, long p37, long p38, long p39, long p40, long p41, long p42, long p43, long p44, long p45, long p46, long p47) {
+        long r = fill(d);
+        return r ^ p0 ^ p1 ^ p2 ^ p3 ^ p4 ^ p5 ^ p6 ^ p7 ^ p8 ^ p9 ^ p10 ^ p11 ^ p12 ^ p13 ^ p14 ^ p15 ^ p16 ^ p17 ^ p18 ^ p19 ^ p20 ^ p21 ^ p22 ^ p23 ^ p24 ^ p25 ^ p26 ^ p27 ^ p28 ^ p29 ^ p30 ^ p31 ^ p32 ^ p33 ^ p34 ^ p35 ^ p36 ^ p37 ^ p38 ^ p39 ^ p40 ^ p41 ^ p42 ^ p43 ^ p44 ^ p45 ^ p46 ^ p47;
     }
 
     static float c2poll(float[] a, int n) {
