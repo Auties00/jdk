@@ -174,7 +174,20 @@ public final class NpeVector {
         out[10 * S.length() + 11] = (float) d11;
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
+        int[] code = new int[1];
+        Runnable body = () -> code[0] = run(args);
+        if (args.length > 1 && args[1].equals("thread")) {
+            Thread t = new Thread(body, "worker");
+            t.start();
+            t.join();
+        } else {
+            body.run();
+        }
+        System.exit(code[0]);
+    }
+
+    static int run(String[] args) {
         long seconds = Long.parseLong(args[0]);
         H[] good = new H[64];
         for (int i = 0; i < good.length; i++) good[i] = new H(i * 0.25f);
@@ -207,6 +220,6 @@ public final class NpeVector {
             }
         }
         System.out.println("RESULT cycles=" + cycles + " npe_mismatches=" + mismatches + " good_mismatches=" + goodMismatches + "/" + goodChecks);
-        System.exit(mismatches + goodMismatches > 0 ? 3 : 0);
+        return mismatches + goodMismatches > 0 ? 3 : 0;
     }
 }
