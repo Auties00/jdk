@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        set: [new, stress1, stress2]
+        set: [new, rerun]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -58,11 +58,17 @@ jobs:
             "$JDK/bin/java" -jar "$JT" -jdk:"$JDK" -dir:test/hotspot/jtreg -nativepath:"$NAT" -exclude:test/hotspot/jtreg/ProblemList.txt \
               -conc:4 -timeoutFactor:4 -verbose:summary -retain:fail,error -w:work-$name -r:out/report-$name ${opts:+"-javaoptions:$opts"} "$@" > out/jtreg-$name.txt 2>&1
             { echo "== $name [$opts]: $(grep -E '^Test results' out/jtreg-$name.txt)"; grep -E '^(FAILED|Error)' out/jtreg-$name.txt | head -40; } | tee -a out/summary.txt
+            mkdir -p out/jtr-$name; grep -rlE '^execStatus=(Failed|Error)' work-$name --include='*.jtr' | while read j; do cp "$j" out/jtr-$name/; done
           }
           case "${{ matrix.set }}" in
             new)
               run new "" compiler/runtime/safepoints serviceability/jvmti/vthread/ThreadStateTest2 compiler/runtime/Test7196199.java
               run new-explicitnc "-XX:+UnlockDiagnosticVMOptions -XX:-ImplicitNullChecks" compiler/runtime/safepoints/TestBranchLoopSafepointPollsIR.java compiler/runtime/safepoints/TestBranchLoopSafepointPolls.java
+              ;;
+            rerun)
+              run rerun "-XX:+UnlockDiagnosticVMOptions -XX:+UseBranchLoopSafepointPolls -XX:-ImplicitNullChecks" compiler/runtime/safepoints/TestBranchLoopSafepointPollsIR.java compiler/exceptions/TestDebugDuringExceptionCatching.java
+              run rerun-base "" compiler/exceptions/TestDebugDuringExceptionCatching.java
+              run rerun-inc "-XX:+UnlockDiagnosticVMOptions -XX:-ImplicitNullChecks" compiler/exceptions/TestDebugDuringExceptionCatching.java
               ;;
             stress1)
               run explicitnc "-XX:+UnlockDiagnosticVMOptions -XX:+UseBranchLoopSafepointPolls -XX:-ImplicitNullChecks" compiler/loopstripmining compiler/runtime compiler/uncommontrap compiler/c2/TestDeadLoopSplitIfLoop.java runtime/handshake runtime/Thread serviceability/jvmti/vthread compiler/exceptions compiler/intrinsics/unsafe
