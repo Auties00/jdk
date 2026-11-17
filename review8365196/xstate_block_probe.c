@@ -17,6 +17,7 @@
  * Optionally (env PROBE_DUMMY=n) an extra trap with no live state is taken before step 2.
  *
  * Usage: xstate_block_probe <veh|seh> <low|vzu|high> <none|yield|sleep|wait> <seconds> <threads> [jvmthreads]
+ *   threads 0: the probe runs on the calling thread (useful from the probe_entry DLL export).
  *   jvmthreads: workers are created like HotSpot Java threads (_beginthreadex with CREATE_SUSPENDED |
  *   STACK_SIZE_PARAM_IS_A_RESERVATION and a 1 MiB stack, then ResumeThread).
  * Output: trap count, histogram of the context XSTATE masks, corrupted registers per XSAVE component.
@@ -312,7 +313,7 @@ static int avx512_usable(void) {
     return (b & (1u << 16)) && (b & (1u << 30));
 }
 
-int main(int argc, char **argv) {
+static int run_probe(int argc, char **argv) {
     if (argc < 6) {
         fprintf(stderr, "usage: %s <veh|seh> <low|vzu|high> <none|yield|sleep|wait> <seconds> <threads> [jvmthreads]\n", argv[0]);
         return 1;
@@ -336,6 +337,7 @@ int main(int argc, char **argv) {
     HANDLE vm = (HANDLE) _beginthreadex(NULL, 0, vm_main, NULL, 0, NULL);
     HANDLE hs[64];
     if (threads > 64) threads = 64;
+    if (threads == 0) worker(NULL); /* on the calling thread */
     for (int t = 0; t < threads; t++) {
         if (jvmthreads) {
             hs[t] = (HANDLE) _beginthreadex(NULL, 1 << 20, worker, (void *) (uintptr_t) t,
@@ -345,7 +347,7 @@ int main(int argc, char **argv) {
             hs[t] = (HANDLE) _beginthreadex(NULL, 0, worker, (void *) (uintptr_t) t, 0, NULL);
         }
     }
-    WaitForMultipleObjects(threads, hs, TRUE, INFINITE);
+    if (threads > 0) WaitForMultipleObjects(threads, hs, TRUE, INFINITE);
     stop = 1;
     WaitForSingleObject(vm, INFINITE);
     printf("RESULT handler=%s pre=%s block=%s threads=%d%s dummy=%d traps=%lld ctx_no_xstate=%lld ctx_no_hi16=%lld bad_iterations=%lld\n",
@@ -355,5 +357,23 @@ int main(int argc, char **argv) {
     for (int m = 0; m < 256; m++) if (mask_hist[m]) printf(" 0x%x=%lld", m, mask_hist[m]);
     printf("\n  corrupted: sse=%lld avx=%lld zmm_hi256=%lld hi16_zmm=%lld opmask=%lld\n",
            bad_comp[0], bad_comp[1], bad_comp[2], bad_comp[3], bad_comp[4]);
+    fflush(stdout);
     return (bad_iters || ctx_no_hi16) ? 3 : 0;
+}
+
+/* Entry point when loaded as a DLL (for example into a JVM through FFM): the arguments of main in one
+ * space-separated string, the first one being the handler. */
+__declspec(dllexport) int probe_entry(const char *args) {
+    static char buf[512];
+    char *argv[16];
+    int argc = 0;
+    strncpy(buf, args, sizeof buf - 1);
+    argv[argc++] = "probe";
+    for (char *t = strtok(buf, " "); t != NULL && argc < 15; t = strtok(NULL, " ")) argv[argc++] = t;
+    argv[argc] = NULL;
+    return run_probe(argc, argv);
+}
+
+int main(int argc, char **argv) {
+    return run_probe(argc, argv);
 }

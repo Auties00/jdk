@@ -46,37 +46,26 @@ jobs:
           build=$(powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"")
           echo "HOST: $cpu | $build" | tee out/host.txt
           clang -O2 -o probe.exe review8365196/xstate_block_probe.c
-          for h in veh seh; do for pre in low vzu high; do for b in none wait sleep; do
-            ./probe.exe $h $pre $b 3 4 >> out/probe.txt 2>&1
-          done; done; done
-          for pre in low high; do ./probe.exe seh $pre wait 3 4 jvmthreads >> out/probe.txt 2>&1; done
-          PROBE_DUMMY=1 ./probe.exe seh high wait 3 4 >> out/probe.txt 2>&1
-          PROBE_DUMMY=1 ./probe.exe seh low none 3 4 >> out/probe.txt 2>&1
-          cat out/probe.txt
+          clang -O2 -shared -o probe.dll review8365196/xstate_block_probe.c
           mkdir -p jdk-base; unzip -q b-base/jdk-windows-x64.zip -d jdk-base
           jbase=$(find jdk-base -name java.exe -path '*/bin/*' | head -1)
-          "$(dirname $jbase)/javac" --add-modules jdk.incubator.vector -d c-repro repro/Repro.java 2>&1 | grep -v -i warning
-          jw=$(cygpath -w "$jbase")
-          base="-Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:+StressGCM -XX:+StressLCM -XX:-CreateCoredumpOnCrash --add-modules jdk.incubator.vector -cp c-repro"
-          rr() { # tag seed threads launcher extra...
-            local tag=$1 seed=$2 thr=$3 launcher=$4; shift 4
-            rm -f hs_err_*.log
-            if [ "$launcher" = affinity1 ]; then
-              cmd.exe //c "start /b /wait /affinity 1 \"\" \"$jw\" $base -XX:StressSeed=$seed $* Repro field 4 $thr" > out/repro-$tag-$seed.log 2>&1
-            else
-              "$jbase" $base -XX:StressSeed=$seed "$@" Repro field 4 $thr > out/repro-$tag-$seed.log 2>&1
-            fi
-            local code=$?
-            echo "REPRO $tag seed=$seed exit=$code crash=$(ls hs_err_*.log 2>/dev/null | wc -l)" | tee -a out/summary.txt
-          }
-          for seed in 25 29; do for r in 1 2; do
-            rr default $seed 4 plain
-            rr threads1 $seed 1 plain
-            rr affinity1 $seed 4 affinity1
-            rr fewthreads $seed 1 plain -XX:+UseSerialGC -XX:CICompilerCount=2 -XX:-UseDynamicNumberOfCompilerThreads
-            rr bigstack $seed 4 plain -Xss16m
-          done; done
-          { echo "### $(head -1 out/host.txt)"; echo '```'; grep -A2 RESULT out/probe.txt; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          jb=$(dirname "$jbase")
+          "$jb/javac" -d ph review8365196/ProbeHost.java
+          "$jb/javac" --add-modules jdk.incubator.vector -d c-repro repro/Repro.java 2>&1 | grep -v -i warning
+          sp="-XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1"
+          for r in 1 2; do
+            for a in "seh high none 3 4" "veh high wait 3 4"; do echo "## standalone: $a" >> out/probe.txt; ./probe.exe $a >> out/probe.txt 2>&1; done
+            for a in "seh high none 3 4" "veh high wait 3 4" "seh high wait 3 4" "seh high none 3 0" "seh high wait 3 0" "seh vzu wait 3 0"; do
+              echo "## jvm: $a" >> out/probe.txt
+              "$jbase" --enable-native-access=ALL-UNNAMED -cp ph ProbeHost ./probe.dll "$a" >> out/probe.txt 2>&1
+              echo "## jvm+load+safepointalot: $a" >> out/probe.txt
+              "$jbase" $sp --enable-native-access=ALL-UNNAMED -cp ph ProbeHost ./probe.dll "$a" load >> out/probe.txt 2>&1
+            done
+          done
+          "$jbase" -Xmx512m $sp -XX:+StressGCM -XX:+StressLCM -XX:StressSeed=29 -XX:-CreateCoredumpOnCrash --add-modules jdk.incubator.vector -cp c-repro Repro field 4 4 > out/repro-29.log 2>&1
+          echo "REPRO control seed=29 exit=$?" | tee -a out/summary.txt
+          cat out/probe.txt
+          { echo "### $(head -1 out/host.txt)"; echo '```'; grep -E "^##|RESULT|masks|corrupted" out/probe.txt; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit 0
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
