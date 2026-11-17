@@ -45,16 +45,19 @@ public class TestBranchLoopSafepointPollsIR {
         Node next;
     }
 
-    static Node list;
-
-    public static void main(String[] args) {
+    // Built in the test VM, which does not run main().
+    static final Node LIST;
+    static {
         Node n = null;
         for (int i = 0; i < 100; i++) {
             Node m = new Node();
             m.next = n;
             n = m;
         }
-        list = n;
+        LIST = n;
+    }
+
+    public static void main(String[] args) {
         TestFramework.run();
         TestFramework.runWithFlags("-XX:+UnlockDiagnosticVMOptions", "-XX:+UseBranchLoopSafepointPolls");
         TestFramework.runWithFlags("-XX:+UnlockDiagnosticVMOptions", "-XX:-UseBranchLoopSafepointPolls");
@@ -68,7 +71,7 @@ public class TestBranchLoopSafepointPollsIR {
         phase = CompilePhase.PRINT_OPTO_ASSEMBLY, applyIf = {"UseBranchLoopSafepointPolls", "false"})
     static int listLength() {
         int c = 0;
-        for (Node n = list; n != null; n = n.next) {
+        for (Node n = LIST; n != null; n = n.next) {
             c++;
         }
         return c;
