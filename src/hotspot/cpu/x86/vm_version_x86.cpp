@@ -1036,6 +1036,10 @@ void VM_Version::get_processor_features() {
     FLAG_SET_DEFAULT(UseAVX, use_avx_limit);
   }
 
+  // REVIEW STRESS ONLY: branch-based loop polls on every x86_64 platform and UseAVX level.
+  if (FLAG_IS_DEFAULT(UseBranchLoopSafepointPolls)) {
+    FLAG_SET_DEFAULT(UseBranchLoopSafepointPolls, true);
+  }
 #ifdef _WINDOWS
   // JDK-8365196: Windows can resume an access violation in compiled code without the AVX-512
   // state the thread had when it was raised. Compiled code keeps values in these registers
