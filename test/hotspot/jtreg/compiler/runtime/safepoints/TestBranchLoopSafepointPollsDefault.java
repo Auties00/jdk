@@ -24,8 +24,9 @@
 /*
  * @test
  * @bug 8365196
- * @summary UseBranchLoopSafepointPolls is on and ImplicitNullChecks off by default exactly on
- *          Windows with UseAVX > 2, and both can be overridden.
+ * @summary UseBranchLoopSafepointPolls is on and ImplicitNullChecks off by default only on
+ *          Windows, only together and only when the startup check reports that resuming from
+ *          an exception can lose AVX state; both can be overridden.
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.flagless
  * @library /test/lib
@@ -62,9 +63,17 @@ public class TestBranchLoopSafepointPollsDefault {
     }
 
     public static void main(String[] args) throws Exception {
-        OutputAnalyzer out = flags();
+        OutputAnalyzer out = flags("-Xlog:os+cpu=info");
         int useAVX = Integer.parseInt(flag(out, "UseAVX"));
-        boolean expected = Platform.isWindows() && useAVX > 2;
+        // The check runs on Windows with AVX only, and logs its result.
+        boolean expected = out.getStdout().contains("Resuming from an exception can lose AVX state");
+        if (expected && !(Platform.isWindows() && useAVX > 0)) {
+            throw new RuntimeException("startup check ran with UseAVX = " + useAVX);
+        }
+        if (Platform.isWindows() && useAVX > 0 && !expected
+                && !out.getStdout().contains("Resuming from an exception keeps AVX state")) {
+            throw new RuntimeException("startup check did not run");
+        }
         String actual = flag(out, "UseBranchLoopSafepointPolls");
         if (!actual.equals(Boolean.toString(expected))) {
             throw new RuntimeException("UseBranchLoopSafepointPolls = " + actual + ", expected " + expected
@@ -83,10 +92,10 @@ public class TestBranchLoopSafepointPollsDefault {
         if (!flag(flags("-XX:-UseBranchLoopSafepointPolls"), "UseBranchLoopSafepointPolls").equals("false")) {
             throw new RuntimeException("cannot disable UseBranchLoopSafepointPolls");
         }
-        if (useAVX > 2 && Platform.isWindows()) {
-            // A lower UseAVX turns the default off again.
-            if (!flag(flags("-XX:UseAVX=2"), "UseBranchLoopSafepointPolls").equals("false")) {
-                throw new RuntimeException("UseBranchLoopSafepointPolls should be off with -XX:UseAVX=2");
+        if (expected) {
+            // Without AVX there is no state to lose.
+            if (!flag(flags("-XX:UseAVX=0"), "UseBranchLoopSafepointPolls").equals("false")) {
+                throw new RuntimeException("UseBranchLoopSafepointPolls should be off with -XX:UseAVX=0");
             }
         }
     }

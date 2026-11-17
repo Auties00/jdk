@@ -368,6 +368,8 @@ protected:
   static address   _cpuinfo_cont_addr;     // address of instruction after the one which causes SEGV
   static address   _cpuinfo_segv_addr_apx; // address of instruction which causes APX specific SEGV
   static address   _cpuinfo_cont_addr_apx; // address of instruction after the one which causes APX specific SEGV
+  static address   _exception_xstate_segv_addr; // address of the instruction which causes the SEGV of the XSTATE check
+  static address   _exception_xstate_cont_addr; // address of the instruction after it
 
   /*
    * Update following files when declaring new flags:
@@ -756,6 +758,8 @@ private:
   static bool compute_has_intel_jcc_erratum();
 
   static bool os_supports_avx_vectors();
+  // Windows only: whether resuming from an exception can lose AVX state (JDK-8365196).
+  static bool exception_resume_loses_xstate();
   static bool os_supports_apx_egprs();
   static void get_processor_features();
   static void apply_aot_cache_cpu_features();
@@ -802,6 +806,11 @@ public:
   static bool  is_cpuinfo_segv_addr(address pc) { return _cpuinfo_segv_addr == pc; }
   static void set_cpuinfo_cont_addr(address pc) { _cpuinfo_cont_addr = pc; }
   static address  cpuinfo_cont_addr()           { return _cpuinfo_cont_addr; }
+
+  static void set_exception_xstate_segv_addr(address pc) { _exception_xstate_segv_addr = pc; }
+  static bool  is_exception_xstate_segv_addr(address pc) { return _exception_xstate_segv_addr == pc; }
+  static void set_exception_xstate_cont_addr(address pc) { _exception_xstate_cont_addr = pc; }
+  static address  exception_xstate_cont_addr()           { return _exception_xstate_cont_addr; }
 
   static void set_cpuinfo_segv_addr_apx(address pc) { _cpuinfo_segv_addr_apx = pc; }
   static bool  is_cpuinfo_segv_addr_apx(address pc) { return _cpuinfo_segv_addr_apx == pc; }
