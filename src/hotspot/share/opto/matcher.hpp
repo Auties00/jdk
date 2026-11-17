@@ -444,6 +444,14 @@ public:
 
   // Java-Native vector calling convention
   static bool supports_vector_calling_convention();
+
+  // Whether loop safepoints test the thread's poll word and branch instead of loading from
+  // the polling page; their poll input is then the current thread, not a polling page address.
+  static bool loop_safepoint_poll_uses_branch();
+
+  // Offset of the poll instruction, which carries the debug info, from the start of a loop
+  // SafePoint's code.
+  static int safepoint_poll_pc_offset();
   static OptoRegPair vector_return_value(uint ideal_reg);
 
   // Is this branch offset small enough to be addressed by a short branch?

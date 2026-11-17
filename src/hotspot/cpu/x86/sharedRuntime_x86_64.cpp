@@ -3171,6 +3171,7 @@ SafepointBlob* SharedRuntime::generate_handler_blob(StubId id, address call_ptr)
     //      85 03       test   %eax,(%rbx)
     //      85 06       test   %eax,(%rsi)
     //      85 07       test   %eax,(%rdi)
+    //      85 c0       test   %eax,%eax     (poll site of a branching loop poll, UseBranchLoopSafepointPolls)
     //
     //   41 85 00       test   %eax,(%r8)
     //   41 85 01       test   %eax,(%r9)

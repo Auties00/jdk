@@ -2359,6 +2359,14 @@ const RegMask* Matcher::predicate_reg_mask(void) {
   return &_PR_REG_mask;
 }
 
+bool Matcher::loop_safepoint_poll_uses_branch() {
+  return false;
+}
+
+int Matcher::safepoint_poll_pc_offset() {
+  return 0;
+}
+
 bool Matcher::supports_vector_calling_convention(void) {
   return EnableVectorSupport;
 }

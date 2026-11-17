@@ -2646,6 +2646,14 @@ void MachUEPNode::emit(C2_MacroAssembler* masm, PhaseRegAlloc* ra_) const
 
 //=============================================================================
 
+bool Matcher::loop_safepoint_poll_uses_branch() {
+  return MacroAssembler::loop_safepoint_poll_uses_branch();
+}
+
+int Matcher::safepoint_poll_pc_offset() {
+  return MacroAssembler::loop_safepoint_poll_uses_branch() ? MacroAssembler::loop_safepoint_poll_branch_size() : 0;
+}
+
 bool Matcher::supports_vector_calling_convention(void) {
   return EnableVectorSupport;
 }
@@ -17027,6 +17035,7 @@ instruct cmpFastUnlock(rFlagsReg cr, rRegP object, rax_RegP rax_reg, rRegP tmp) 
 // Safepoint Instructions
 instruct safePoint_poll_tls(rFlagsReg cr, rRegP poll)
 %{
+  predicate(!Matcher::loop_safepoint_poll_uses_branch());
   match(SafePoint poll);
   effect(KILL cr, USE poll);
 
@@ -17040,6 +17049,45 @@ instruct safePoint_poll_tls(rFlagsReg cr, rRegP poll)
     assert(nativeInstruction_at(pre_pc)->is_safepoint_poll(), "must emit test %%eax [reg]");
   %}
   ins_pipe(ialu_reg_mem);
+%}
+
+// Loop safepoint poll that tests the poll word and branches to the safepoint handler instead of
+// trapping (UseBranchLoopSafepointPolls). The poll input is the current thread. The relocated
+// `test eax, eax` after the branch is the poll site: it carries the debug info
+// (Matcher::safepoint_poll_pc_offset()), and the handler returns past it, so that execution
+// continues after the poll as it does after a polling page trap. It is a poll encoding the
+// handler knows how to skip, and it accesses no memory.
+instruct safePoint_poll_branch(rFlagsReg cr, r15_RegP poll)
+%{
+  predicate(Matcher::loop_safepoint_poll_uses_branch());
+  match(SafePoint poll);
+  effect(KILL cr, USE poll);
+
+  format %{ "testb   [$poll + polling_word], 1\n\t"
+            "jnz     safepoint_poll_stub\n\t"
+            "testl   rax, rax\t# Safepoint: poll site" %}
+  ins_cost(150);
+  ins_encode %{
+    Label dummy_label;
+    Label* code_stub = &dummy_label;
+    C2SafepointPollStub* stub = nullptr;
+    if (!ra_->C->output()->in_scratch_emit_size()) {
+      stub = new (ra_->C->comp_arena()) C2SafepointPollStub(0, false /* at_return */);
+      ra_->C->output()->add_stub(stub);
+      code_stub = &stub->entry();
+    }
+    int start = __ offset();
+    __ safepoint_poll(*code_stub, false /* at_return */, true /* in_nmethod */);
+    guarantee(__ offset() - start == Matcher::safepoint_poll_pc_offset(), "poll site must be at the recorded offset");
+    if (stub != nullptr) {
+      stub->set_safepoint_offset(__ offset());
+    }
+    __ relocate(relocInfo::poll_type);
+    address pre_pc = __ pc();
+    __ testl(rax, rax);
+    assert(nativeInstruction_at(pre_pc)->is_safepoint_poll(), "must emit a test of eax");
+  %}
+  ins_pipe(pipe_slow);
 %}
 
 instruct mask_all_evexL(kReg dst, rRegL src) %{
