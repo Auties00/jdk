@@ -2732,6 +2732,12 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
   }
 
   if ((exception_code == EXCEPTION_ACCESS_VIOLATION) &&
+      VM_Version::is_exception_xstate_segv_addr(pc)) {
+    // Check whether resuming from an exception keeps the AVX state.
+    return Handle_Exception(exceptionInfo, VM_Version::exception_xstate_cont_addr());
+  }
+
+  if ((exception_code == EXCEPTION_ACCESS_VIOLATION) &&
       VM_Version::is_cpuinfo_segv_addr_apx(pc)) {
     // Verify that OS save/restore APX registers.
     VM_Version::clear_apx_test_state();

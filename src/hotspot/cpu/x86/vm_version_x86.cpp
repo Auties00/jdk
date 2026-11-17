@@ -61,9 +61,13 @@ address VM_Version::_cpuinfo_cont_addr = nullptr;
 address VM_Version::_cpuinfo_segv_addr_apx = nullptr;
 // Address of instruction after the one which causes APX specific SEGV
 address VM_Version::_cpuinfo_cont_addr_apx = nullptr;
+// Address of the instruction which causes the SEGV of the exception XSTATE check
+address VM_Version::_exception_xstate_segv_addr = nullptr;
+// Address of the instruction after it
+address VM_Version::_exception_xstate_cont_addr = nullptr;
 
 static BufferBlob* stub_blob;
-static const int stub_size = 2550;
+static const int stub_size = 2700;
 
 VM_Version::VM_Features VM_Version::_features;
 VM_Version::VM_Features VM_Version::_cpu_features;
@@ -74,11 +78,13 @@ extern "C" {
   typedef void (*detect_virt_stub_t)(uint32_t, uint32_t*);
   typedef void (*clear_apx_test_state_t)(void);
   typedef void (*getCPUIDBrandString_stub_t)(void*);
+  typedef void (*exception_xstate_check_stub_t)(void*);
 }
 static get_cpu_info_stub_t get_cpu_info_stub = nullptr;
 static detect_virt_stub_t detect_virt_stub = nullptr;
 static clear_apx_test_state_t clear_apx_test_state_stub = nullptr;
 static getCPUIDBrandString_stub_t getCPUIDBrandString_stub = nullptr;
+static exception_xstate_check_stub_t exception_xstate_check_stub = nullptr;
 
 #define CPUID_STANDARD_FN   0x0
 #define CPUID_STANDARD_FN_1 0x1
@@ -744,6 +750,74 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
   };
 
 
+  // void exception_xstate_check(int save[8])
+  //
+  // Windows only (JDK-8365196). Some Windows builds copy the context of an exception to the
+  // user stack with a routine that trusts the 16 bytes already at the destination when they
+  // look like the header of a compacted XSAVE area, and then leave out of the context the
+  // state components that stale header does not name. Continuing from the exception resets
+  // those components. The stub fills the stack below rsp with a value that passes for a
+  // header naming no component, loads ymm0, raises an access violation, and stores ymm0
+  // after the exception handler has resumed at the next instruction. The caller compares
+  // the stored value with ymm_test_value().
+  address generate_exception_xstate_check() {
+    StubCodeMark mark(this, "VM_Version", "exception_xstate_check_stub");
+#   define __ _masm->
+
+    address start = __ pc();
+#ifdef _WINDOWS
+    // Fill 16K: the context of an exception with every AVX-512 and AMX component is about 11K.
+    const int fill_words = 2048;
+    Label fill, clear;
+    int saved_useavx = UseAVX;
+
+    __ movptr(r8, c_rarg0);
+    // Nothing is live below rsp. Writing downwards also commits the stack pages in order.
+    __ mov64(rax, min_jlong);
+    __ movptr(rdx, rsp);
+    __ movl(rcx, fill_words);
+    __ bind(fill);
+    __ subptr(rdx, wordSize);
+    __ movptr(Address(rdx, 0), rax);
+    __ decrementl(rcx);
+    __ jcc(Assembler::notZero, fill);
+
+    VM_Version::set_avx_cpuFeatures(); // Enable temporary to pass asserts
+    UseAVX = 1;
+    // load value into all 32 bytes of ymm0 register
+    __ movl(rcx, VM_Version::ymm_test_value());
+    __ movdl(xmm0, rcx);
+    __ pshufd(xmm0, xmm0, 0x00);
+    __ vinsertf128_high(xmm0, xmm0);
+
+    __ xorl(rdx, rdx);
+    VM_Version::set_exception_xstate_segv_addr(__ pc());
+    // Generate SEGV
+    __ movl(rax, Address(rdx, 0));
+
+    VM_Version::set_exception_xstate_cont_addr(__ pc());
+    // Returns here after the exception.
+    __ vmovdqu(Address(r8, 0), xmm0);
+    __ vzeroupper_uncached();
+    // Do not leave the header-like values on the stack for later exceptions of this thread.
+    __ xorl(rax, rax);
+    __ movptr(rdx, rsp);
+    __ movl(rcx, fill_words);
+    __ bind(clear);
+    __ subptr(rdx, wordSize);
+    __ movptr(Address(rdx, 0), rax);
+    __ decrementl(rcx);
+    __ jcc(Assembler::notZero, clear);
+    VM_Version::clean_cpuFeatures();
+    UseAVX = saved_useavx;
+#endif // _WINDOWS
+    __ ret(0);
+
+#   undef __
+
+    return start;
+  };
+
   address generate_getCPUIDBrandString(void) {
     // Flags to test CPU type.
     const uint32_t HS_EFL_AC           = 0x40000;
@@ -1037,10 +1111,11 @@ void VM_Version::get_processor_features() {
   }
 
 #ifdef _WINDOWS
-  // JDK-8365196: Windows can resume an access violation in compiled code without the AVX-512
-  // state the thread had when it was raised. Compiled code keeps values in these registers
-  // across loop safepoint polls and C2 implicit null checks, so avoid both traps.
-  if (UseAVX > 2) {
+  // JDK-8365196: some Windows builds can resume an access violation in compiled code without
+  // the AVX and AVX-512 state the thread had when it was raised. Compiled code keeps values
+  // in these registers across loop safepoint polls and C2 implicit null checks, so avoid both
+  // traps where a check at startup shows the loss.
+  if (UseAVX > 0 && exception_resume_loses_xstate()) {
     if (FLAG_IS_DEFAULT(UseBranchLoopSafepointPolls)) {
       FLAG_SET_DEFAULT(UseBranchLoopSafepointPolls, true);
     }
@@ -2189,6 +2264,24 @@ void VM_Version::clear_apx_test_state() {
 
 static bool _vm_version_initialized = false;
 
+#ifdef _WINDOWS
+bool VM_Version::exception_resume_loses_xstate() {
+  int save[8];
+  for (int i = 0; i < 8; i++) {
+    save[i] = 0;
+  }
+  exception_xstate_check_stub(save);
+  bool lost = false;
+  for (int i = 0; i < 8; i++) {
+    if (save[i] != ymm_test_value()) {
+      lost = true;
+    }
+  }
+  log_info(os, cpu)("Resuming from an exception %s AVX state", lost ? "can lose" : "keeps");
+  return lost;
+}
+#endif // _WINDOWS
+
 void VM_Version::initialize() {
   ResourceMark rm;
 
@@ -2208,6 +2301,8 @@ void VM_Version::initialize() {
                                      g.clear_apx_test_state());
   getCPUIDBrandString_stub = CAST_TO_FN_PTR(getCPUIDBrandString_stub_t,
                                      g.generate_getCPUIDBrandString());
+  exception_xstate_check_stub = CAST_TO_FN_PTR(exception_xstate_check_stub_t,
+                                     g.generate_exception_xstate_check());
   get_processor_features();
 
   Assembler::precompute_instructions();
