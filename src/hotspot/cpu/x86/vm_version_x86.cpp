@@ -1036,6 +1036,13 @@ void VM_Version::get_processor_features() {
     FLAG_SET_DEFAULT(UseAVX, use_avx_limit);
   }
 
+#ifdef _WINDOWS
+  // JDK-8365196: Windows can resume a polling page trap without the AVX-512 state it was taken with.
+  if (FLAG_IS_DEFAULT(UseBranchLoopSafepointPolls)) {
+    FLAG_SET_DEFAULT(UseBranchLoopSafepointPolls, UseAVX > 2);
+  }
+#endif
+
   if (UseAVX < 3) {
     clear_feature(CPU_AVX512F);
     clear_feature(CPU_AVX512DQ);

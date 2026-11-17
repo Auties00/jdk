@@ -775,6 +775,18 @@ public:
 
   void safepoint_poll(Label& slow_path, bool at_return, bool in_nmethod);
 
+  // Whether compiled code tests the poll word and branches to the safepoint handler blob at
+  // loop safepoint polls, instead of taking the polling page trap (UseBranchLoopSafepointPolls).
+  // Windows Server 2025 can build the exception context of the trap without the AVX and
+  // AVX-512 state components (ymm/zmm upper halves, opmask registers, xmm16-xmm31) that the
+  // thread is using; the handler cannot add them back, and resuming from that context resets
+  // them to zero. Compiled code keeps values in these registers across loop polls.
+  static bool loop_safepoint_poll_uses_branch();
+
+  // Size of the poll word test and branch that safepoint_poll(slow_path, false, true) emits for a
+  // loop poll when the slow path label is not yet bound.
+  static int loop_safepoint_poll_branch_size();
+
   void verify_tlab();
 
   static Condition negate_condition(Condition cond);

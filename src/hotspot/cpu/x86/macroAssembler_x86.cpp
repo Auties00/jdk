@@ -2585,6 +2585,16 @@ void MacroAssembler::round_to(Register reg, int modulus) {
   andptr(reg, -modulus);
 }
 
+bool MacroAssembler::loop_safepoint_poll_uses_branch() {
+  return UseBranchLoopSafepointPolls;
+}
+
+int MacroAssembler::loop_safepoint_poll_branch_size() {
+  // testb [r15 + disp], imm8: REX.B, F6, ModRM, disp8 or disp32, imm8; then jcc rel32 (6 bytes).
+  int disp = in_bytes(JavaThread::polling_word_offset());
+  return 3 + ((-0x80 <= disp && disp < 0x80) ? 1 : 4) + 1 + 6;
+}
+
 void MacroAssembler::safepoint_poll(Label& slow_path, bool at_return, bool in_nmethod) {
   if (at_return) {
     // Note that when in_nmethod is set, the stack pointer is incremented before the poll. Therefore,

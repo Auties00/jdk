@@ -1093,6 +1093,8 @@ void PhaseOutput::Process_OopMap_Node(MachNode *mach, int current_offset) {
       return_scalarized = true;
     }
     safepoint_pc_offset += mcall->ret_addr_offset();
+  } else {
+    safepoint_pc_offset += Matcher::safepoint_poll_pc_offset();
   }
   C->debug_info()->add_safepoint(safepoint_pc_offset, sfn->_oop_map);
 
@@ -1633,7 +1635,9 @@ void PhaseOutput::fill_buffer(C2_MacroAssembler* masm, uint* blk_starts) {
                    "Safepoint address should be offset from the first instruction and should not point after the node");
           } else if (is_sfn) {
             assert(mach->ideal_Opcode() == Op_SafePoint, "An unexpected safepoint node, which might need handling above");
-            padding = nop_size;
+            if (Matcher::safepoint_poll_pc_offset() == 0) {
+              padding = nop_size;
+            }
           }
         }
         if (padding == 0 && mach->avoid_back_to_back(MachNode::AVOID_BEFORE) &&

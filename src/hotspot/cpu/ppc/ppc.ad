@@ -2196,6 +2196,14 @@ const RegMask* Matcher::predicate_reg_mask(void) {
 }
 
 // Vector calling convention not yet implemented.
+bool Matcher::loop_safepoint_poll_uses_branch() {
+  return false;
+}
+
+int Matcher::safepoint_poll_pc_offset() {
+  return 0;
+}
+
 bool Matcher::supports_vector_calling_convention(void) {
   return false;
 }
