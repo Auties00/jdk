@@ -29,6 +29,7 @@ jobs:
             test/hotspot/jtreg
             test/lib
             test/jtreg-ext
+            test/jdk/java/lang/invoke/common
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: bundles-linux-x64-debug
