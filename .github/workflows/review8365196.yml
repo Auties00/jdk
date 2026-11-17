@@ -1,29 +1,26 @@
-name: 'JDK-8365196 review: implicit null check leftover'
+name: 'JDK-8365196 review: benchmarks of the workaround'
 
-# Review-only probe (not for upstream). Downloads the windows-x64 release bundles of the unpatched
-# build (run 43956005275) and of the fix (run 43973009181) and runs review8365196/NpeLeftover.java,
-# which takes an implicit null check trap per cycle in C2 code with many doubles live, on
-# windows-latest runners. A Repro.java control with seeds that failed on the unpatched build
-# shows whether the runner is affected at all.
+# Review-only: runs review8365196/PollBench.java with the workaround build of run 44003093072
+# (branch JDK-8365196-workaround-ci), flag on and off in the same binary, interleaved.
 
 on:
   push:
     branches:
-      - 'JDK-8365196-review-npe*'
+      - 'JDK-8365196-review-perf*'
 
 permissions:
   actions: read
   contents: read
 
 jobs:
-  npe:
-    name: npe (${{ matrix.slot }})
+  perf:
+    name: perf (${{ matrix.slot }})
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        slot: [1,2,3,4,5,6,7,8,9,10,11,12]
+        slot: [1, 2, 3, 4]
     defaults:
       run:
         shell: bash
@@ -31,64 +28,29 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           sparse-checkout: review8365196
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          repository: Auties00/jdk-c2-avx512-windows-repro
-          path: repro
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: bundles-windows-x64
-          path: b-fix
-          run-id: 43973009181
+          path: bundles
+          run-id: 44003093072
           github-token: ${{ github.token }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: bundles-windows-x64
-          path: b-base
-          run-id: 43956005275
-          github-token: ${{ github.token }}
-      - name: 'Run'
-        env:
-          SECS: '8'
+      - name: 'Benchmarks'
         run: |
           set +e
-          mkdir -p out
-          for b in fix base; do mkdir -p jdk-$b; unzip -q b-$b/jdk-windows-x64.zip -d jdk-$b; done
-          jfix=$(find jdk-fix -name java.exe -path '*/bin/*' | head -1)
-          jbase=$(find jdk-base -name java.exe -path '*/bin/*' | head -1)
-          cpu=$(powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()")
-          build=$(powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"")
-          echo "HOST: $cpu | $build" | tee out/host.txt
-          "$jfix" -XX:+PrintFlagsFinal -version 2>/dev/null | grep -E ' (UseAVX|MaxVectorSize) ' | tee -a out/host.txt
-          "$(dirname $jfix)/javac" -d c-npe review8365196/NpeLeftover.java
-          "$(dirname $jfix)/javac" --add-modules jdk.incubator.vector -d c-repro repro/Repro.java 2>&1 | grep -v -i warning
-          common="-XX:-TieredCompilation -Xbatch -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000 -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1 -XX:CompileCommand=quiet -XX:-CreateCoredumpOnCrash -XX:+UnlockDiagnosticVMOptions"
-          "$(dirname $jfix)/javac" --add-modules jdk.incubator.vector -d c-npe review8365196/NpeVector.java 2>&1 | grep -v -i warning
-          run_npe() { # java tag prog seed extra...
-            local j=$1 tag=$2 prog=$3 seed=$4; shift 4
-            "$j" $common -XX:CompileCommand=exclude,$prog::reference --add-modules jdk.incubator.vector -XX:+StressGCM -XX:+StressLCM -XX:StressSeed=$seed "$@" -Xlog:deoptimization=debug:file=out/deopt-$prog-$tag-$seed.log -cp c-npe $prog "$SECS" > out/npe-$prog-$tag-$seed.log 2>&1
-            local code=$?
-            local traps=$(grep -c "$prog.kernel.*null_check" out/deopt-$prog-$tag-$seed.log)
-            echo "NPE $prog $tag seed=$seed exit=$code traps=$traps $(grep -m1 RESULT out/npe-$prog-$tag-$seed.log) $(grep -m1 -E 'MISMATCH|EXCEPTION|Error' out/npe-$prog-$tag-$seed.log)" | tee -a out/summary.txt
-          }
-          sp="-XX:+SafepointALot -XX:GuaranteedSafepointInterval=1"
-          for prog in NpeVector NpeLeftover; do
-            for seed in 1 2 3 4; do
-              run_npe "$jfix" fix $prog $seed
-              run_npe "$jbase" base $prog $seed
-              run_npe "$jbase" base-sp $prog $seed $sp
-              run_npe "$jfix" fix-sp $prog $seed $sp
+          mkdir -p out jdk; unzip -q bundles/jdk-windows-x64.zip -d jdk
+          bin=$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          "$bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|UseBranchLoopSafepointPolls|ImplicitNullChecks) ' | tee out/flags.txt
+          "$bin/javac" -d pb review8365196/PollBench.java
+          for round in 1 2 3 4; do
+            for v in "-XX:+UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks" "-XX:-UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks" "-XX:+UseBranchLoopSafepointPolls -XX:-ImplicitNullChecks"; do
+              "$bin/java" -XX:+UnlockDiagnosticVMOptions $v -cp pb PollBench all 3 1 9 2>&1 | sed "s|^|round=$round [$v] |" | tee -a out/bench.txt
             done
           done
-          for seed in 29; do
-            "$jbase" -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:+StressGCM -XX:+StressLCM -XX:StressSeed=$seed -XX:-CreateCoredumpOnCrash -XX:ErrorFile=out/hs_err_base_$seed.log --add-modules jdk.incubator.vector -cp c-repro Repro field 4 4 > out/repro-base-$seed.log 2>&1
-            echo "CONTROL base Repro seed=$seed exit=$? $(ls out/hs_err_base_$seed.log 2>/dev/null)" | tee -a out/summary.txt
-          done
-          { echo "### $(cat out/host.txt | head -1)"; echo '```'; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          exit 0
+          { echo "### $(cat out/cpu.txt)"; echo '```'; cat out/bench.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: npe-${{ matrix.slot }}
+          name: perf-${{ matrix.slot }}
           path: out
           retention-days: 30
