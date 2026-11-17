@@ -1,0 +1,71 @@
+name: 'JDK-8365196 review 2: TestImplicitNullChecks without implicit null checks'
+
+# Review-only. compiler/gcbarriers/TestImplicitNullChecks (hotspot tier1) with and without implicit null checks,
+# on the linux-x64 debug build of run 44027964926 (final code a0210e6a270).
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-review2-tinc*'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  jtreg:
+    name: jtreg
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            test/hotspot/jtreg
+            test/lib
+            test/jtreg-ext
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64-debug
+          path: bundles
+          run-id: 44027964926
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-jtreg-8.3+1
+          path: jtreg
+          run-id: 44027964926
+          github-token: ${{ github.token }}
+      - name: 'jtreg'
+        run: |
+          set +e
+          mkdir -p jdk tb out
+          ls bundles
+          tar xzf bundles/jdk-linux-x64-debug.tar.gz -C jdk
+          tar xzf bundles/tests-linux-x64-debug.tar.gz -C tb
+          JDK=$(dirname "$(dirname "$(find jdk -name java -path '*/bin/*' -type f | head -1)")")
+          JT=$(find jtreg -name jtreg.jar | head -1)
+          NAT=$(dirname "$(find tb -name 'libThreadStateTest2.so' | head -1)")
+          grep -m1 'model name' /proc/cpuinfo | tee out/cpu.txt
+          "$JDK/bin/java" -version 2>&1 | tee -a out/cpu.txt
+          run() { # name, javaoptions, tests...
+            local name=$1 opts=$2; shift 2
+            "$JDK/bin/java" -jar "$JT" -jdk:"$JDK" -dir:test/hotspot/jtreg -nativepath:"$NAT" -exclude:test/hotspot/jtreg/ProblemList.txt \
+              -conc:4 -timeoutFactor:4 -verbose:summary -retain:fail,error -w:work-$name -r:out/report-$name ${opts:+"-javaoptions:$opts"} "$@" > out/jtreg-$name.txt 2>&1
+            { echo "== $name [$opts]: $(grep -E '^Test results' out/jtreg-$name.txt)"; grep -E '^(FAILED|Error)' out/jtreg-$name.txt | head -40; } | tee -a out/summary.txt
+          }
+          # The fixed test forces +ImplicitNullChecks; the variant with -ImplicitNullChecks is what the unfixed test
+          # sees on Windows with UseAVX > 2, where the series makes -ImplicitNullChecks the default.
+          run fixed "" compiler/gcbarriers/TestImplicitNullChecks.java
+          sed -i 's/-XX:+ImplicitNullChecks/-XX:-ImplicitNullChecks/' test/hotspot/jtreg/compiler/gcbarriers/TestImplicitNullChecks.java
+          grep -n ImplicitNullChecks test/hotspot/jtreg/compiler/gcbarriers/TestImplicitNullChecks.java | tee -a out/summary.txt
+          run windows-default "" compiler/gcbarriers/TestImplicitNullChecks.java
+          grep -m5 -E "Failed IR Rules|NULL_CHECK|Method \"" work-windows-default/compiler/gcbarriers/TestImplicitNullChecks.jtr | tee -a out/summary.txt
+          { echo '```'; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: jtreg-tinc
+          path: out
+          retention-days: 30
