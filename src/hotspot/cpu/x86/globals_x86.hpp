@@ -108,6 +108,14 @@ define_pd_global(bool, ValueTypeReturnedAsFields, true);
   product(bool, UseAPX, false,                                              \
           "Use Intel Advanced Performance Extensions")                      \
                                                                             \
+  product(int, ScrubExceptionLandingSlot, 0, DIAGNOSTIC,                    \
+          "Prototype. When not 0, the length L of the XSAVE area in the "   \
+          "exception contexts of this system: C2 code then stores 0 at "    \
+          "((rsp - L) & -64) + 8, where Windows would read the XCOMP_BV "   \
+          "of a stale XSAVE header, at method entry, after calls, at "      \
+          "exception handlers and when the safepoint handler returns")      \
+          range(0, 32768)                                                   \
+                                                                            \
   product(bool, UseUpperXMMRegistersInC1, true, DIAGNOSTIC,                           "C1 allocates xmm16-xmm31 when AVX-512 is enabled. Off by "                 "default on Windows when a check at startup finds that "                    "resuming from an exception loses AVX state, which C1 code "                "then cannot lose at its implicit exceptions")                                                                                                  product(bool, UseBranchLoopSafepointPolls, false, DIAGNOSTIC,             \
           "Compiled loop safepoint polls test the thread's poll word and "  \
           "branch to the safepoint handler instead of loading from the "    \

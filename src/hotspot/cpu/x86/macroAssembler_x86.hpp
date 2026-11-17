@@ -787,6 +787,13 @@ public:
   // loop poll when the slow path label is not yet bound.
   static int loop_safepoint_poll_branch_size();
 
+  // JDK-8365196 prototype. Stores 0 into the quadword that Windows would read as the XCOMP_BV of
+  // a stale XSAVE header if the instruction at the current rsp raised an exception now, so that
+  // the exception context is complete. Frames of callees are what leaves other values there, so
+  // this is emitted wherever control comes back to a compiled frame. Kills the flags, and
+  // rscratch1 unless asked to preserve it.
+  void scrub_exception_landing_slot(bool preserve_rscratch1 = false);
+
   void verify_tlab();
 
   static Condition negate_condition(Condition cond);

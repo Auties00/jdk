@@ -396,6 +396,8 @@ void G1BarrierSetAssembler::generate_c2_pre_barrier_stub(MacroAssembler* masm,
   generate_pre_barrier_slow_path(masm, obj, pre_val, thread, tmp, *stub->continuation());
 
   generate_c2_barrier_runtime_call(masm, stub, pre_val, CAST_FROM_FN_PTR(address, G1BarrierSetRuntime::write_ref_field_pre_entry));
+  // The runtime call has used the stack below the compiled frame; rsp is the frame's again.
+  __ scrub_exception_landing_slot(true /* preserve_rscratch1 */);
   __ jmp(*stub->continuation());
 }
 

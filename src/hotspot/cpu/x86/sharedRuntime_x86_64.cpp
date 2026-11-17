@@ -3239,6 +3239,17 @@ SafepointBlob* SharedRuntime::generate_handler_blob(StubId id, address call_ptr)
   __ bind(no_adjust);
   // Normal exit, restore registers and exit.
   RegisterSaver::restore_live_registers(masm, save_wide_vectors);
+  if (ScrubExceptionLandingSlot > 0 && !cause_return) {
+    // JDK-8365196 prototype: the registers saved in this frame are what the next trap of the
+    // compiled frame would find where Windows reads a stale XSAVE header. Every register is
+    // live here; rsp + 2 words is the compiled frame's rsp once rscratch1 and the return
+    // address are popped.
+    __ push(rscratch1);
+    __ lea(rscratch1, Address(rsp, 2 * wordSize - ScrubExceptionLandingSlot));
+    __ andptr(rscratch1, -64);
+    __ movptr(Address(rscratch1, wordSize), (int32_t)0);
+    __ pop(rscratch1);
+  }
   __ ret(0);
 
 #ifdef ASSERT

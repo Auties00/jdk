@@ -1907,6 +1907,9 @@ void MachPrologNode::emit(C2_MacroAssembler *masm, PhaseRegAlloc *ra_) const {
 
   C->output()->set_frame_complete(__ offset());
 
+  // Earlier callees of the caller have used the stack below this frame.
+  __ scrub_exception_landing_slot();
+
   if (C->has_mach_constant_base_node()) {
     // NOTE: We set the table base offset here because users might be
     // emitted before MachConstantBaseNode.
@@ -4631,6 +4634,12 @@ encode %{
   enc_class Java_Dynamic_Call(method meth) %{
     __ ic_call((address)$meth$$method, resolved_method_index(masm));
     __ post_call_nop();
+  %}
+
+  // After a call: the callee has used the stack below this frame. rscratch1 and the flags are
+  // dead after every call.
+  enc_class scrub_landing %{
+    __ scrub_exception_landing_slot();
   %}
 
   enc_class call_epilog %{
@@ -17125,7 +17134,7 @@ instruct CallStaticJavaDirect(method meth) %{
   ins_cost(300);
   format %{ "call,static " %}
   opcode(0xE8); /* E8 cd */
-  ins_encode(clear_avx, Java_Static_Call(meth), call_epilog);
+  ins_encode(clear_avx, Java_Static_Call(meth), call_epilog, scrub_landing);
   ins_pipe(pipe_slow);
   ins_alignment(4);
 %}
@@ -17141,7 +17150,7 @@ instruct CallDynamicJavaDirect(method meth)
   ins_cost(300);
   format %{ "movq    rax, #Universe::non_oop_word()\n\t"
             "call,dynamic " %}
-  ins_encode(clear_avx, Java_Dynamic_Call(meth), call_epilog);
+  ins_encode(clear_avx, Java_Dynamic_Call(meth), call_epilog, scrub_landing);
   ins_pipe(pipe_slow);
   ins_alignment(4);
 %}
@@ -17154,7 +17163,7 @@ instruct CallRuntimeDirect(method meth)
 
   ins_cost(300);
   format %{ "call,runtime " %}
-  ins_encode(clear_avx, Java_To_Runtime(meth));
+  ins_encode(clear_avx, Java_To_Runtime(meth), scrub_landing);
   ins_pipe(pipe_slow);
 %}
 
@@ -17166,7 +17175,7 @@ instruct CallLeafDirect(method meth)
 
   ins_cost(300);
   format %{ "call_leaf,runtime " %}
-  ins_encode(clear_avx, Java_To_Runtime(meth));
+  ins_encode(clear_avx, Java_To_Runtime(meth), scrub_landing);
   ins_pipe(pipe_slow);
 %}
 
@@ -17178,7 +17187,7 @@ instruct CallLeafDirectVector(method meth)
 
   ins_cost(300);
   format %{ "call_leaf,vector " %}
-  ins_encode(Java_To_Runtime(meth));
+  ins_encode(Java_To_Runtime(meth), scrub_landing);
   ins_pipe(pipe_slow);
 %}
 
@@ -17193,6 +17202,7 @@ instruct CallLeafNoFPInDirect(rRegP target)
   format %{ "call_leaf_nofp,runtime indirect " %}
   ins_encode %{
      __ call($target$$Register);
+     __ scrub_exception_landing_slot();
   %}
 
   ins_pipe(pipe_slow);
@@ -17207,7 +17217,7 @@ instruct CallLeafNoFPDirect(method meth)
 
   ins_cost(300);
   format %{ "call_leaf_nofp,runtime " %}
-  ins_encode(clear_avx, Java_To_Runtime(meth));
+  ins_encode(clear_avx, Java_To_Runtime(meth), scrub_landing);
   ins_pipe(pipe_slow);
 %}
 
@@ -17279,10 +17289,12 @@ instruct CreateException(rax_RegP ex_oop)
 %{
   match(Set ex_oop (CreateEx));
 
-  size(0);
   // use the following format syntax
-  format %{ "# exception oop is in rax; no code emitted" %}
-  ins_encode();
+  format %{ "# exception oop is in rax" %}
+  ins_encode %{
+    // The callee that threw has used the stack below this frame.
+    __ scrub_exception_landing_slot();
+  %}
   ins_pipe(empty);
 %}
 

@@ -2585,6 +2585,22 @@ void MacroAssembler::round_to(Register reg, int modulus) {
   andptr(reg, -modulus);
 }
 
+void MacroAssembler::scrub_exception_landing_slot(bool preserve_rscratch1) {
+  if (ScrubExceptionLandingSlot > 0) {
+    int pushed = 0;
+    if (preserve_rscratch1) {
+      push(rscratch1);
+      pushed = wordSize;
+    }
+    lea(rscratch1, Address(rsp, pushed - ScrubExceptionLandingSlot));
+    andptr(rscratch1, -64);
+    movptr(Address(rscratch1, wordSize), (int32_t)0);
+    if (preserve_rscratch1) {
+      pop(rscratch1);
+    }
+  }
+}
+
 bool MacroAssembler::loop_safepoint_poll_uses_branch() {
   return UseBranchLoopSafepointPolls;
 }
