@@ -33,6 +33,21 @@
  * @run main/othervm/native -agentlib:ThreadStateTest2 ThreadStateTest2
  */
 
+/**
+ * @test id=branch-loop-polls
+ * @bug 8373366 8365196
+ * @summary The same with loop safepoint polls that branch instead of trapping: a thread whose poll
+ *          word stays armed while it cannot be suspended must still make progress.
+ * @requires vm.continuations
+ * @requires vm.jvmti
+ * @requires vm.compMode != "Xcomp"
+ * @requires os.arch == "amd64" | os.arch == "x86_64"
+ * @modules java.base/java.lang:+open
+ * @library /test/lib
+ * @run main/othervm/native -XX:+UnlockDiagnosticVMOptions -XX:+UseBranchLoopSafepointPolls
+ *      -agentlib:ThreadStateTest2 ThreadStateTest2
+ */
+
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
