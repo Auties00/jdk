@@ -1,0 +1,89 @@
+name: 'JDK-8365196 review 2: UseAVX gate and positive controls'
+
+# Review-only. Uses the final workaround build (bundle of run 44027944984, code a0210e6a270) on
+# windows-latest (Server 2025) hosts. Each reproducer runs with the old code shape (trap polls,
+# implicit null checks) at UseAVX=3 (positive control) and UseAVX=2 (is the UseAVX > 2 gate enough?),
+# and with the workaround defaults.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-review2-avx2*'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  gate:
+    name: gate (${{ matrix.slot }})
+    runs-on: windows-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2, 3, 4, 5, 6]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: bundles
+          run-id: 44027944984
+          github-token: ${{ github.token }}
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Auties00/jdk-c2-avx512-windows-repro
+          path: repro
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: JDK-8365196-workaround-ci
+          path: jdksrc
+          sparse-checkout: |
+            review8365196
+            test/hotspot/jtreg/compiler/runtime
+      - name: 'Gate and controls'
+        run: |
+          set +e
+          mkdir -p out jdk; unzip -q bundles/jdk-windows-x64.zip -d jdk
+          bin=$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")
+          cpu=$(powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()")
+          build=$(powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"")
+          echo "$cpu | $build" | tee out/cpu.txt
+          "$bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|UseBranchLoopSafepointPolls|ImplicitNullChecks) ' | tee out/flags.txt
+          if ! grep -qE 'UseAVX += 3' out/flags.txt; then echo "SUMMARY no AVX-512 on this host, skipped" | tee -a out/summary.txt; { echo "### $(cat out/cpu.txt)"; cat out/summary.txt; } >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          OLD="-XX:+UnlockDiagnosticVMOptions -XX:-UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks"
+          NEW="-XX:+UnlockDiagnosticVMOptions"
+          declare -A CFG=( [old-avx3]="$OLD" [old-avx2]="$OLD -XX:UseAVX=2" [old-avx2-mvs32]="$OLD -XX:UseAVX=2 -XX:MaxVectorSize=32" [new]="$NEW" )
+          ORDER="old-avx3 old-avx2 old-avx2-mvs32 new"
+          "$bin/javac" -d t7 jdksrc/test/hotspot/jtreg/compiler/runtime/Test7196199.java jdksrc/test/hotspot/jtreg/compiler/runtime/safepoints/TestBranchLoopSafepointPolls.java
+          "$bin/javac" --add-modules jdk.incubator.vector -d npe jdksrc/review8365196/NpeVector.java 2>&1 | grep -v -i warning
+          "$bin/javac" --add-modules jdk.incubator.vector -d rc repro/Repro.java 2>&1 | grep -v -i warning
+          # interleave the configurations so that host noise hits all of them
+          for round in 1 2 3; do
+            for c in $ORDER; do
+              f=0; for i in $(seq 1 10); do
+                "$bin/java" -Xmx128m -Xbatch -XX:+IgnoreUnrecognizedVMOptions ${CFG[$c]} -XX:-TieredCompilation -XX:+SafepointALot -XX:GuaranteedSafepointInterval=100 -XX:CompileCommand=exclude,compiler.runtime.Test7196199::test -XX:-CreateCoredumpOnCrash -cp t7 compiler.runtime.Test7196199 > out/t7.log 2>&1 || { f=$((f+1)); cp out/t7.log out/t7-$c-$round-$i.log; }
+              done; echo "RESULT Test7196199 $c $f 10" | tee -a out/raw.txt
+              f=0; for i in 1 2; do
+                "$bin/java" ${CFG[$c]} -XX:-TieredCompilation -Xbatch -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000 -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1 -XX:CompileCommand=quiet -XX:-CreateCoredumpOnCrash -XX:CompileCommand=exclude,NpeVector::reference --add-modules jdk.incubator.vector -XX:+StressGCM -XX:+StressLCM -XX:StressSeed=1 -cp npe NpeVector 8 > out/npe.log 2>&1 || { f=$((f+1)); cp out/npe.log out/npe-$c-$round-$i.log; }
+              done; echo "RESULT NpeVector $c $f 2" | tee -a out/raw.txt
+              f=0; n=0; for seed in 25 29 87112 31677 15 17 6 7; do
+                n=$((n+1)); "$bin/java" -Xmx512m ${CFG[$c]} -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:+StressGCM -XX:+StressLCM -XX:StressSeed=$seed -XX:+UseFPUForSpilling -XX:-CreateCoredumpOnCrash -XX:ErrorFile=NUL --add-modules jdk.incubator.vector -cp rc Repro field 3 4 > out/rp.log 2>&1 || { f=$((f+1)); cp out/rp.log out/rp-$c-$round-$seed.log; }
+              done; echo "RESULT Repro $c $f $n" | tee -a out/raw.txt
+              f=0; for i in 1 2; do
+                "$bin/java" -Xbatch ${CFG[$c]} -XX:-TieredCompilation -XX:+StressGCM -XX:+StressLCM -XX:+UseFPUForSpilling -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:-CreateCoredumpOnCrash -cp t7 compiler.runtime.safepoints.TestBranchLoopSafepointPolls > out/nt.log 2>&1 || { f=$((f+1)); cp out/nt.log out/nt-$c-$round-$i.log; }
+              done; echo "RESULT TestBranchLoopSafepointPolls $c $f 2" | tee -a out/raw.txt
+            done
+          done
+          awk '/^RESULT/ {k=$2" "$3; f[k]+=$4; n[k]+=$5} END {for (k in f) printf "SUMMARY %s: %d of %d failed\n", k, f[k], n[k]}' out/raw.txt | sort | tee -a out/summary.txt
+          { echo "### $(cat out/cpu.txt)"; echo '```'; cat out/flags.txt out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: gate-${{ matrix.slot }}
+          path: out
+          retention-days: 30
