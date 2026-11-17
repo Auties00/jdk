@@ -15,6 +15,7 @@
  *      ContextFlags and GetXStateFeaturesMask and skips the 2-byte instruction;
  *   4. stores every register and compares with the patterns.
  * Optionally (env PROBE_DUMMY=n) an extra trap with no live state is taken before step 2. PROBE_FX=1 runs
+ * PROBE_SPARSE=1 traps with a JVM-like state (ymm0-15, xmm16-31 at 128 bits, k1-k7: XINUSE 0xA7).
  * PROBE_ALIGN=k sets rsp so that it is k mod 64 below a 64-byte boundary before the trap (PROBE_INLINE=1: the
  * load traps in place, vectored handler only). The output reports the context masks per rsp%64 at the fault.
  * fxsave64/fxrstor64 between loading the patterns and the trap; PROBE_FX=2 runs fxsave64 before step 2 and
@@ -272,7 +273,124 @@ static void round_trip(const uint64_t *in, const uint16_t *kin, uint64_t *out, u
         : "memory", "cc", "r11", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15", "xmm16", "xmm17", "xmm18", "xmm19", "xmm20", "xmm21", "xmm22", "xmm23", "xmm24", "xmm25", "xmm26", "xmm27", "xmm28", "xmm29", "xmm30", "xmm31", "k1", "k2", "k3", "k4", "k5", "k6", "k7");
 }
 
-static int align_off = -1, align_inline;
+static int align_off = -1, align_inline, sparse_state;
+
+/* Like round_trip, but the state at the trap is JVM-like: ymm0-15 (VEX.256, zmm0-15 upper halves init),
+ * xmm16-31 (EVEX.128: Hi16_ZMM in use with zero upper bits) and k1-k7: XINUSE 0xA7. */
+__attribute__((noinline, target("avx512f,avx512bw,avx512vl")))
+static void round_trip_sparse(const uint64_t *in, const uint16_t *kin, uint64_t *out, uint16_t *kout) {
+    register const uint16_t *kin_r __asm__("r8") = kin;
+    register uint16_t *kout_r __asm__("r9") = kout;
+    register unsigned char *thunk __asm__("r10") = trap_thunk;
+    __asm__ volatile(
+        "vzeroall\n\t"
+        "vpxord %%zmm16, %%zmm16, %%zmm16\n\t"
+        "vpxord %%zmm17, %%zmm17, %%zmm17\n\t"
+        "vpxord %%zmm18, %%zmm18, %%zmm18\n\t"
+        "vpxord %%zmm19, %%zmm19, %%zmm19\n\t"
+        "vpxord %%zmm20, %%zmm20, %%zmm20\n\t"
+        "vpxord %%zmm21, %%zmm21, %%zmm21\n\t"
+        "vpxord %%zmm22, %%zmm22, %%zmm22\n\t"
+        "vpxord %%zmm23, %%zmm23, %%zmm23\n\t"
+        "vpxord %%zmm24, %%zmm24, %%zmm24\n\t"
+        "vpxord %%zmm25, %%zmm25, %%zmm25\n\t"
+        "vpxord %%zmm26, %%zmm26, %%zmm26\n\t"
+        "vpxord %%zmm27, %%zmm27, %%zmm27\n\t"
+        "vpxord %%zmm28, %%zmm28, %%zmm28\n\t"
+        "vpxord %%zmm29, %%zmm29, %%zmm29\n\t"
+        "vpxord %%zmm30, %%zmm30, %%zmm30\n\t"
+        "vpxord %%zmm31, %%zmm31, %%zmm31\n\t"
+        "kxorw %%k1, %%k1, %%k1\n\t"
+        "kxorw %%k2, %%k2, %%k2\n\t"
+        "kxorw %%k3, %%k3, %%k3\n\t"
+        "kxorw %%k4, %%k4, %%k4\n\t"
+        "kxorw %%k5, %%k5, %%k5\n\t"
+        "kxorw %%k6, %%k6, %%k6\n\t"
+        "kxorw %%k7, %%k7, %%k7\n\t"
+        "vmovdqu 0(%%rax), %%ymm0\n\t"
+        "vmovdqu 64(%%rax), %%ymm1\n\t"
+        "vmovdqu 128(%%rax), %%ymm2\n\t"
+        "vmovdqu 192(%%rax), %%ymm3\n\t"
+        "vmovdqu 256(%%rax), %%ymm4\n\t"
+        "vmovdqu 320(%%rax), %%ymm5\n\t"
+        "vmovdqu 384(%%rax), %%ymm6\n\t"
+        "vmovdqu 448(%%rax), %%ymm7\n\t"
+        "vmovdqu 512(%%rax), %%ymm8\n\t"
+        "vmovdqu 576(%%rax), %%ymm9\n\t"
+        "vmovdqu 640(%%rax), %%ymm10\n\t"
+        "vmovdqu 704(%%rax), %%ymm11\n\t"
+        "vmovdqu 768(%%rax), %%ymm12\n\t"
+        "vmovdqu 832(%%rax), %%ymm13\n\t"
+        "vmovdqu 896(%%rax), %%ymm14\n\t"
+        "vmovdqu 960(%%rax), %%ymm15\n\t"
+        "vmovdqu64 1024(%%rax), %%xmm16\n\t"
+        "vmovdqu64 1088(%%rax), %%xmm17\n\t"
+        "vmovdqu64 1152(%%rax), %%xmm18\n\t"
+        "vmovdqu64 1216(%%rax), %%xmm19\n\t"
+        "vmovdqu64 1280(%%rax), %%xmm20\n\t"
+        "vmovdqu64 1344(%%rax), %%xmm21\n\t"
+        "vmovdqu64 1408(%%rax), %%xmm22\n\t"
+        "vmovdqu64 1472(%%rax), %%xmm23\n\t"
+        "vmovdqu64 1536(%%rax), %%xmm24\n\t"
+        "vmovdqu64 1600(%%rax), %%xmm25\n\t"
+        "vmovdqu64 1664(%%rax), %%xmm26\n\t"
+        "vmovdqu64 1728(%%rax), %%xmm27\n\t"
+        "vmovdqu64 1792(%%rax), %%xmm28\n\t"
+        "vmovdqu64 1856(%%rax), %%xmm29\n\t"
+        "vmovdqu64 1920(%%rax), %%xmm30\n\t"
+        "vmovdqu64 1984(%%rax), %%xmm31\n\t"
+        "kmovw 2(%%r8), %%k1\n\t"
+        "kmovw 4(%%r8), %%k2\n\t"
+        "kmovw 6(%%r8), %%k3\n\t"
+        "kmovw 8(%%r8), %%k4\n\t"
+        "kmovw 10(%%r8), %%k5\n\t"
+        "kmovw 12(%%r8), %%k6\n\t"
+        "kmovw 14(%%r8), %%k7\n\t"
+        "sub $40, %%rsp\n\t"
+        "call *%%r10\n\t"
+        "add $40, %%rsp\n\t"
+        "vmovdqu %%ymm0, 0(%%rdx)\n\t"
+        "vmovdqu %%ymm1, 64(%%rdx)\n\t"
+        "vmovdqu %%ymm2, 128(%%rdx)\n\t"
+        "vmovdqu %%ymm3, 192(%%rdx)\n\t"
+        "vmovdqu %%ymm4, 256(%%rdx)\n\t"
+        "vmovdqu %%ymm5, 320(%%rdx)\n\t"
+        "vmovdqu %%ymm6, 384(%%rdx)\n\t"
+        "vmovdqu %%ymm7, 448(%%rdx)\n\t"
+        "vmovdqu %%ymm8, 512(%%rdx)\n\t"
+        "vmovdqu %%ymm9, 576(%%rdx)\n\t"
+        "vmovdqu %%ymm10, 640(%%rdx)\n\t"
+        "vmovdqu %%ymm11, 704(%%rdx)\n\t"
+        "vmovdqu %%ymm12, 768(%%rdx)\n\t"
+        "vmovdqu %%ymm13, 832(%%rdx)\n\t"
+        "vmovdqu %%ymm14, 896(%%rdx)\n\t"
+        "vmovdqu %%ymm15, 960(%%rdx)\n\t"
+        "vmovdqu64 %%xmm16, 1024(%%rdx)\n\t"
+        "vmovdqu64 %%xmm17, 1088(%%rdx)\n\t"
+        "vmovdqu64 %%xmm18, 1152(%%rdx)\n\t"
+        "vmovdqu64 %%xmm19, 1216(%%rdx)\n\t"
+        "vmovdqu64 %%xmm20, 1280(%%rdx)\n\t"
+        "vmovdqu64 %%xmm21, 1344(%%rdx)\n\t"
+        "vmovdqu64 %%xmm22, 1408(%%rdx)\n\t"
+        "vmovdqu64 %%xmm23, 1472(%%rdx)\n\t"
+        "vmovdqu64 %%xmm24, 1536(%%rdx)\n\t"
+        "vmovdqu64 %%xmm25, 1600(%%rdx)\n\t"
+        "vmovdqu64 %%xmm26, 1664(%%rdx)\n\t"
+        "vmovdqu64 %%xmm27, 1728(%%rdx)\n\t"
+        "vmovdqu64 %%xmm28, 1792(%%rdx)\n\t"
+        "vmovdqu64 %%xmm29, 1856(%%rdx)\n\t"
+        "vmovdqu64 %%xmm30, 1920(%%rdx)\n\t"
+        "vmovdqu64 %%xmm31, 1984(%%rdx)\n\t"
+        "kmovw %%k1, 2(%%r9)\n\t"
+        "kmovw %%k2, 4(%%r9)\n\t"
+        "kmovw %%k3, 6(%%r9)\n\t"
+        "kmovw %%k4, 8(%%r9)\n\t"
+        "kmovw %%k5, 10(%%r9)\n\t"
+        "kmovw %%k6, 12(%%r9)\n\t"
+        "kmovw %%k7, 14(%%r9)\n\t"
+        : : "a"(in), "d"(out), "b"(trap_page), "c"(0), "r"(kin_r), "r"(kout_r), "r"(thunk)
+        : "memory", "cc", "r11", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15", "xmm16", "xmm17", "xmm18", "xmm19", "xmm20", "xmm21", "xmm22", "xmm23", "xmm24", "xmm25", "xmm26", "xmm27", "xmm28", "xmm29", "xmm30", "xmm31", "k1", "k2", "k3", "k4", "k5", "k6", "k7");
+}
 
 /* round_trip with the stack pointer set to (64-aligned - 256 - align_off) before the trap; inline: the
  * trapping load is executed in place (needs the vectored handler), else through the thunk (rsp - 8 at the fault). */
@@ -512,7 +630,11 @@ static unsigned __stdcall worker(void *arg) {
             default: break;
         }
         if (fx_mode == 2) fx_restore();
-        if (align_off >= 0) round_trip_aligned(in, kin, out, kout);
+        if (sparse_state) {
+            for (int r = 0; r < 32; r++) for (int q = (r < 16 ? 4 : 2); q < 8; q++) in[r * 8 + q] = 0;
+            memset(out, 0, sizeof out);
+            round_trip_sparse(in, kin, out, kout);
+        } else if (align_off >= 0) round_trip_aligned(in, kin, out, kout);
         else if (fx_mode == 1) round_trip_fx(in, kin, out, kout); else round_trip(in, kin, out, kout);
         int bad = 0;
         for (int r = 0; r < 32; r++) for (int q = 0; q < 8; q++) if (out[r * 8 + q] != in[r * 8 + q]) {
@@ -552,6 +674,7 @@ static int run_probe(int argc, char **argv) {
     fx_mode = getenv("PROBE_FX") ? atoi(getenv("PROBE_FX")) : 0;
     align_off = getenv("PROBE_ALIGN") ? atoi(getenv("PROBE_ALIGN")) : -1;
     align_inline = getenv("PROBE_INLINE") != NULL;
+    sparse_state = getenv("PROBE_SPARSE") != NULL;
     trap_page = VirtualAlloc(NULL, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     DWORD old;
     VirtualProtect(trap_page, 4096, PAGE_NOACCESS, &old);
