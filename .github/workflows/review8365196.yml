@@ -1,29 +1,26 @@
-name: 'JDK-8365196 review: implicit null check leftover'
+name: 'JDK-8365196 review: trigger search'
 
-# Review-only probe (not for upstream). Downloads the windows-x64 release bundles of the unpatched
-# build (run 43956005275) and of the fix (run 43973009181) and runs review8365196/NpeLeftover.java,
-# which takes an implicit null check trap per cycle in C2 code with many doubles live, on
-# windows-latest runners. A Repro.java control with seeds that failed on the unpatched build
-# shows whether the runner is affected at all.
+# Review-only (not for upstream): standalone XSTATE probe variants and JVM-side factors
+# (affinity, worker threads, GC/compiler threads) on windows-latest.
 
 on:
   push:
     branches:
-      - 'JDK-8365196-review-npe*'
+      - 'JDK-8365196-review-probe*'
 
 permissions:
   actions: read
   contents: read
 
 jobs:
-  npe:
-    name: npe (${{ matrix.slot }})
+  probe:
+    name: probe (${{ matrix.slot }})
     runs-on: windows-latest
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        slot: [1,2,3,4,5,6,7,8,9,10,11,12]
+        slot: [1, 2, 3, 4, 5, 6, 7, 8]
     defaults:
       run:
         shell: bash
@@ -38,57 +35,52 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: bundles-windows-x64
-          path: b-fix
-          run-id: 43973009181
-          github-token: ${{ github.token }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: bundles-windows-x64
           path: b-base
           run-id: 43956005275
           github-token: ${{ github.token }}
       - name: 'Run'
-        env:
-          SECS: '8'
         run: |
           set +e
           mkdir -p out
-          for b in fix base; do mkdir -p jdk-$b; unzip -q b-$b/jdk-windows-x64.zip -d jdk-$b; done
-          jfix=$(find jdk-fix -name java.exe -path '*/bin/*' | head -1)
-          jbase=$(find jdk-base -name java.exe -path '*/bin/*' | head -1)
           cpu=$(powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()")
           build=$(powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"")
           echo "HOST: $cpu | $build" | tee out/host.txt
-          "$jfix" -XX:+PrintFlagsFinal -version 2>/dev/null | grep -E ' (UseAVX|MaxVectorSize) ' | tee -a out/host.txt
-          "$(dirname $jfix)/javac" -d c-npe review8365196/NpeLeftover.java
-          "$(dirname $jfix)/javac" --add-modules jdk.incubator.vector -d c-repro repro/Repro.java 2>&1 | grep -v -i warning
-          common="-XX:-TieredCompilation -Xbatch -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000 -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1 -XX:CompileCommand=quiet -XX:-CreateCoredumpOnCrash -XX:+UnlockDiagnosticVMOptions"
-          "$(dirname $jfix)/javac" --add-modules jdk.incubator.vector -d c-npe review8365196/NpeVector.java 2>&1 | grep -v -i warning
-          run_npe() { # java tag prog seed extra...
-            local j=$1 tag=$2 prog=$3 seed=$4; shift 4
-            "$j" $common -XX:CompileCommand=exclude,$prog::reference --add-modules jdk.incubator.vector -XX:+StressGCM -XX:+StressLCM -XX:StressSeed=$seed "$@" -Xlog:deoptimization=debug:file=out/deopt-$prog-$tag-$seed.log -cp c-npe $prog "$SECS" > out/npe-$prog-$tag-$seed.log 2>&1
+          clang -O2 -o probe.exe review8365196/xstate_block_probe.c
+          for h in veh seh; do for pre in low vzu high; do for b in none wait sleep; do
+            ./probe.exe $h $pre $b 3 4 >> out/probe.txt 2>&1
+          done; done; done
+          for pre in low high; do ./probe.exe seh $pre wait 3 4 jvmthreads >> out/probe.txt 2>&1; done
+          PROBE_DUMMY=1 ./probe.exe seh high wait 3 4 >> out/probe.txt 2>&1
+          PROBE_DUMMY=1 ./probe.exe seh low none 3 4 >> out/probe.txt 2>&1
+          cat out/probe.txt
+          mkdir -p jdk-base; unzip -q b-base/jdk-windows-x64.zip -d jdk-base
+          jbase=$(find jdk-base -name java.exe -path '*/bin/*' | head -1)
+          "$(dirname $jbase)/javac" --add-modules jdk.incubator.vector -d c-repro repro/Repro.java 2>&1 | grep -v -i warning
+          jw=$(cygpath -w "$jbase")
+          base="-Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:+StressGCM -XX:+StressLCM -XX:-CreateCoredumpOnCrash --add-modules jdk.incubator.vector -cp c-repro"
+          rr() { # tag seed threads launcher extra...
+            local tag=$1 seed=$2 thr=$3 launcher=$4; shift 4
+            rm -f hs_err_*.log
+            if [ "$launcher" = affinity1 ]; then
+              cmd.exe //c "start /b /wait /affinity 1 \"\" \"$jw\" $base -XX:StressSeed=$seed $* Repro field 4 $thr" > out/repro-$tag-$seed.log 2>&1
+            else
+              "$jbase" $base -XX:StressSeed=$seed "$@" Repro field 4 $thr > out/repro-$tag-$seed.log 2>&1
+            fi
             local code=$?
-            local traps=$(grep -c "$prog.kernel.*null_check" out/deopt-$prog-$tag-$seed.log)
-            echo "NPE $prog $tag seed=$seed exit=$code traps=$traps $(grep -m1 RESULT out/npe-$prog-$tag-$seed.log) $(grep -m1 -E 'MISMATCH|EXCEPTION|Error' out/npe-$prog-$tag-$seed.log)" | tee -a out/summary.txt
+            echo "REPRO $tag seed=$seed exit=$code crash=$(ls hs_err_*.log 2>/dev/null | wc -l)" | tee -a out/summary.txt
           }
-          sp="-XX:+SafepointALot -XX:GuaranteedSafepointInterval=1"
-          for prog in NpeVector NpeLeftover; do
-            for seed in 1 2 3 4; do
-              run_npe "$jfix" fix $prog $seed
-              run_npe "$jbase" base $prog $seed
-              run_npe "$jbase" base-sp $prog $seed $sp
-              run_npe "$jfix" fix-sp $prog $seed $sp
-            done
-          done
-          for seed in 29; do
-            "$jbase" -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:+StressGCM -XX:+StressLCM -XX:StressSeed=$seed -XX:-CreateCoredumpOnCrash -XX:ErrorFile=out/hs_err_base_$seed.log --add-modules jdk.incubator.vector -cp c-repro Repro field 4 4 > out/repro-base-$seed.log 2>&1
-            echo "CONTROL base Repro seed=$seed exit=$? $(ls out/hs_err_base_$seed.log 2>/dev/null)" | tee -a out/summary.txt
-          done
-          { echo "### $(cat out/host.txt | head -1)"; echo '```'; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          for seed in 25 29; do for r in 1 2; do
+            rr default $seed 4 plain
+            rr threads1 $seed 1 plain
+            rr affinity1 $seed 4 affinity1
+            rr fewthreads $seed 1 plain -XX:+UseSerialGC -XX:CICompilerCount=2 -XX:-UseDynamicNumberOfCompilerThreads
+            rr bigstack $seed 4 plain -Xss16m
+          done; done
+          { echo "### $(head -1 out/host.txt)"; echo '```'; grep -A2 RESULT out/probe.txt; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit 0
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: npe-${{ matrix.slot }}
+          name: probe-${{ matrix.slot }}
           path: out
           retention-days: 30
