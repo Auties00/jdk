@@ -65,7 +65,7 @@ jobs:
             order="A R S C"; [ $round = 2 ] && order="R S C A"; [ $round = 3 ] && order="C A R S"
             for c in $order; do
               eval "flags=\$$c"
-              "$bin/java" -cp "jmhc;$cp" org.openjdk.jmh.Main -jvmArgsAppend "$flags" -rf csv -rff "out/jmh-$c-$round.csv" review3.R3Bench > "out/jmh-$c-$round.log" 2>&1
+              "$bin/java" -cp "jmhc;$cp" org.openjdk.jmh.Main -jvmArgsAppend "--add-modules jdk.incubator.vector $flags" -rf csv -rff "out/jmh-$c-$round.csv" review3.R3Bench > "out/jmh-$c-$round.log" 2>&1
               tail -6 "out/jmh-$c-$round.log"
             done
           done
