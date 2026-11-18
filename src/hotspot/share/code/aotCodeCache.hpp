@@ -544,6 +544,9 @@ public:
   do_var(bool,  EnableX86ECoreOpts)                     /* nmethods */ \
   do_var(bool,  UseCountTrailingZerosInstruction) \
   do_var(bool,  UseBranchLoopSafepointPolls)            /* nmethods */ \
+  do_var(bool,  UseUpperXMMRegistersInC1)               /* C1 nmethods */ \
+  do_fun(int,   VM_exception_xstate_scrub_length, VM_Version::exception_xstate_scrub_length()) /* C2 nmethods */ \
+  do_fun(bool,  VM_exception_xstate_unprotected, VM_Version::exception_xstate_unprotected())   /* C2 nmethods */ \
   do_var(bool,  UseLibmIntrinsic) \
   do_var(bool,  UseSSE42Intrinsics) \
   do_var(bool,  CheckJNICalls) \
