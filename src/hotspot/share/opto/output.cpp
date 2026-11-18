@@ -651,12 +651,12 @@ void PhaseOutput::insert_trap_scrubs() {
   GrowableArray<Node*> after;
   GrowableArray<Node*> before;
   bool at_traps = Matcher::trap_scrub_at_traps();
+  // need_in[b]: a hot trap is reachable from the start of b without passing a writer.
+  bool* need_in = NEW_RESOURCE_ARRAY(bool, block_count);
+  for (uint i = 0; i < block_count; i++) {
+    need_in[i] = false;
+  }
   if (!at_traps) {
-    // need_in[b]: a hot trap is reachable from the start of b without passing a writer.
-    bool* need_in = NEW_RESOURCE_ARRAY(bool, block_count);
-    for (uint i = 0; i < block_count; i++) {
-      need_in[i] = false;
-    }
     auto need_out = [&](const Block* block) {
       for (uint s = 0; s < block->_num_succs; s++) {
         if (need_in[block->_succs[s]->_pre_order]) {
@@ -724,7 +724,7 @@ void PhaseOutput::insert_trap_scrubs() {
     }
   }
 
-  uint scrubs = (uint)(after.length() + before.length());
+  uint scrubs = (uint)(2 * after.length() + before.length()); // a call's Catch has at most a few successors
   if (scrubs == 0) {
     return;
   }
@@ -735,6 +735,12 @@ void PhaseOutput::insert_trap_scrubs() {
     C->record_method_not_compilable("out of register allocation slots inserting trap scrubs");
     return;
   }
+  // A call whose block ends in a Catch must be followed only by its projections and the Catch
+  // (the exception table is built from the call's return): the scrub then goes at the start of
+  // each successor that needs it, other than the exception handlers (they start with CreateEx,
+  // itself a writer). Another path into such a block runs a scrub it does not need, which is
+  // harmless.
+  VectorSet scrubbed_at_start;
   for (int i = 0; i < after.length(); i++) {
     Node* writer = after.at(i);
     Block* block = cfg->get_block_for_node(writer);
@@ -744,6 +750,27 @@ void PhaseOutput::insert_trap_scrubs() {
     while (k + 1 < block->number_of_nodes() && block->get_node(k)->is_MachProj() &&
            block->get_node(k)->in(0) == writer && block->get_node(k)->is_block_proj() == nullptr) {
       k++;
+    }
+    if (block->get_node(k)->is_Catch()) {
+      for (uint s = 0; s < block->_num_succs; s++) {
+        Block* succ = block->_succs[s];
+        if (!need_in[succ->_pre_order] || scrubbed_at_start.test(succ->_pre_order)) {
+          continue;
+        }
+        uint start = 1;
+        while (start < succ->number_of_nodes() && succ->get_node(start)->is_Phi()) {
+          start++;
+        }
+        if (start < succ->number_of_nodes() && succ->get_node(start)->is_Mach() &&
+            succ->get_node(start)->as_Mach()->ideal_Opcode() == Op_CreateEx) {
+          continue;
+        }
+        scrubbed_at_start.set(succ->_pre_order);
+        MachTrapScrubNode* scrub = new MachTrapScrubNode();
+        succ->insert_node(scrub, start);
+        cfg->map_node_to_block(scrub, succ);
+      }
+      continue;
     }
     MachTrapScrubNode* scrub = new MachTrapScrubNode();
     block->insert_node(scrub, k);
