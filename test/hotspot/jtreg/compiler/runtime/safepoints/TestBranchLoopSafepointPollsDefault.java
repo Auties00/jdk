@@ -31,7 +31,8 @@
  *          state can be lost.
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.flagless
- * @library /test/lib
+ * @library /test/lib /
+ * @build compiler.runtime.safepoints.ExceptionXState
  * @run main/othervm/native compiler.runtime.safepoints.TestBranchLoopSafepointPollsDefault
  */
 

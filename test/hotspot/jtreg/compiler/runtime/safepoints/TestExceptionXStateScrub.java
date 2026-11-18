@@ -29,7 +29,8 @@
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.compiler2.enabled & vm.gc.G1
  * @modules jdk.incubator.vector
- * @library /test/lib
+ * @library /test/lib /
+ * @build compiler.runtime.safepoints.ExceptionXState
  * @run main/othervm/native/timeout=300 -XX:+UseG1GC
  *      -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
@@ -44,7 +45,8 @@
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.compiler2.enabled & vm.gc.Serial
  * @modules jdk.incubator.vector
- * @library /test/lib
+ * @library /test/lib /
+ * @build compiler.runtime.safepoints.ExceptionXState
  * @run main/othervm/native/timeout=300 -XX:+UseSerialGC
  *      -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
@@ -59,7 +61,8 @@
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.compiler2.enabled & vm.gc.Parallel
  * @modules jdk.incubator.vector
- * @library /test/lib
+ * @library /test/lib /
+ * @build compiler.runtime.safepoints.ExceptionXState
  * @run main/othervm/native/timeout=300 -XX:+UseParallelGC
  *      -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
@@ -74,7 +77,8 @@
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.compiler2.enabled & vm.gc.Z
  * @modules jdk.incubator.vector
- * @library /test/lib
+ * @library /test/lib /
+ * @build compiler.runtime.safepoints.ExceptionXState
  * @run main/othervm/native/timeout=300 -XX:+UseZGC
  *      -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
@@ -89,7 +93,8 @@
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.compiler2.enabled & vm.gc.Shenandoah
  * @modules jdk.incubator.vector
- * @library /test/lib
+ * @library /test/lib /
+ * @build compiler.runtime.safepoints.ExceptionXState
  * @run main/othervm/native/timeout=300 -XX:+UseShenandoahGC
  *      -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
