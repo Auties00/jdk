@@ -113,15 +113,15 @@
 /*
  * @test id=opto-scheduling
  * @bug 8365196
- * @summary The scrub stays in place under OptoScheduling (the scheduler moved it past the trap it
- *          protects): PhaseOutput::verify_trap_scrubs() checks the order after scheduling.
+ * @summary The scrub stays in place under OptoScheduling, which could move it past the trap it
+ *          protects: PhaseOutput::verify_trap_scrubs() checks the order after scheduling.
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.debug & vm.compiler2.enabled
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
  * @run main/othervm/native -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
- *      -XX:+VerifyExceptionXStateScrub -XX:+OptoScheduling -XX:-UseSuperWord
+ *      -XX:+VerifyExceptionXStateScrub -XX:+OptoScheduling -XX:-TieredCompilation -XX:-UseSuperWord
  *      -XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee
  *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify
  */
@@ -135,7 +135,7 @@
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
  * @run main/othervm/native -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
- *      -XX:+VerifyExceptionXStateScrub -XX:+ScrubExceptionXStateHeaderAtTraps -XX:+OptoScheduling
+ *      -XX:+VerifyExceptionXStateScrub -XX:+ScrubExceptionXStateHeaderAtTraps -XX:+OptoScheduling -XX:-TieredCompilation
  *      -XX:-UseSuperWord -XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee
  *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify
  */
