@@ -30,6 +30,7 @@ on:
     branches-ignore:
       - pr/*
       - JDK-8365196-detect-ci*
+      - JDK-8365196-review3-*
   workflow_dispatch:
     inputs:
       platforms:
