@@ -465,6 +465,10 @@ static bool holds_trap_losable_state(PhaseRegAlloc* ra, const Node* n) {
   return Matcher::trap_loses_register(reg, n->is_MachTemp() ? 0 : n->ideal_reg());
 }
 
+static bool may_be_raw_memory(const TypePtr* adr_type) {
+  return adr_type == nullptr || adr_type->base() == Type::RawPtr || adr_type->base() == Type::AnyPtr;
+}
+
 // Whether n can fault and resume in this frame: a loop safepoint poll that reads the polling
 // page, the memory access of an implicit null check, or, in a compilation with unsafe accesses,
 // an access to raw or unknown memory (a fault there resumes at the next instruction, see
@@ -485,8 +489,7 @@ static bool is_resumable_trap_site(const Node* n, const VectorSet& null_check_ac
     if (mach->memory_operand() == nullptr) {
       return false;
     }
-    const TypePtr* adr_type = mach->adr_type();
-    return adr_type == nullptr || adr_type->base() == Type::RawPtr || adr_type->base() == Type::AnyPtr;
+    return may_be_raw_memory(mach->in_adr_type()) || may_be_raw_memory(mach->out_adr_type());
   }
   return false;
 }

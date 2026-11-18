@@ -2421,12 +2421,6 @@ void VM_Version::set_exception_xstate_mitigation() {
     if (FLAG_IS_DEFAULT(UseUpperXMMRegistersInC1)) {
       FLAG_SET_DEFAULT(UseUpperXMMRegistersInC1, false);
     }
-#if INCLUDE_JVMCI
-    if (EnableJVMCI) {
-      log_warning(os, cpu)("Resuming from an exception can lose AVX state: JVMCI compiled code is not "
-                           "protected (JDK-8365196)");
-    }
-#endif
   }
 }
 
