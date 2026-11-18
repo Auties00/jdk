@@ -1,0 +1,48 @@
+name: 'JDK-8365196 detect: scrub prototype, fastdebug, hotspot tier1 compiler on Windows Server 2025'
+
+# Review-only. Builds windows-x64 fastdebug of the scrub prototype and runs the hotspot tier1 compiler tests
+# on Server 2025 with trapping polls and implicit null checks forced on, without and with the scrub.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-detect-ci-scrub3-debug*'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  prepare:
+    name: 'Prepare'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+      - name: 'Build JTReg'
+        uses: ./.github/actions/build-jtreg
+
+  build-windows-x64:
+    name: windows-x64
+    needs: prepare
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      platform: windows-x64
+      runs-on: windows-2022
+      architecture: 'x86.x64'
+      msvc-toolset-version: '14.44'
+      debug-levels: '[ "debug" ]'
+
+  test-windows-x64:
+    name: windows-x64
+    needs: build-windows-x64
+    uses: ./.github/workflows/test-scrub.yml
+    with:
+      platform: windows-x64
+      bootjdk-platform: windows-x64
+      architecture: 'x86.x64'
+      runs-on: windows-2025
+      debug-suffix: -debug
