@@ -693,7 +693,7 @@ void PhaseOutput::insert_trap_scrubs() {
         Node* n = block->get_node(j);
         if (is_trap_scrub_writer(n)) {
           if (need) {
-            if ((uint)j >= block->end_idx()) {
+            if ((uint)j + 1 >= block->number_of_nodes()) {
               // No place after it in its block: fall back to scrubbing at the traps.
               at_traps = true;
               break;
@@ -739,8 +739,10 @@ void PhaseOutput::insert_trap_scrubs() {
     Node* writer = after.at(i);
     Block* block = cfg->get_block_for_node(writer);
     uint k = block->find_node(writer) + 1;
-    // Keep the writer's projections next to it; they emit no code.
-    while (k < block->end_idx() && block->get_node(k)->is_MachProj() && block->get_node(k)->in(0) == writer) {
+    // Keep the writer's data projections next to it (they emit no code), but stay before a
+    // projection that ends the block.
+    while (k + 1 < block->number_of_nodes() && block->get_node(k)->is_MachProj() &&
+           block->get_node(k)->in(0) == writer && block->get_node(k)->is_block_proj() == nullptr) {
       k++;
     }
     MachTrapScrubNode* scrub = new MachTrapScrubNode();
