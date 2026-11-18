@@ -22,10 +22,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-2025, windows-2022]
-        slot: [1, 2, 3]
+        slot: [1, 2, 3, 4, 5, 6]
         exclude:
-          - { os: windows-2022, slot: 2 }
           - { os: windows-2022, slot: 3 }
+          - { os: windows-2022, slot: 4 }
+          - { os: windows-2022, slot: 5 }
+          - { os: windows-2022, slot: 6 }
     defaults:
       run:
         shell: bash
@@ -36,6 +38,7 @@ jobs:
             test/hotspot/jtreg
             test/lib
             test/jtreg-ext
+            test/jdk/java/lang/invoke/common
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: bundles-windows-x64-debug
@@ -65,13 +68,21 @@ jobs:
             "$JDK/bin/java" -Xlog:os+cpu -version 2>&1 | grep -E "Resuming from an exception|build"
             "$JDK/bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version 2>/dev/null | grep -E " (UseBranchLoopSafepointPolls|ImplicitNullChecks|UseUpperXMMRegistersInC1|UseAVX) "
           } | tee out/host.txt
-          "$JDK/bin/java" -jar "$JT" -jdk:"$JDK" -dir:"$ROOT/test/hotspot/jtreg" -exclude:"$ROOT/test/hotspot/jtreg/ProblemList.txt" \
-            -conc:2 -timeoutFactor:8 -verbose:summary -retain:fail,error -w:"$ROOT/work" -r:"$ROOT/out/report" \
-            compiler/gcbarriers/TestImplicitNullChecks.java compiler/runtime/safepoints compiler/runtime/Test7196199.java > out/jtreg.txt 2>&1
-          echo "jtreg exit $?" | tee -a out/summary.txt
-          grep -E '^(Passed|FAILED|Error|Test results)' out/jtreg.txt | tee -a out/summary.txt
+          # The one other tier1 failure on Server 2025 (run 44213607181): a C2-compiled JDK method reached
+          # "dead path discovered by data nodes during igvn" under StressIncrementalInlining, seed 72538800.
+          # Repeat the test with that seed, with the defaults the self-test selects and with the traps forced.
+          T='compiler/valhalla/valuetypes/TestValueConstruction.java#StressIncrementalInliningOnStackReplacement'
+          OFF="-XX:+UnlockDiagnosticVMOptions -XX:-UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            for c in default traps; do
+              o="-XX:+UnlockDiagnosticVMOptions -XX:StressSeed=72538800"; [ $c = traps ] && o="$o $OFF"
+              "$JDK/bin/java" -jar "$JT" -jdk:"$JDK" -dir:"$ROOT/test/hotspot/jtreg"                 -timeoutFactor:8 -verbose:summary -retain:fail,error -w:"$ROOT/work-$c-$i" -r:"$ROOT/report-$c-$i"                 -javaoptions:"$o" "$T" > out/jtreg-$c-$i.txt 2>&1
+              echo "$c $i: $(grep -E '^(Passed|FAILED|Error)' out/jtreg-$c-$i.txt | head -1 | cut -c1-40) $(grep -h -m1 'fatal error\|Internal Error' work-$c-$i/compiler/valhalla/valuetypes/*.jtr 2>/dev/null | head -1 | cut -c1-110)" | tee -a out/summary.txt
+            done
+          done
+          for c in default traps; do echo "$c: $(grep -c "^$c .*Passed" out/summary.txt) passed, $(grep -c "^$c .*\(FAILED\|Error\)" out/summary.txt) failed" | tee -a out/summary.txt; done
           mkdir -p out/jtr
-          find work -name '*.jtr' -exec cp {} out/jtr/ \;
+          for d in work-*; do find $d \( -name '*.jtr' -o -name 'hs_err*.log' \) -exec sh -c 'cp "$1" "out/jtr/$2-$(basename "$1")"' _ {} $d \; ; done
           { echo '```'; cat out/host.txt out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit 0
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
