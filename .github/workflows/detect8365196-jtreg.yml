@@ -22,11 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-2025, windows-2022]
-        slot: [1, 2, 3, 4, 5, 6]
-        exclude:
-          - { os: windows-2022, slot: 4 }
-          - { os: windows-2022, slot: 5 }
-          - { os: windows-2022, slot: 6 }
+        slot: [1, 2, 3]
     defaults:
       run:
         shell: bash
@@ -40,9 +36,9 @@ jobs:
             test/jdk/java/lang/invoke/common
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: bundles-windows-x64-debug
+          name: bundles-windows-x64
           path: bundles
-          run-id: 44205806202
+          run-id: 43956005275
           github-token: ${{ github.token }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -57,7 +53,7 @@ jobs:
           set +e
           mkdir -p jdk out
           ls bundles
-          unzip -q bundles/jdk-windows-x64-debug.zip -d jdk
+          unzip -q bundles/jdk-windows-x64.zip -d jdk
           JDK=$(cygpath -m "$(dirname "$(dirname "$(find "$PWD/jdk" -name java.exe -path '*/bin/*' -type f | head -1)")")")
           JT=$(cygpath -m "$(find "$PWD/jtreg" -name jtreg.jar | head -1)")
           ROOT=$(cygpath -m "$PWD")
@@ -65,17 +61,15 @@ jobs:
             powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name"
             powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \$v.ProductName + ' ' + \$v.CurrentBuild + '.' + \$v.UBR"
             "$JDK/bin/java" -Xlog:os+cpu -version 2>&1 | grep -E "Resuming from an exception|build"
-            "$JDK/bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version 2>/dev/null | grep -E " (UseBranchLoopSafepointPolls|ImplicitNullChecks|UseUpperXMMRegistersInC1|UseAVX) "
+            "$JDK/bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version 2>&1 | grep -E " (UseBranchLoopSafepointPolls|ImplicitNullChecks|UseUpperXMMRegistersInC1|UseAVX) |build"
           } | tee out/host.txt
           # The one other tier1 failure on Server 2025 (run 44213607181): a C2-compiled JDK method reached
           # "dead path discovered by data nodes during igvn" under StressIncrementalInlining, seed 72538800.
           # With that seed: which of the two flags decides. With random seeds: how often each setting fails.
           T='compiler/valhalla/valuetypes/TestValueConstruction.java#StressIncrementalInliningOnStackReplacement'
           U="-XX:+UnlockDiagnosticVMOptions"
-          both="-XX:+UseBranchLoopSafepointPolls -XX:-ImplicitNullChecks"
-          polls="-XX:+UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks"
-          nullchecks="-XX:-UseBranchLoopSafepointPolls -XX:-ImplicitNullChecks"
-          traps="-XX:-UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks"
+          nullchecks="-XX:-ImplicitNullChecks"
+          traps="-XX:+ImplicitNullChecks"
           mkdir -p out/jtr
           one() { # label, config, extra options
             eval "f=\$$2"
@@ -87,9 +81,8 @@ jobs:
             [ "$r" = Passed ] || cp work/compiler/valhalla/valuetypes/*.jtr out/jtr/$1.jtr 2>/dev/null
             echo "$1 [$2]: $r $m" | tee -a out/summary.txt
           }
-          for i in 1 2 3; do for c in both polls nullchecks traps; do one seed-$c-$i $c -XX:StressSeed=72538800; done; done
-          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do for c in both traps; do one random-$c-$i $c; done; done
-          for k in seed random; do for c in both polls nullchecks traps; do n=$(grep -c "^$k-$c-" out/summary.txt); [ $n -gt 0 ] && echo "$k $c: $(grep -c "^$k-$c-.*: Passed" out/summary.txt) of $n passed" | tee -a out/totals.txt; done; done
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do for c in nullchecks traps; do one random-$c-$i $c; done; done
+          for c in nullchecks traps; do n=$(grep -c "^random-$c-" out/summary.txt); echo "random $c: $(grep -c "^random-$c-.*: Passed" out/summary.txt) of $n passed" | tee -a out/totals.txt; done
           cat out/totals.txt >> out/summary.txt
           { echo '```'; cat out/host.txt out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit 0
