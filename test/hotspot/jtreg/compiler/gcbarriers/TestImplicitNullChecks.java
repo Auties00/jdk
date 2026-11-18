@@ -60,11 +60,15 @@ public class TestImplicitNullChecks {
     }
 
     public static void main(String[] args) {
+        // ImplicitNullChecks is off by default where resuming from an exception can lose AVX state
+        // (Windows, JDK-8365196).
         TestFramework.runWithFlags("--add-exports", "java.base/jdk.internal.misc=ALL-UNNAMED",
                                    "-XX:CompileCommand=inline,java.lang.ref.*::*",
+                                   "-XX:+UnlockDiagnosticVMOptions", "-XX:+ImplicitNullChecks",
                                    "-XX:-TieredCompilation");
         TestFramework.runWithFlags("--add-exports", "java.base/jdk.internal.misc=ALL-UNNAMED",
                                    "-XX:CompileCommand=inline,java.lang.ref.*::*",
+                                   "-XX:+UnlockDiagnosticVMOptions", "-XX:+ImplicitNullChecks",
                                    "-XX:+TieredCompilation", "-XX:TieredStopAtLevel=1");
     }
 
