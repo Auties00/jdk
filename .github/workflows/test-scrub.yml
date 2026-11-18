@@ -172,6 +172,7 @@ jobs:
           (Get-CimInstance Win32_Processor | Select-Object -First 1).Name
           Write-Output "L=$L flags=$f"
           "flags=$f" >> $env:GITHUB_OUTPUT
+          exit 0
 
       - name: 'Run tests'
         id: run-tests

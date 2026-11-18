@@ -13,32 +13,30 @@ permissions:
   contents: read
 
 jobs:
-  prepare:
-    name: 'Prepare'
+  bundles:
+    name: bundles
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        name: ['bundles-windows-x64-debug', 'bundles-jtreg-8.3+1']
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      # the fastdebug build of this branch's HotSpot code, made by the first run of this workflow
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          sparse-checkout: |
-            .github
-            make/conf/github-actions.conf
-      - name: 'Build JTReg'
-        uses: ./.github/actions/build-jtreg
-
-  build-windows-x64:
-    name: windows-x64
-    needs: prepare
-    uses: ./.github/workflows/build-windows.yml
-    with:
-      platform: windows-x64
-      runs-on: windows-2022
-      architecture: 'x86.x64'
-      msvc-toolset-version: '14.44'
-      debug-levels: '[ "debug" ]'
+          name: ${{ matrix.name }}
+          path: bundle
+          run-id: 44225382458
+          github-token: ${{ github.token }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.name }}
+          path: bundle
+          retention-days: 3
+          compression-level: 0
 
   test-windows-x64:
     name: windows-x64
-    needs: build-windows-x64
+    needs: bundles
     uses: ./.github/workflows/test-scrub.yml
     with:
       platform: windows-x64
