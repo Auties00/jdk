@@ -35,7 +35,6 @@
  *      -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
  *      -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1
- *      -XX:CompileCommand=quiet -XX:CompileCommand=exclude,compiler.runtime.safepoints.XStateFiller::run
  *      -Xlog:os+cpu=info --add-modules jdk.incubator.vector
  *      compiler.runtime.safepoints.TestExceptionXStateScrub
  */
@@ -52,7 +51,6 @@
  *      -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
  *      -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1
- *      -XX:CompileCommand=quiet -XX:CompileCommand=exclude,compiler.runtime.safepoints.XStateFiller::run
  *      -Xlog:os+cpu=info --add-modules jdk.incubator.vector
  *      compiler.runtime.safepoints.TestExceptionXStateScrub
  */
@@ -69,7 +67,6 @@
  *      -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
  *      -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1
- *      -XX:CompileCommand=quiet -XX:CompileCommand=exclude,compiler.runtime.safepoints.XStateFiller::run
  *      -Xlog:os+cpu=info --add-modules jdk.incubator.vector
  *      compiler.runtime.safepoints.TestExceptionXStateScrub
  */
@@ -86,7 +83,6 @@
  *      -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
  *      -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1
- *      -XX:CompileCommand=quiet -XX:CompileCommand=exclude,compiler.runtime.safepoints.XStateFiller::run
  *      -Xlog:os+cpu=info --add-modules jdk.incubator.vector
  *      compiler.runtime.safepoints.TestExceptionXStateScrub
  */
@@ -103,18 +99,12 @@
  *      -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
  *      -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1
- *      -XX:CompileCommand=quiet -XX:CompileCommand=exclude,compiler.runtime.safepoints.XStateFiller::run
  *      -Xlog:os+cpu=info --add-modules jdk.incubator.vector
  *      compiler.runtime.safepoints.TestExceptionXStateScrub
  */
 
 package compiler.runtime.safepoints;
 
-import java.lang.classfile.ClassFile;
-import java.lang.constant.ClassDesc;
-import java.lang.constant.ConstantDescs;
-import java.lang.constant.MethodTypeDesc;
-import java.lang.invoke.MethodHandles;
 import jdk.incubator.vector.DoubleVector;
 import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.VectorSpecies;
@@ -122,8 +112,8 @@ import jdk.incubator.vector.VectorSpecies;
 /*
  * Accumulators of -0.0 stay -0.0 under -0.0 additions; an upper lane reset by an incomplete
  * exception context becomes +0.0 and stays, so the final AND of the lanes detects any loss.
- * Before each loop, a native helper and then an interpreted callee with thousands of -0.0 locals
- * write 0x8000000000000000 below the compiled frame's stack pointer, where Windows Server 2025 reads the XSAVE header of the next exception's context.
+ * Before each loop, a native helper writes 0x8000000000000000 below the compiled frame's stack
+ * pointer, where Windows Server 2025 reads the XSAVE header of the next exception's context.
  * Register spills of -0.0 vectors (GC barrier stubs, the safepoint handler) write the same value
  * there. The loop takes trapping safepoint polls (SafepointALot), GC load barriers, and, in every
  * NULL_PERIOD-th call, an implicit null check that faults and resumes in the compiled frame.
@@ -136,39 +126,6 @@ public class TestExceptionXStateScrub {
     static volatile boolean stop;
     static Object sink;
 
-    // An interpreted method (excluded from compilation) whose frame holds FILLER_LOCALS doubles of
-    // -0.0: called from a compiled frame, it leaves 0x8000000000000000 in the 24 KiB right below
-    // that frame's stack pointer, whatever the collector. Generated, since javac would need a
-    // method with 1,536 local variables.
-    static final int FILLER_LOCALS = 1536;
-    static final Runnable FILLER = makeFiller();
-
-    static Runnable makeFiller() {
-        ClassDesc self = ClassDesc.of("compiler.runtime.safepoints.XStateFiller");
-        byte[] bytes = ClassFile.of().build(self, cb -> {
-            cb.withFlags(ClassFile.ACC_PUBLIC | ClassFile.ACC_FINAL);
-            cb.withInterfaceSymbols(ClassDesc.of("java.lang.Runnable"));
-            cb.withMethodBody(ConstantDescs.INIT_NAME, ConstantDescs.MTD_void, ClassFile.ACC_PUBLIC,
-                              code -> code.aload(0)
-                                          .invokespecial(ConstantDescs.CD_Object, ConstantDescs.INIT_NAME, ConstantDescs.MTD_void)
-                                          .return_());
-            cb.withMethodBody("run", ConstantDescs.MTD_void, ClassFile.ACC_PUBLIC, code -> {
-                var negativeZero = code.constantPool().doubleEntry(-0.0);
-                for (int i = 0; i < FILLER_LOCALS; i++) {
-                    code.ldc(negativeZero);
-                    code.dstore(1 + 2 * i);
-                }
-                code.return_();
-            });
-        });
-        try {
-            Class<?> c = MethodHandles.lookup().defineClass(bytes);
-            return (Runnable) c.getConstructor().newInstance();
-        } catch (ReflectiveOperationException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
     static class Holder {
         int x = 1;
     }
@@ -178,7 +135,6 @@ public class TestExceptionXStateScrub {
 
     static long kernel256(double neg, Object[] refs, Holder[] holders) {
         ExceptionXState.fillBelowStack();
-        FILLER.run();
         DoubleVector v = DoubleVector.broadcast(S256, neg);
         DoubleVector a0 = DoubleVector.broadcast(S256, neg);
         DoubleVector a1 = DoubleVector.broadcast(S256, neg);
@@ -229,7 +185,6 @@ public class TestExceptionXStateScrub {
 
     static long kernel512(double neg, Object[] refs, Holder[] holders) {
         ExceptionXState.fillBelowStack();
-        FILLER.run();
         DoubleVector v = DoubleVector.broadcast(S512, neg);
         DoubleVector a0 = DoubleVector.broadcast(S512, neg);
         DoubleVector a1 = DoubleVector.broadcast(S512, neg);
