@@ -2710,7 +2710,6 @@ static bool grow_windows_stack_to(address target) {
 }
 
 //-----------------------------------------------------------------------------
-JNIEXPORT
 #if defined(_M_AMD64)
 // The layout descriptor that follows a CONTEXT with CONTEXT_XSTATE (CONTEXT_EX of the Windows
 // Driver Kit): each chunk's offset is relative to the descriptor.
@@ -2736,6 +2735,7 @@ static void record_exception_xstate(PCONTEXT context) {
 }
 #endif
 
+JNIEXPORT
 LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
   PreserveLastError ple;
   if (InterceptOSException) return EXCEPTION_CONTINUE_SEARCH;
