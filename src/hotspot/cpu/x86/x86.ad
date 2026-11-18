@@ -2685,6 +2685,20 @@ bool Matcher::trap_loses_register(OptoReg::Name reg, uint ideal_reg) {
   return false;
 }
 
+// The secondary supers lookup may call a stub (and that stub its slow path). Other instructions
+// write at most a few words below the stack pointer (stack-to-stack spill copies, pushf in the
+// floating point compare fixups, the string intrinsics that copy a short string to the stack),
+// which no stale header position reaches: it is at least L - 15 >= 305 bytes below. Out of line
+// slow paths that call out clear the header themselves before they return (SaveLiveRegisters,
+// the conversion fixups, the safepoint handler blobs).
+bool Matcher::trap_scrub_writer(const MachNode* n) {
+  return n->ideal_Opcode() == Op_PartialSubtypeCheck;
+}
+
+bool Matcher::trap_scrub_at_traps() {
+  return ScrubExceptionXStateHeaderAtTraps || VerifyOops;
+}
+
 void Matcher::emit_trap_scrub(C2_MacroAssembler* masm) {
   masm->scrub_exception_xstate_header();
 }

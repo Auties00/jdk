@@ -467,6 +467,11 @@ public:
   // at a trap and the scrub is missing. A MachTemp passes 0 for ideal_reg: its width is
   // unknown.
   static bool trap_loses_register(OptoReg::Name reg, uint ideal_reg);
+  // Whether n, besides calls, may write deep below the stack pointer and then let the frame's code
+  // continue, so that the stale header must be cleared again after it.
+  static bool trap_scrub_writer(const MachNode* n);
+  // Whether the scrub goes right before each trap site instead of after each writer.
+  static bool trap_scrub_at_traps();
   // Emits the scrub; it uses no register and keeps the condition codes.
   static void emit_trap_scrub(C2_MacroAssembler* masm);
   static uint trap_scrub_size();

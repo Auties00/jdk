@@ -125,6 +125,12 @@ define_pd_global(bool, ValueTypeReturnedAsFields, true);
           "code clears that stack location before trap sites at which "     \
           "such state is live")                                             \
                                                                             \
+  product(bool, ScrubExceptionXStateHeaderAtTraps, false, DIAGNOSTIC,     \
+          "Clear the stale XSAVE header right before each trap site at "    \
+          "which state that can be lost is live, instead of after each "    \
+          "call or other instruction that may write below the stack "       \
+          "pointer")                                                        \
+                                                                            \
   product(int, ExceptionXStateLength, 0, DIAGNOSTIC,                        \
           "Length in bytes of the extended processor state the OS saves "   \
           "below the stack pointer of an exception, used by "               \

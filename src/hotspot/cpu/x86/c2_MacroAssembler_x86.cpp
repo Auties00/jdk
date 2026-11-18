@@ -4518,6 +4518,8 @@ static void convertHF2X_slowpath(C2_MacroAssembler& masm, C2GeneralStub<Register
   __ call(RuntimeAddress(target));
   // APX REX2 encoding for pop(dst) increases the stub size by 1 byte.
   __ pop(dst);
+  // The fixup stub ran below this frame (JDK-8365196).
+  __ scrub_exception_xstate_header_if_enabled();
   __ jmp(stub.continuation());
 #undef __
 }
@@ -4540,7 +4542,7 @@ void C2_MacroAssembler::convertHF2X(BasicType dst_bt, Register dst, Register src
 
   // Both the movl spilling src and the pop into dst may use extended general purpose registers under
   // APX, each adding 1 byte (REX2 prefix) to the encoding, so account for 2 extra bytes.
-  int max_size = 23 + (UseAPX ? 2 : 0);
+  int max_size = 23 + (UseAPX ? 2 : 0) + scrub_exception_xstate_header_size_if_enabled();
   auto stub = C2CodeStub::make<Register, Register, address>(dst, src, slowpath_target, max_size, convertHF2X_slowpath);
   jcc(Assembler::equal, stub->entry());
   bind(stub->continuation());
@@ -4558,6 +4560,8 @@ static void convertF2I_slowpath(C2_MacroAssembler& masm, C2GeneralStub<Register,
   __ call(RuntimeAddress(target));
   // APX REX2 encoding for pop(dst) increases the stub size by 1 byte.
   __ pop(dst);
+  // The fixup stub ran below this frame (JDK-8365196).
+  __ scrub_exception_xstate_header_if_enabled();
   __ jmp(stub.continuation());
 #undef __
 }
@@ -4590,7 +4594,7 @@ void C2_MacroAssembler::convertF2I(BasicType dst_bt, BasicType src_bt, Register 
   }
 
   // Using the APX extended general purpose registers increases the instruction encoding size by 1 byte.
-  int max_size = 23 + (UseAPX ? 1 : 0);
+  int max_size = 23 + (UseAPX ? 1 : 0) + scrub_exception_xstate_header_size_if_enabled();
   auto stub = C2CodeStub::make<Register, XMMRegister, address>(dst, src, slowpath_target, max_size, convertF2I_slowpath);
   jcc(Assembler::equal, stub->entry());
   bind(stub->continuation());

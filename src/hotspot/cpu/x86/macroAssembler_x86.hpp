@@ -793,8 +793,14 @@ public:
   // for each of the four values of sp modulo 64 one byte store clears the most significant
   // byte of its XCOMP_BV, which then no longer passes for a compacted header. Needs no
   // register, keeps the flags.
-  void scrub_exception_xstate_header(int length = VM_Version::exception_xstate_scrub_length());
-  static int scrub_exception_xstate_header_size(int length = VM_Version::exception_xstate_scrub_length());
+  // sp_offset: the stores are placed for the stack pointer rsp + sp_offset (for code that runs
+  // with a return address or other words pushed).
+  void scrub_exception_xstate_header(int length = VM_Version::exception_xstate_scrub_length(), int sp_offset = 0);
+  static int scrub_exception_xstate_header_size(int length = VM_Version::exception_xstate_scrub_length(), int sp_offset = 0);
+  // The scrub where it is in use (see VM_Version::exception_xstate_scrub_length()), else nothing:
+  // for the slow paths that call out and then continue in a compiled frame.
+  void scrub_exception_xstate_header_if_enabled(int sp_offset = 0);
+  static int scrub_exception_xstate_header_size_if_enabled(int sp_offset = 0);
 
   void verify_tlab();
 

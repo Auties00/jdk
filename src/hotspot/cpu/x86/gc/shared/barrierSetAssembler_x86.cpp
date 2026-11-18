@@ -659,6 +659,10 @@ SaveLiveRegisters::~SaveLiveRegisters() {
   if (_spill_size > 0) {
     __ addptr(rsp, _spill_size);
   }
+
+  // The spill area and the runtime call may have left a value that passes for an XSAVE header
+  // where the next exception of the compiled frame would find it (JDK-8365196).
+  __ scrub_exception_xstate_header_if_enabled();
 }
 
 #endif // COMPILER2

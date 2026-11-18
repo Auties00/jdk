@@ -2040,6 +2040,14 @@ bool Matcher::trap_scrub_needed() {
   return false;
 }
 
+bool Matcher::trap_scrub_writer(const MachNode* n) {
+  return false;
+}
+
+bool Matcher::trap_scrub_at_traps() {
+  return false;
+}
+
 bool Matcher::trap_loses_register(OptoReg::Name reg, uint ideal_reg) {
   return false;
 }

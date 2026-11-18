@@ -494,11 +494,35 @@ static bool is_resumable_trap_site(const Node* n, const VectorSet& null_check_ac
   return false;
 }
 
-// Places a MachTrapScrubNode right before each trap site at which a value that holds losable
-// state is live. Liveness is computed backwards over the CFG for those values only; a value
-// used by a Phi counts as live into the Phi's block, which is conservative. At a trap site the
-// node's inputs (its TEMPs included) and the node itself count as live, since the fault can
-// happen in the middle of its code.
+// Whether n can leave arbitrary data deep below the stack pointer of this frame while the frame's
+// code continues after it: calls (the callee's frames), the method entry (the frames of the
+// caller and of whatever ran before on this thread), exception entry (the unwinding runtime),
+// and the instructions the platform names (Matcher::trap_scrub_writer()). Everything else C2
+// emits writes only into its own frame, above the stack pointer, or a few words below it; out of
+// line slow paths that call out (GC barriers, conversion fixups, the safepoint handler entered
+// from a poll) clear the stale header themselves before they return.
+static bool is_trap_scrub_writer(const Node* n) {
+  if (!n->is_Mach()) {
+    return false;
+  }
+  const MachNode* mach = n->as_Mach();
+  return mach->is_MachCall() || mach->is_MachProlog() || mach->ideal_Opcode() == Op_CreateEx ||
+         Matcher::trap_scrub_writer(mach);
+}
+
+// Clears the stale exception context header wherever a trap site at which a value that holds
+// losable state is live (a hot trap) can be reached with the header dirty.
+//
+// Liveness is computed backwards over the CFG for those values only; a value used by a Phi
+// counts as live into the Phi's block, which is conservative. At a trap site the node's inputs
+// (its TEMPs included) and the node itself count as live, since the fault can happen in the
+// middle of its code.
+//
+// The header can only become dirty at a writer (is_trap_scrub_writer()), so a MachTrapScrubNode
+// goes right after each writer from which a hot trap is reachable without passing another
+// writer: a backward dataflow over the CFG. A loop without calls then has no scrub inside it,
+// whatever traps it contains. With Matcher::trap_scrub_at_traps() (or where a writer ends its
+// block) the scrub goes right before each hot trap instead.
 void PhaseOutput::insert_trap_scrubs() {
   PhaseCFG* cfg = C->cfg();
   PhaseRegAlloc* ra = C->regalloc();
@@ -598,43 +622,137 @@ void PhaseOutput::insert_trap_scrubs() {
     }
   }
 
-  // Count the scrubs first, so that the node limit is checked before the graph changes.
-  for (int pass = 0; pass < 2; pass++) {
-    uint scrubs = 0;
-    for (uint i = 0; i < cfg->number_of_blocks(); i++) {
-      Block* block = cfg->get_block(i);
-      live_out(block);
-      for (int j = (int)block->number_of_nodes() - 1; j >= 0; j--) {
-        Node* n = block->get_node(j);
-        if (is_resumable_trap_site(n, null_check_accesses, polls_trap, raw_accesses_trap)) {
-          add(n);
-          for (uint k = 0; k < n->req(); k++) {
-            add(n->in(k));
+  // The hot traps.
+  VectorSet hot;
+  uint hot_count = 0;
+  for (uint i = 0; i < cfg->number_of_blocks(); i++) {
+    Block* block = cfg->get_block(i);
+    live_out(block);
+    for (int j = (int)block->number_of_nodes() - 1; j >= 0; j--) {
+      Node* n = block->get_node(j);
+      if (is_resumable_trap_site(n, null_check_accesses, polls_trap, raw_accesses_trap)) {
+        add(n);
+        for (uint k = 0; k < n->req(); k++) {
+          add(n->in(k));
+        }
+        if (any_live()) {
+          hot.set(n->_idx);
+          hot_count++;
+        }
+      }
+      step_back(n);
+    }
+  }
+  if (hot_count == 0) {
+    return;
+  }
+
+  // Nodes after which (writers) or before which (hot traps) a scrub goes.
+  GrowableArray<Node*> after;
+  GrowableArray<Node*> before;
+  bool at_traps = Matcher::trap_scrub_at_traps();
+  if (!at_traps) {
+    // need_in[b]: a hot trap is reachable from the start of b without passing a writer.
+    bool* need_in = NEW_RESOURCE_ARRAY(bool, block_count);
+    for (uint i = 0; i < block_count; i++) {
+      need_in[i] = false;
+    }
+    auto need_out = [&](const Block* block) {
+      for (uint s = 0; s < block->_num_succs; s++) {
+        if (need_in[block->_succs[s]->_pre_order]) {
+          return true;
+        }
+      }
+      return false;
+    };
+    changed = true;
+    while (changed) {
+      changed = false;
+      for (int i = (int)cfg->number_of_blocks() - 1; i >= 0; i--) {
+        Block* block = cfg->get_block(i);
+        bool need = need_out(block);
+        for (int j = (int)block->number_of_nodes() - 1; j >= 0; j--) {
+          Node* n = block->get_node(j);
+          if (is_trap_scrub_writer(n)) {
+            need = false;
           }
-          if (any_live()) {
-            scrubs++;
-            if (pass == 1) {
-              MachTrapScrubNode* scrub = new MachTrapScrubNode();
-              block->insert_node(scrub, j);
-              cfg->map_node_to_block(scrub, block);
-            }
+          if (hot.test(n->_idx)) {
+            need = true;
           }
         }
-        step_back(n);
+        if (need != need_in[block->_pre_order]) {
+          need_in[block->_pre_order] = need;
+          changed = true;
+        }
       }
     }
-    if (pass == 0) {
-      if (scrubs == 0) {
-        return;
-      }
-      if (C->check_node_count(scrubs, "out of nodes inserting trap scrubs")) {
-        return;
-      }
-      if (C->unique() + scrubs >= ra->node_regs_max_index()) {
-        C->record_method_not_compilable("out of register allocation slots inserting trap scrubs");
-        return;
+    for (uint i = 0; i < cfg->number_of_blocks() && !at_traps; i++) {
+      Block* block = cfg->get_block(i);
+      bool need = need_out(block);
+      for (int j = (int)block->number_of_nodes() - 1; j >= 0; j--) {
+        Node* n = block->get_node(j);
+        if (is_trap_scrub_writer(n)) {
+          if (need) {
+            if ((uint)j >= block->end_idx()) {
+              // No place after it in its block: fall back to scrubbing at the traps.
+              at_traps = true;
+              break;
+            }
+            after.append(n);
+          }
+          need = false;
+        }
+        if (hot.test(n->_idx)) {
+          need = true;
+        }
       }
     }
+    if (need_in[cfg->get_root_block()->_pre_order]) {
+      at_traps = true; // a hot trap reachable from the code entry without passing a writer
+    }
+  }
+  if (at_traps) {
+    after.clear();
+    for (uint i = 0; i < cfg->number_of_blocks(); i++) {
+      Block* block = cfg->get_block(i);
+      for (uint j = 0; j < block->number_of_nodes(); j++) {
+        Node* n = block->get_node(j);
+        if (hot.test(n->_idx)) {
+          before.append(n);
+        }
+      }
+    }
+  }
+
+  uint scrubs = (uint)(after.length() + before.length());
+  if (scrubs == 0) {
+    return;
+  }
+  if (C->check_node_count(scrubs, "out of nodes inserting trap scrubs")) {
+    return;
+  }
+  if (C->unique() + scrubs >= ra->node_regs_max_index()) {
+    C->record_method_not_compilable("out of register allocation slots inserting trap scrubs");
+    return;
+  }
+  for (int i = 0; i < after.length(); i++) {
+    Node* writer = after.at(i);
+    Block* block = cfg->get_block_for_node(writer);
+    uint k = block->find_node(writer) + 1;
+    // Keep the writer's projections next to it; they emit no code.
+    while (k < block->end_idx() && block->get_node(k)->is_MachProj() && block->get_node(k)->in(0) == writer) {
+      k++;
+    }
+    MachTrapScrubNode* scrub = new MachTrapScrubNode();
+    block->insert_node(scrub, k);
+    cfg->map_node_to_block(scrub, block);
+  }
+  for (int i = 0; i < before.length(); i++) {
+    Node* trap = before.at(i);
+    Block* block = cfg->get_block_for_node(trap);
+    MachTrapScrubNode* scrub = new MachTrapScrubNode();
+    block->insert_node(scrub, block->find_node(trap));
+    cfg->map_node_to_block(scrub, block);
   }
 }
 

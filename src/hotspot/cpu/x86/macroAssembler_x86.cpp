@@ -2592,21 +2592,33 @@ static int exception_xstate_header_scrub_offset(int length, int sp_mod_64) {
   return -(length + misalignment) + 15;
 }
 
-void MacroAssembler::scrub_exception_xstate_header(int length) {
+void MacroAssembler::scrub_exception_xstate_header(int length, int sp_offset) {
   assert(length > 0, "no scrub");
   for (int sp_mod_64 = 0; sp_mod_64 < 64; sp_mod_64 += 16) {
-    movb(Address(rsp, exception_xstate_header_scrub_offset(length, sp_mod_64)), 0);
+    movb(Address(rsp, sp_offset + exception_xstate_header_scrub_offset(length, sp_mod_64)), 0);
   }
 }
 
-int MacroAssembler::scrub_exception_xstate_header_size(int length) {
+int MacroAssembler::scrub_exception_xstate_header_size(int length, int sp_offset) {
   int size = 0;
   for (int sp_mod_64 = 0; sp_mod_64 < 64; sp_mod_64 += 16) {
-    int offset = exception_xstate_header_scrub_offset(length, sp_mod_64);
+    int offset = sp_offset + exception_xstate_header_scrub_offset(length, sp_mod_64);
     // C6 /0 with a SIB byte for rsp, disp8 or disp32, imm8
     size += 3 + (is_simm8(offset) ? 1 : 4) + 1;
   }
   return size;
+}
+
+void MacroAssembler::scrub_exception_xstate_header_if_enabled(int sp_offset) {
+  int length = VM_Version::exception_xstate_scrub_length();
+  if (length > 0) {
+    scrub_exception_xstate_header(length, sp_offset);
+  }
+}
+
+int MacroAssembler::scrub_exception_xstate_header_size_if_enabled(int sp_offset) {
+  int length = VM_Version::exception_xstate_scrub_length();
+  return length > 0 ? scrub_exception_xstate_header_size(length, sp_offset) : 0;
 }
 
 bool MacroAssembler::loop_safepoint_poll_uses_branch() {
