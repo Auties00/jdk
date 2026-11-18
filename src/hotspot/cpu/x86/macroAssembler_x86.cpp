@@ -2585,17 +2585,18 @@ void MacroAssembler::round_to(Register reg, int modulus) {
   andptr(reg, -modulus);
 }
 
-// Offset from a 16-byte aligned sp of the most significant byte of the XCOMP_BV of the XSAVE
-// header at (sp - length) & -64, for sp % 64 == sp_mod_64.
+// Offset from a 16-byte aligned sp of the XCOMP_BV quadword of the XSAVE header at
+// (sp - length) & -64, for sp % 64 == sp_mod_64.
 static int exception_xstate_header_scrub_offset(int length, int sp_mod_64) {
   int misalignment = (sp_mod_64 - length) & 63;
-  return -(length + misalignment) + 15;
+  return -(length + misalignment) + 8;
 }
 
 void MacroAssembler::scrub_exception_xstate_header(int length, int sp_offset) {
   assert(length > 0, "no scrub");
   for (int sp_mod_64 = 0; sp_mod_64 < 64; sp_mod_64 += 16) {
-    movb(Address(rsp, sp_offset + exception_xstate_header_scrub_offset(length, sp_mod_64)), 0);
+    // A whole quadword: byte stores here cost far more on some processors (AMD Zen 3).
+    movslq(Address(rsp, sp_offset + exception_xstate_header_scrub_offset(length, sp_mod_64)), 0);
   }
 }
 
@@ -2603,8 +2604,8 @@ int MacroAssembler::scrub_exception_xstate_header_size(int length, int sp_offset
   int size = 0;
   for (int sp_mod_64 = 0; sp_mod_64 < 64; sp_mod_64 += 16) {
     int offset = sp_offset + exception_xstate_header_scrub_offset(length, sp_mod_64);
-    // C6 /0 with a SIB byte for rsp, disp8 or disp32, imm8
-    size += 3 + (is_simm8(offset) ? 1 : 4) + 1;
+    // REX.W C7 /0 with a SIB byte for rsp, disp8 or disp32, imm32
+    size += 4 + (is_simm8(offset) ? 1 : 4) + 4;
   }
   return size;
 }
