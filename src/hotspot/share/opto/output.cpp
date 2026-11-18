@@ -507,9 +507,11 @@ static bool is_trap_scrub_writer(const Node* n) {
          Matcher::trap_scrub_writer(mach);
 }
 
+#ifdef ASSERT
 static bool is_trap_scrub(const Node* n, bool check) {
   return n->is_Mach() && n->as_Mach()->is_trap_scrub() && ((MachTrapScrubNode*)n)->is_check() == check;
 }
+#endif
 
 // Keeps the place where a resumed exception would find a stale header clear wherever a trap site
 // at which a value that holds losable state is live (a hot trap) can be reached.
