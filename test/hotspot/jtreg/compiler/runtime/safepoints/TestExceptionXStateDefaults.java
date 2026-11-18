@@ -26,14 +26,14 @@
  * @bug 8365196
  * @summary The startup check of whether resuming from an exception can lose AVX state agrees with
  *          an independent native probe, and selects the mitigation: the scrub of the stale
- *          exception context header at the length the probe measures, or, if the scrub cannot be
- *          used, branching loop polls. ImplicitNullChecks stays on; C1 avoids xmm16-xmm31 where
- *          state can be lost.
+ *          exception context header at the length the probe measures, or, without the scrub,
+ *          no state that can be lost (UseAVX at most 2, MaxVectorSize at most 16). C1 avoids
+ *          xmm16-xmm31 where state can be lost.
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.flagless
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
- * @run main/othervm/native compiler.runtime.safepoints.TestBranchLoopSafepointPollsDefault
+ * @run main/othervm/native compiler.runtime.safepoints.TestExceptionXStateDefaults
  */
 
 package compiler.runtime.safepoints;
@@ -45,7 +45,7 @@ import jdk.test.lib.process.ProcessTools;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class TestBranchLoopSafepointPollsDefault {
+public class TestExceptionXStateDefaults {
     static final String LOSES = "Resuming from an exception can lose AVX state";
     static final String KEEPS = "Resuming from an exception keeps AVX state";
 
@@ -76,22 +76,24 @@ public class TestBranchLoopSafepointPollsDefault {
         }
     }
 
+    static int intFlag(OutputAnalyzer out, String name) {
+        return Integer.parseInt(flag(out, name));
+    }
+
     public static void main(String[] args) throws Exception {
         ExceptionXState.Probe probe = ExceptionXState.probe();
         System.out.println("Native probe: " + probe);
 
         OutputAnalyzer out = flags();
-        int useAVX = Integer.parseInt(flag(out, "UseAVX"));
+        int useAVX = intFlag(out, "UseAVX");
         boolean jvmLoses = out.getStdout().contains(LOSES);
         boolean jvmKeeps = out.getStdout().contains(KEEPS);
-        expect(out, "ImplicitNullChecks", true);
 
         if (!(Platform.isWindows() && useAVX > 0)) {
-            // The check runs on Windows with AVX only.
+            // The check runs on Windows with AVX (or APX) only.
             if (jvmLoses || jvmKeeps) {
                 throw new RuntimeException("startup check ran with UseAVX = " + useAVX);
             }
-            expect(out, "UseBranchLoopSafepointPolls", false);
             expect(out, "UseUpperXMMRegistersInC1", true);
             expect(out, "ExceptionXStateLength", 0);
             return;
@@ -107,38 +109,40 @@ public class TestBranchLoopSafepointPollsDefault {
         }
 
         if (!jvmLoses) {
-            expect(out, "UseBranchLoopSafepointPolls", false);
             expect(out, "UseUpperXMMRegistersInC1", true);
             expect(out, "ExceptionXStateLength", 0);
             return;
         }
 
         expect(out, "UseUpperXMMRegistersInC1", false);
-        int length = Integer.parseInt(flag(out, "ExceptionXStateLength"));
+        int length = intFlag(out, "ExceptionXStateLength");
         if (probe.loses() && probe.scrubWorks()) {
             // The JVM measures the same context length and protects its traps with the scrub.
             expect(out, "ExceptionXStateLength", probe.length());
-            expect(out, "UseBranchLoopSafepointPolls", false);
-        } else {
-            expect(out, "UseBranchLoopSafepointPolls", length == 0);
+        }
+        if (length == 0) {
+            checkCapped(out);
         }
 
-        // Without the scrub, loop polls branch.
+        // Without the scrub, the JVM uses no state that can be lost.
         OutputAnalyzer noScrub = flags("-XX:-ScrubExceptionXStateHeader");
-        expect(noScrub, "UseBranchLoopSafepointPolls", true);
         expect(noScrub, "ExceptionXStateLength", 0);
-        expect(noScrub, "ImplicitNullChecks", true);
+        checkCapped(noScrub);
 
-        // The defaults can be overridden.
-        expect(flags("-XX:+UseBranchLoopSafepointPolls"), "UseBranchLoopSafepointPolls", true);
-        expect(flags("-XX:-ScrubExceptionXStateHeader", "-XX:-UseBranchLoopSafepointPolls"),
-               "UseBranchLoopSafepointPolls", false);
         expect(flags("-XX:+UseUpperXMMRegistersInC1"), "UseUpperXMMRegistersInC1", true);
 
         // Without AVX there is no state to lose, and no check.
         OutputAnalyzer noAvx = flags("-XX:UseAVX=0");
         noAvx.shouldNotContain(LOSES);
-        expect(noAvx, "UseBranchLoopSafepointPolls", false);
         expect(noAvx, "ExceptionXStateLength", 0);
+    }
+
+    static void checkCapped(OutputAnalyzer out) {
+        if (intFlag(out, "UseAVX") > 2 || intFlag(out, "MaxVectorSize") > 16
+                || flag(out, "UseAPX").equals("true")) {
+            throw new RuntimeException("without the scrub: UseAVX = " + flag(out, "UseAVX")
+                                       + ", MaxVectorSize = " + flag(out, "MaxVectorSize")
+                                       + ", UseAPX = " + flag(out, "UseAPX"));
+        }
     }
 }

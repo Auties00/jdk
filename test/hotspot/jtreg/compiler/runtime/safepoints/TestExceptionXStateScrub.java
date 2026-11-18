@@ -47,7 +47,7 @@
  * @modules jdk.incubator.vector
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
- * @run main/othervm/native/timeout=300 -XX:+UseSerialGC
+ * @run main/othervm/native/timeout=300 -XX:+UseSerialGC -XX:+UseCountedLoopSafepoints -XX:LoopStripMiningIter=1000
  *      -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
  *      -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1
@@ -63,7 +63,7 @@
  * @modules jdk.incubator.vector
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
- * @run main/othervm/native/timeout=300 -XX:+UseParallelGC
+ * @run main/othervm/native/timeout=300 -XX:+UseParallelGC -XX:+UseCountedLoopSafepoints -XX:LoopStripMiningIter=1000
  *      -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
  *      -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1
@@ -112,11 +112,11 @@ import jdk.incubator.vector.VectorSpecies;
 /*
  * Accumulators of -0.0 stay -0.0 under -0.0 additions; an upper lane reset by an incomplete
  * exception context becomes +0.0 and stays, so the final AND of the lanes detects any loss.
- * Before each loop, a native helper writes 0x8000000000000000 below the compiled frame's stack
- * pointer, where Windows Server 2025 reads the XSAVE header of the next exception's context.
- * Register spills of -0.0 vectors (GC barrier stubs, the safepoint handler) write the same value
- * there. The loop takes trapping safepoint polls (SafepointALot), GC load barriers, and, in every
- * NULL_PERIOD-th call, an implicit null check that faults and resumes in the compiled frame.
+ * Each kernel starts with a native call that writes 0x8000000000000000 below the compiled
+ * frame's stack pointer, where an affected Windows build reads the XSAVE header of the next
+ * exception's context: only the clearing after that call keeps the first trap of the loop, a
+ * safepoint poll taken under SafepointALot, from losing the vector state. Serial and Parallel
+ * do not poll in counted loops by default, so their ids turn the polls on.
  */
 public class TestExceptionXStateScrub {
     static final int ITERS = 200_000;
