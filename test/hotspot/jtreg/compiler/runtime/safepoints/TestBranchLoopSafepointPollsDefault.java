@@ -24,13 +24,15 @@
 /*
  * @test
  * @bug 8365196
- * @summary UseBranchLoopSafepointPolls is on and ImplicitNullChecks off by default only on
- *          Windows, only together and only when the startup check reports that resuming from
- *          an exception can lose AVX state; both can be overridden.
+ * @summary The startup check of whether resuming from an exception can lose AVX state agrees with
+ *          an independent native probe, and selects the mitigation: the scrub of the stale
+ *          exception context header at the length the probe measures, or, if the scrub cannot be
+ *          used, branching loop polls. ImplicitNullChecks stays on; C1 avoids xmm16-xmm31 where
+ *          state can be lost.
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.flagless
  * @library /test/lib
- * @run driver compiler.runtime.safepoints.TestBranchLoopSafepointPollsDefault
+ * @run main/othervm/native compiler.runtime.safepoints.TestBranchLoopSafepointPollsDefault
  */
 
 package compiler.runtime.safepoints;
@@ -43,6 +45,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class TestBranchLoopSafepointPollsDefault {
+    static final String LOSES = "Resuming from an exception can lose AVX state";
+    static final String KEEPS = "Resuming from an exception keeps AVX state";
+
     static String flag(OutputAnalyzer out, String name) {
         Matcher m = Pattern.compile("\\s" + name + "\\s+=\\s+(\\S+)").matcher(out.getStdout());
         if (!m.find()) {
@@ -52,55 +57,87 @@ public class TestBranchLoopSafepointPollsDefault {
     }
 
     static OutputAnalyzer flags(String... extra) throws Exception {
-        String[] args = new String[extra.length + 3];
+        String[] args = new String[extra.length + 4];
         args[0] = "-XX:+UnlockDiagnosticVMOptions";
-        System.arraycopy(extra, 0, args, 1, extra.length);
-        args[extra.length + 1] = "-XX:+PrintFlagsFinal";
-        args[extra.length + 2] = "-version";
+        args[1] = "-Xlog:os+cpu=info";
+        System.arraycopy(extra, 0, args, 2, extra.length);
+        args[extra.length + 2] = "-XX:+PrintFlagsFinal";
+        args[extra.length + 3] = "-version";
         OutputAnalyzer out = ProcessTools.executeTestJava(args);
         out.shouldHaveExitValue(0);
         return out;
     }
 
+    static void expect(OutputAnalyzer out, String name, Object expected) {
+        String actual = flag(out, name);
+        if (!actual.equals(expected.toString())) {
+            throw new RuntimeException(name + " = " + actual + ", expected " + expected);
+        }
+    }
+
     public static void main(String[] args) throws Exception {
-        OutputAnalyzer out = flags("-Xlog:os+cpu=info");
+        ExceptionXState.Probe probe = ExceptionXState.probe();
+        System.out.println("Native probe: " + probe);
+
+        OutputAnalyzer out = flags();
         int useAVX = Integer.parseInt(flag(out, "UseAVX"));
-        // The check runs on Windows with AVX only, and logs its result.
-        boolean expected = out.getStdout().contains("Resuming from an exception can lose AVX state");
-        if (expected && !(Platform.isWindows() && useAVX > 0)) {
-            throw new RuntimeException("startup check ran with UseAVX = " + useAVX);
-        }
-        if (Platform.isWindows() && useAVX > 0 && !expected
-                && !out.getStdout().contains("Resuming from an exception keeps AVX state")) {
-            throw new RuntimeException("startup check did not run");
-        }
-        String actual = flag(out, "UseBranchLoopSafepointPolls");
-        if (!actual.equals(Boolean.toString(expected))) {
-            throw new RuntimeException("UseBranchLoopSafepointPolls = " + actual + ", expected " + expected
-                                       + " (UseAVX = " + useAVX + ")");
-        }
-        String nullChecks = flag(out, "ImplicitNullChecks");
-        if (!nullChecks.equals(Boolean.toString(!expected))) {
-            throw new RuntimeException("ImplicitNullChecks = " + nullChecks + ", expected " + !expected);
-        }
-        String upperXmm = flag(out, "UseUpperXMMRegistersInC1");
-        if (!upperXmm.equals(Boolean.toString(!expected))) {
-            throw new RuntimeException("UseUpperXMMRegistersInC1 = " + upperXmm + ", expected " + !expected);
-        }
-        if (!flag(flags("-XX:+ImplicitNullChecks"), "ImplicitNullChecks").equals("true")) {
-            throw new RuntimeException("cannot enable ImplicitNullChecks");
-        }
-        if (!flag(flags("-XX:+UseBranchLoopSafepointPolls"), "UseBranchLoopSafepointPolls").equals("true")) {
-            throw new RuntimeException("cannot enable UseBranchLoopSafepointPolls");
-        }
-        if (!flag(flags("-XX:-UseBranchLoopSafepointPolls"), "UseBranchLoopSafepointPolls").equals("false")) {
-            throw new RuntimeException("cannot disable UseBranchLoopSafepointPolls");
-        }
-        if (expected) {
-            // Without AVX there is no state to lose.
-            if (!flag(flags("-XX:UseAVX=0"), "UseBranchLoopSafepointPolls").equals("false")) {
-                throw new RuntimeException("UseBranchLoopSafepointPolls should be off with -XX:UseAVX=0");
+        boolean jvmLoses = out.getStdout().contains(LOSES);
+        boolean jvmKeeps = out.getStdout().contains(KEEPS);
+        expect(out, "ImplicitNullChecks", true);
+
+        if (!(Platform.isWindows() && useAVX > 0)) {
+            // The check runs on Windows with AVX only.
+            if (jvmLoses || jvmKeeps) {
+                throw new RuntimeException("startup check ran with UseAVX = " + useAVX);
             }
+            expect(out, "UseBranchLoopSafepointPolls", false);
+            expect(out, "UseUpperXMMRegistersInC1", true);
+            expect(out, "ExceptionXStateLength", 0);
+            return;
         }
+
+        if (jvmLoses == jvmKeeps) {
+            throw new RuntimeException("startup check did not report exactly one result");
+        }
+        // The oracle: the JVM must agree with the native probe whenever the probe can tell.
+        if (probe.known() && probe.loses() != jvmLoses) {
+            throw new RuntimeException("JVM reports \"" + (jvmLoses ? LOSES : KEEPS)
+                                       + "\" but the native probe found " + probe);
+        }
+
+        if (!jvmLoses) {
+            expect(out, "UseBranchLoopSafepointPolls", false);
+            expect(out, "UseUpperXMMRegistersInC1", true);
+            expect(out, "ExceptionXStateLength", 0);
+            return;
+        }
+
+        expect(out, "UseUpperXMMRegistersInC1", false);
+        int length = Integer.parseInt(flag(out, "ExceptionXStateLength"));
+        if (probe.loses() && probe.scrubWorks()) {
+            // The JVM measures the same context length and protects its traps with the scrub.
+            expect(out, "ExceptionXStateLength", probe.length());
+            expect(out, "UseBranchLoopSafepointPolls", false);
+        } else {
+            expect(out, "UseBranchLoopSafepointPolls", length == 0);
+        }
+
+        // Without the scrub, loop polls branch.
+        OutputAnalyzer noScrub = flags("-XX:-ScrubExceptionXStateHeader");
+        expect(noScrub, "UseBranchLoopSafepointPolls", true);
+        expect(noScrub, "ExceptionXStateLength", 0);
+        expect(noScrub, "ImplicitNullChecks", true);
+
+        // The defaults can be overridden.
+        expect(flags("-XX:+UseBranchLoopSafepointPolls"), "UseBranchLoopSafepointPolls", true);
+        expect(flags("-XX:-ScrubExceptionXStateHeader", "-XX:-UseBranchLoopSafepointPolls"),
+               "UseBranchLoopSafepointPolls", false);
+        expect(flags("-XX:+UseUpperXMMRegistersInC1"), "UseUpperXMMRegistersInC1", true);
+
+        // Without AVX there is no state to lose, and no check.
+        OutputAnalyzer noAvx = flags("-XX:UseAVX=0");
+        noAvx.shouldNotContain(LOSES);
+        expect(noAvx, "UseBranchLoopSafepointPolls", false);
+        expect(noAvx, "ExceptionXStateLength", 0);
     }
 }
