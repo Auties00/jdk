@@ -24,7 +24,6 @@ jobs:
         os: [windows-2025, windows-2022]
         slot: [1, 2, 3, 4, 5, 6]
         exclude:
-          - { os: windows-2022, slot: 3 }
           - { os: windows-2022, slot: 4 }
           - { os: windows-2022, slot: 5 }
           - { os: windows-2022, slot: 6 }
@@ -70,19 +69,28 @@ jobs:
           } | tee out/host.txt
           # The one other tier1 failure on Server 2025 (run 44213607181): a C2-compiled JDK method reached
           # "dead path discovered by data nodes during igvn" under StressIncrementalInlining, seed 72538800.
-          # Repeat the test with that seed, with the defaults the self-test selects and with the traps forced.
+          # With that seed: which of the two flags decides. With random seeds: how often each setting fails.
           T='compiler/valhalla/valuetypes/TestValueConstruction.java#StressIncrementalInliningOnStackReplacement'
-          OFF="-XX:+UnlockDiagnosticVMOptions -XX:-UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks"
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            for c in default traps; do
-              o="-XX:+UnlockDiagnosticVMOptions -XX:StressSeed=72538800"; [ $c = traps ] && o="$o $OFF"
-              "$JDK/bin/java" -jar "$JT" -jdk:"$JDK" -dir:"$ROOT/test/hotspot/jtreg"                 -timeoutFactor:8 -verbose:summary -retain:fail,error -w:"$ROOT/work-$c-$i" -r:"$ROOT/report-$c-$i"                 -javaoptions:"$o" "$T" > out/jtreg-$c-$i.txt 2>&1
-              echo "$c $i: $(grep -E '^(Passed|FAILED|Error)' out/jtreg-$c-$i.txt | head -1 | cut -c1-40) $(grep -h -m1 'fatal error\|Internal Error' work-$c-$i/compiler/valhalla/valuetypes/*.jtr 2>/dev/null | head -1 | cut -c1-110)" | tee -a out/summary.txt
-            done
-          done
-          for c in default traps; do echo "$c: $(grep -c "^$c .*Passed" out/summary.txt) passed, $(grep -c "^$c .*\(FAILED\|Error\)" out/summary.txt) failed" | tee -a out/summary.txt; done
+          U="-XX:+UnlockDiagnosticVMOptions"
+          both="-XX:+UseBranchLoopSafepointPolls -XX:-ImplicitNullChecks"
+          polls="-XX:+UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks"
+          nullchecks="-XX:-UseBranchLoopSafepointPolls -XX:-ImplicitNullChecks"
+          traps="-XX:-UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks"
           mkdir -p out/jtr
-          for d in work-*; do find $d \( -name '*.jtr' -o -name 'hs_err*.log' \) -exec sh -c 'cp "$1" "out/jtr/$2-$(basename "$1")"' _ {} $d \; ; done
+          one() { # label, config, extra options
+            eval "f=\$$2"
+            rm -rf work/compiler/valhalla/valuetypes/*.jtr; find work -name 'hs_err*.log' -delete 2>/dev/null
+            "$JDK/bin/java" -jar "$JT" -jdk:"$JDK" -dir:"$ROOT/test/hotspot/jtreg" -timeoutFactor:8 -verbose:summary -retain:fail,error -w:"$ROOT/work" -r:"$ROOT/report" -javaoptions:"$U $3 $f" "$T" > out/jtreg-$1.txt 2>&1
+            r=$(grep -E '^(Passed|FAILED|Error)' out/jtreg-$1.txt | head -1 | cut -c1-6)
+            h=$(find work -name 'hs_err*.log' | head -1)
+            m=''; if [ -n "$h" ]; then cp "$h" out/jtr/$1-hs_err.log; m="$(grep -m1 'fatal error\|Internal Error\|EXCEPTION_' "$h" | cut -c1-90) | $(grep -m1 'Compiled method' "$h" | cut -c1-110) | seed $(grep -m1 'StressSeed  ' "$h" | awk '{print $4}')"; fi
+            [ "$r" = Passed ] || cp work/compiler/valhalla/valuetypes/*.jtr out/jtr/$1.jtr 2>/dev/null
+            echo "$1 [$2]: $r $m" | tee -a out/summary.txt
+          }
+          for i in 1 2 3; do for c in both polls nullchecks traps; do one seed-$c-$i $c -XX:StressSeed=72538800; done; done
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do for c in both traps; do one random-$c-$i $c; done; done
+          for k in seed random; do for c in both polls nullchecks traps; do n=$(grep -c "^$k-$c-" out/summary.txt); [ $n -gt 0 ] && echo "$k $c: $(grep -c "^$k-$c-.*: Passed" out/summary.txt) of $n passed" | tee -a out/totals.txt; done; done
+          cat out/totals.txt >> out/summary.txt
           { echo '```'; cat out/host.txt out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit 0
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
