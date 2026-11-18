@@ -43,6 +43,7 @@ static volatile uint64_t sink;
 
 #if defined(_WIN64) && defined(_M_AMD64)
 #include <windows.h>
+#include <malloc.h>
 
 #define STALE_HEADER 0x8000000000000000ULL
 
@@ -126,15 +127,26 @@ static int lost_avx(void) {
   return (last.xcomp_bv >> 63) != 0 && (last.xcomp_bv & XSTATE_MASK_AVX) == 0 ? 1 : 0;
 }
 
+/* Calls fault() with its stack pointer moved down by 16 * k bytes, k = 0..3. */
+static __declspec(noinline) void fault_at(volatile uint8_t* page, uintptr_t scrub, int k) {
+  volatile uint8_t* pad = (volatile uint8_t*)_alloca(16 * (k + 1));
+  pad[0] = 0;
+  fault(page, scrub);
+  sink = pad[0];
+}
+
 /* {status, L, scrubbed}: status 1 if the AVX state is lost, 0 if kept, -1 if unknown;
- * L the length of the extended state when the layout is the expected one, else 0;
- * scrubbed 1 if the scrub at L keeps the AVX state, 0 if not, -1 if not tried. */
+ * L the length of the extended state: the XSTATE part of the context is at (sp - L) & -64 for
+ * the stack pointer sp of each trap, which takes all four values modulo 64 (the XState length
+ * that CONTEXT_EX reports includes the alignment of the trap and is not L); 0 if no single L
+ * fits; scrubbed 1 if clearing the stale header at that place keeps the AVX state for each
+ * value of sp modulo 64, 0 if not, -1 if not tried. */
 JNIEXPORT jlongArray JNICALL
 Java_compiler_runtime_safepoints_ExceptionXState_probe0(JNIEnv* env, jclass cls) {
   jlong result[3] = { -1, 0, -1 };
   jlongArray array = (*env)->NewLongArray(env, 3);
   volatile uint8_t* page;
-  int i;
+  int i, k;
   (void)cls;
   if (array == NULL) {
     return NULL;
@@ -142,28 +154,56 @@ Java_compiler_runtime_safepoints_ExceptionXState_probe0(JNIEnv* env, jclass cls)
   if ((GetEnabledXStateFeatures() & XSTATE_MASK_AVX) != 0) {
     page = (volatile uint8_t*)VirtualAlloc(NULL, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_NOACCESS);
     if (page != NULL) {
-      int lost = 0, kept = 0;
-      for (i = 0; i < 16; i++) {
-        int r;
-        fault(page, 0);
-        r = lost_avx();
-        if (r == 1) lost++;
-        if (r == 0) kept++;
+      int lost = 0, kept = 0, layout = 1;
+      long distance[4] = { 0, 0, 0, 0 };
+      int sp_mod[4] = { 0, 0, 0, 0 };
+      uintptr_t slot[4] = { 0, 0, 0, 0 };
+      for (k = 0; k < 4; k++) {
+        for (i = 0; i < 4; i++) {
+          int r;
+          fault_at(page, 0, k);
+          r = lost_avx();
+          if (r == 1) lost++;
+          if (r == 0) kept++;
+        }
+        if (!last.has_xstate || last.area >= last.sp || (last.area & 63) != 0) {
+          layout = 0;
+        } else {
+          distance[k] = (long)(last.sp - last.area);
+          sp_mod[k] = (int)(last.sp & 63);
+          slot[k] = last.area + 15;
+        }
       }
       if (lost == 16) {
         result[0] = 1;
       } else if (kept == 16) {
         result[0] = 0;
       }
-      if (last.has_xstate && last.length > 0 &&
-          last.area == ((last.sp - last.length) & ~(uintptr_t)63)) {
-        uintptr_t slot = last.area + 15;
-        result[1] = (jlong)last.length;
-        if (result[0] == 1) {
+      if (layout) {
+        long min_d = distance[0], max_d = distance[0], length;
+        for (k = 1; k < 4; k++) {
+          if (distance[k] < min_d) min_d = distance[k];
+          if (distance[k] > max_d) max_d = distance[k];
+        }
+        for (length = min_d; length >= max_d - 63 && length > 0; length--) {
+          int fits = 1;
+          for (k = 0; k < 4; k++) {
+            if (length + ((sp_mod[k] - length) & 63) != distance[k]) {
+              fits = 0;
+            }
+          }
+          if (fits) {
+            result[1] = (jlong)length;
+            break;
+          }
+        }
+        if (result[0] == 1 && result[1] > 0) {
           int ok = 0;
-          for (i = 0; i < 16; i++) {
-            fault(page, slot);
-            if (lost_avx() == 0) ok++;
+          for (k = 0; k < 4; k++) {
+            for (i = 0; i < 4; i++) {
+              fault_at(page, slot[k], k);
+              if (lost_avx() == 0) ok++;
+            }
           }
           result[2] = ok == 16 ? 1 : 0;
         }

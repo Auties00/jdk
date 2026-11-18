@@ -81,6 +81,7 @@ static const int stub_size = 2800;
 // Argument of the exception XSTATE check stub.
 struct ExceptionXStateCheck {
   jint fill_qwords; // number of quadwords below the stack pointer to fill
+  jint sp_adjust;   // bytes subtracted from a 64-byte aligned stack pointer: 0, 16, 32 or 48
   jint ymm[8];      // ymm0 after resuming from the exception
 };
 #endif
@@ -804,9 +805,12 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
 
     __ push(rbp);
     __ movptr(rbp, rsp);
-    // Compiled code traps with a 16-byte aligned stack pointer.
-    __ andptr(rsp, -16);
+    // Compiled code traps with a 16-byte aligned stack pointer; the check takes each of the
+    // four values of sp modulo 64 in turn.
     __ movptr(r8, c_rarg0);
+    __ andptr(rsp, -64);
+    __ movslq(r10, Address(r8, offset_of(ExceptionXStateCheck, sp_adjust)));
+    __ subptr(rsp, r10);
     __ movl(r9, Address(r8, offset_of(ExceptionXStateCheck, fill_qwords)));
     // Nothing is live below rsp. Writing downwards also commits the stack pages in order.
     __ mov64(rax, min_jlong);
@@ -2307,23 +2311,31 @@ int VM_Version::exception_xstate_check_fill_size() {
   return checked_cast<int>(align_up((size_t)xsave_size + 4 * K, 4 * K));
 }
 
-// Takes one exception with a stale XSAVE header below the stack pointer, after clearing it with
-// the scrub when scrub_length > 0. Returns whether ymm0 lost its value. The exception handler
-// records the extended state of the context (record_exception_xstate()).
-bool VM_Version::run_exception_xstate_check(int scrub_length) {
+// Takes one exception with a stale XSAVE header below a stack pointer that is sp_adjust bytes
+// below a multiple of 64, after clearing the header with the scrub when scrub_length > 0. Returns
+// whether ymm0 lost its value. The exception handler records the trap's stack pointer and the
+// extended state of its context (record_exception_xstate()).
+bool VM_Version::run_exception_xstate_check(int scrub_length, int sp_adjust) {
+  static exception_xstate_check_stub_t scrub_stub = nullptr;
+  static int scrub_stub_length = 0;
   exception_xstate_check_stub_t stub = exception_xstate_check_stub;
   if (scrub_length > 0) {
-    // Generated now that the length is known; the blob is kept, it is small.
-    BufferBlob* blob = BufferBlob::create("VM_Version exception XSTATE scrub check", 512);
-    if (blob == nullptr) {
-      return true;
+    if (scrub_stub == nullptr || scrub_stub_length != scrub_length) {
+      // Generated once the length is known; the blob is kept, it is small.
+      BufferBlob* blob = BufferBlob::create("VM_Version exception XSTATE scrub check", 512);
+      if (blob == nullptr) {
+        return true;
+      }
+      CodeBuffer c(blob);
+      VM_Version_StubGenerator g(&c);
+      scrub_stub = CAST_TO_FN_PTR(exception_xstate_check_stub_t, g.generate_exception_xstate_check(scrub_length));
+      scrub_stub_length = scrub_length;
     }
-    CodeBuffer c(blob);
-    VM_Version_StubGenerator g(&c);
-    stub = CAST_TO_FN_PTR(exception_xstate_check_stub_t, g.generate_exception_xstate_check(scrub_length));
+    stub = scrub_stub;
   }
   ExceptionXStateCheck check;
   check.fill_qwords = exception_xstate_check_fill_size() / wordSize;
+  check.sp_adjust = sp_adjust;
   for (int i = 0; i < 8; i++) {
     check.ymm[i] = 0;
   }
@@ -2338,8 +2350,20 @@ bool VM_Version::run_exception_xstate_check(int scrub_length) {
   return lost;
 }
 
-// Sets _exception_resume_loses_xstate, and the length of the extended state of an exception
-// context in _exception_xstate_area_length when the context had the expected layout (else 0).
+// Distance from the stack pointer of a check's trap down to the XSTATE part of its context, or
+// -1 if the context had none where expected.
+static int exception_xstate_distance(address trap_sp, address area, int area_length) {
+  if (trap_sp == nullptr || area == nullptr || area_length <= 0 || area >= trap_sp ||
+      trap_sp - area > 64 * K || !is_aligned(area, 64)) {
+    return -1;
+  }
+  return checked_cast<int>(trap_sp - area);
+}
+
+// Sets _exception_resume_loses_xstate and, when the contexts of four traps (one for each value
+// of sp modulo 64) put their XSTATE part at (sp - L) & -64 for a single L, sets
+// _exception_xstate_area_length to the largest such L (they all place it alike), else to 0.
+// The XState length of a context is not L: it also counts the alignment padding of its trap.
 void VM_Version::check_exception_xstate() {
   // The stub fills its stack and must not reach the guard zones.
   size_t fill = (size_t)exception_xstate_check_fill_size();
@@ -2348,25 +2372,72 @@ void VM_Version::check_exception_xstate() {
   size_t stack_size;
   os::current_stack_base_and_size(&stack_base, &stack_size);
   address stack_end = stack_base - stack_size;
+  _exception_xstate_area_length = 0;
   if (sp < stack_end || (size_t)(sp - stack_end) < fill + 64 * K) {
     log_info(os, cpu)("Not enough stack to check whether resuming from an exception keeps AVX state");
     _exception_resume_loses_xstate = true;
-    _exception_xstate_area_length = 0;
     return;
   }
-  _exception_resume_loses_xstate = run_exception_xstate_check(0);
+  int distance[4];
+  int sp_mod[4];
+  int lost = 0;
+  bool layout = true;
+  for (int i = 0; i < 4; i++) {
+    bool lost_here = run_exception_xstate_check(0, i * 16);
+    if (lost_here) {
+      lost++;
+    }
+    distance[i] = exception_xstate_distance(_exception_xstate_trap_sp, _exception_xstate_area,
+                                            _exception_xstate_area_length);
+    sp_mod[i] = (int)((uintptr_t)_exception_xstate_trap_sp & 63);
+    log_debug(os, cpu)("Exception XSTATE check: sp %% 64 = %d, XSTATE at sp - %d, length %d, %s",
+                       sp_mod[i], distance[i], _exception_xstate_area_length, lost_here ? "lost" : "kept");
+    if (distance[i] < 0) {
+      layout = false;
+    }
+  }
+  // A system that loses the state in any of the traps is treated as affected.
+  _exception_resume_loses_xstate = lost > 0;
   log_info(os, cpu)("Resuming from an exception %s AVX state",
                     _exception_resume_loses_xstate ? "can lose" : "keeps");
-  int length = _exception_xstate_area_length;
-  if (length <= 0 || _exception_xstate_area == nullptr || _exception_xstate_trap_sp == nullptr ||
-      _exception_xstate_area != align_down(_exception_xstate_trap_sp - length, 64)) {
-    log_info(os, cpu)("Exception context XSTATE: area " PTR_FORMAT ", length %d, sp " PTR_FORMAT
-                      ": not the expected layout", p2i(_exception_xstate_area), length,
-                      p2i(_exception_xstate_trap_sp));
-    _exception_xstate_area_length = 0;
-  } else {
-    log_info(os, cpu)("Exception context XSTATE length %d", length);
+  if (!layout) {
+    log_info(os, cpu)("Exception context XSTATE: not the expected layout");
+    return;
   }
+  int min_distance = MIN2(MIN2(distance[0], distance[1]), MIN2(distance[2], distance[3]));
+  int max_distance = MAX2(MAX2(distance[0], distance[1]), MAX2(distance[2], distance[3]));
+  for (int length = min_distance; length >= max_distance - 63 && length > 0; length--) {
+    bool fits = true;
+    for (int i = 0; i < 4; i++) {
+      if (length + ((sp_mod[i] - length) & 63) != distance[i]) {
+        fits = false;
+      }
+    }
+    if (fits) {
+      _exception_xstate_area_length = length;
+      log_info(os, cpu)("Exception context XSTATE length %d", length);
+      return;
+    }
+  }
+  log_info(os, cpu)("Exception context XSTATE: no single length places it (distances %d, %d, %d, %d)",
+                    distance[0], distance[1], distance[2], distance[3]);
+}
+
+// Whether, for each value of sp modulo 64, the scrub at length keeps the AVX state, and the
+// context of that trap still has its XSTATE part where the scrub assumed.
+bool VM_Version::verify_exception_xstate_scrub(int length) {
+  for (int i = 0; i < 4; i++) {
+    if (run_exception_xstate_check(length, i * 16)) {
+      return false;
+    }
+    if (_exception_xstate_trap_sp == nullptr ||
+        _exception_xstate_area != align_down(_exception_xstate_trap_sp - length, 64)) {
+      log_info(os, cpu)("Exception context XSTATE moved: sp " PTR_FORMAT ", XSTATE " PTR_FORMAT,
+                        p2i(_exception_xstate_trap_sp), p2i(_exception_xstate_area));
+      return false;
+    }
+  }
+  return true;
 }
 #endif // _WINDOWS
 
@@ -2393,11 +2464,8 @@ void VM_Version::set_exception_xstate_mitigation() {
     } else if (forced) {
       scrub = length;
 #ifdef _WINDOWS
-    } else if (run_exception_xstate_check(length)) {
+    } else if (!verify_exception_xstate_scrub(length)) {
       log_info(os, cpu)("Clearing the stale XSAVE header does not keep AVX state");
-    } else if (_exception_xstate_area_length != length) {
-      log_info(os, cpu)("Exception context XSTATE length changed from %d to %d", length,
-                        _exception_xstate_area_length);
 #endif
     } else {
       scrub = length;

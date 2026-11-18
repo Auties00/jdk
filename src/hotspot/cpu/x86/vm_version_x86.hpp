@@ -778,8 +778,9 @@ private:
   static bool os_supports_apx_egprs();
 #ifdef _WINDOWS
   static int  exception_xstate_check_fill_size();
-  static bool run_exception_xstate_check(int scrub_length);
+  static bool run_exception_xstate_check(int scrub_length, int sp_adjust);
   static void check_exception_xstate();
+  static bool verify_exception_xstate_scrub(int length);
 #endif
   static void set_exception_xstate_mitigation();
   static void get_processor_features();
