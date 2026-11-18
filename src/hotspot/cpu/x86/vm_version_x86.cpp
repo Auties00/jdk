@@ -40,6 +40,7 @@
 #include "runtime/stubCodeGenerator.hpp"
 #include "runtime/vm_version.hpp"
 #include "utilities/checkedCast.hpp"
+#include "utilities/macros.hpp"
 #include "utilities/ostream.hpp"
 #include "utilities/powerOfTwo.hpp"
 #include "utilities/virtualizationSupport.hpp"
@@ -2303,7 +2304,7 @@ int VM_Version::exception_xstate_check_fill_size() {
     xsave_size = 16 * K; // not reported
   }
   // A page more for the CONTEXT record and the alignment of the area.
-  return align_up((int)xsave_size + 4 * K, 4 * K);
+  return checked_cast<int>(align_up((size_t)xsave_size + 4 * K, 4 * K));
 }
 
 // Takes one exception with a stale XSAVE header below the stack pointer, after clearing it with
@@ -2343,7 +2344,10 @@ void VM_Version::check_exception_xstate() {
   // The stub fills its stack and must not reach the guard zones.
   size_t fill = (size_t)exception_xstate_check_fill_size();
   address sp = os::current_stack_pointer();
-  address stack_end = os::current_stack_base() - os::current_stack_size();
+  address stack_base;
+  size_t stack_size;
+  os::current_stack_base_and_size(&stack_base, &stack_size);
+  address stack_end = stack_base - stack_size;
   if (sp < stack_end || (size_t)(sp - stack_end) < fill + 64 * K) {
     log_info(os, cpu)("Not enough stack to check whether resuming from an exception keeps AVX state");
     _exception_resume_loses_xstate = true;
