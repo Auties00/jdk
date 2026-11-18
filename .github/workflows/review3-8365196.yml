@@ -22,16 +22,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, windows-2022]
-        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        slot: [1, 2, 3, 4, 5, 6]
         exclude:
           - { os: windows-2022, slot: 3 }
           - { os: windows-2022, slot: 4 }
           - { os: windows-2022, slot: 5 }
           - { os: windows-2022, slot: 6 }
-          - { os: windows-2022, slot: 7 }
-          - { os: windows-2022, slot: 8 }
-          - { os: windows-2022, slot: 9 }
-          - { os: windows-2022, slot: 10 }
     defaults:
       run:
         shell: bash
@@ -68,14 +64,14 @@ jobs:
           base="-Xmx1g -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:-CreateCoredumpOnCrash -XX:ErrorFile=NUL --add-modules jdk.incubator.vector -cp cls"
           OFF="-XX:-UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks"
           SCRUB="$OFF -XX:ScrubExceptionLandingSlot=$L"
-          for round in 1 2 3; do
-            for cfg in off-g1 off-z scrub-g1 scrub-z scrub-shen default-z; do
+          for round in 1 2; do
+            for cfg in scrub-z scrub-g1; do
               case $cfg in
                 off-g1) f="$OFF -XX:+UseG1GC";; off-z) f="$OFF -XX:+UseZGC";;
                 scrub-g1) f="$SCRUB -XX:+UseG1GC";; scrub-z) f="$SCRUB -XX:+UseZGC";;
                 scrub-shen) f="$SCRUB -XX:+UseShenandoahGC";; default-z) f="-XX:+UseZGC";;
               esac
-              for m in $mode; do
+              for m in y z; do
                 "$bin/java" $base $f BarrierStubScrub $m 12 > out/logs/$cfg-$m-$round.log 2>&1; rc=$?
                 r=$(grep '^RESULT' out/logs/$cfg-$m-$round.log); [ -z "$r" ] && r="no result (exit $rc): $(grep -m1 -E 'EXCEPTION|Error|#  ' out/logs/$cfg-$m-$round.log)"
                 echo "SUMMARY round $round $cfg mode $m: rc=$rc $r" | tee -a out/summary.txt
