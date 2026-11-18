@@ -1892,12 +1892,111 @@ void MachPrologNode::format(PhaseRegAlloc* ra_, outputStream* st) const {
 }
 #endif
 
-// JDK-8365196 prototype: whether this compilation can hold state that an incomplete exception
-// context loses: a vector wider than 128 bits, or a value in xmm16-xmm31 or in an opmask register.
-// The low 128 bits of xmm0-xmm15 are legacy SSE state and are in every context. Code without such
-// state has nothing to lose, and its callers have nothing live in registers either, since every
-// register is caller-saved.
-static bool c2_code_uses_xstate_registers() {
+// JDK-8365196 prototype: whether node n holds, in a register, state that an incomplete exception
+// context loses: a vector wider than 128 bits, or any value in xmm16-xmm31 or in an opmask register.
+// The low 128 bits of xmm0-xmm15 are legacy SSE state and are in every context.
+static bool c2_holds_losable_state(PhaseRegAlloc* ra, Node* n) {
+  OptoReg::Name reg = ra->get_reg_first(n);
+  if (!OptoReg::is_reg(reg)) {
+    return false;
+  }
+  VMReg r = OptoReg::as_VMReg(reg);
+  if (r->is_KRegister()) {
+    return true;
+  }
+  if (!r->is_XMMRegister()) {
+    return false;
+  }
+  if ((int)reg >= (int)XMM16_num && (int)reg <= (int)XMM31p_num) {
+    return true;
+  }
+  uint ideal_reg = n->ideal_reg();
+  return ideal_reg == Op_VecY || ideal_reg == Op_VecZ;
+}
+
+// JDK-8365196 prototype: whether this compilation uses such state anywhere.
+static bool c2_code_uses_losable_state() {
+  Compile* C = Compile::current();
+  PhaseRegAlloc* ra = C->regalloc();
+  PhaseCFG* cfg = C->cfg();
+  if (C->max_vector_size() > 16) {
+    return true;
+  }
+  for (uint i = 0; i < cfg->number_of_blocks(); i++) {
+    Block* block = cfg->get_block(i);
+    for (uint j = 0; j < block->number_of_nodes(); j++) {
+      Node* n = block->get_node(j);
+      if (n->_idx >= ra->node_regs_max_index() || c2_holds_losable_state(ra, n)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// JDK-8365196 prototype: whether such state can be live at a trap site of this compilation, that is
+// at a safepoint poll or at the memory access of an implicit null check. Conservative: a losable
+// value counts as live at a trap site when it is used in another block or around a loop, or when
+// a trap site lies between its definition and its last use in its block. A value that lives and
+// dies between two trap sites (the mask and the vector of a partially inlined array copy) does
+// not count. Callers have nothing live in registers during a call, since every register is
+// caller-saved.
+static bool c2_code_can_lose_state_at_a_trap() {
+  Compile* C = Compile::current();
+  PhaseRegAlloc* ra = C->regalloc();
+  PhaseCFG* cfg = C->cfg();
+  ResourceMark rm;
+  uint unique = C->unique();
+  uint* pos = NEW_RESOURCE_ARRAY(uint, unique);
+  bool* trap = NEW_RESOURCE_ARRAY(bool, unique);
+  for (uint i = 0; i < unique; i++) {
+    pos[i] = 0;
+    trap[i] = false;
+  }
+  for (uint i = 0; i < cfg->number_of_blocks(); i++) {
+    Block* block = cfg->get_block(i);
+    for (uint j = 0; j < block->number_of_nodes(); j++) {
+      Node* n = block->get_node(j);
+      pos[n->_idx] = j;
+      if (n->is_MachSafePoint() && !n->is_MachCall()) {
+        trap[n->_idx] = true;
+      } else if (n->is_MachNullCheck()) {
+        trap[n->_idx] = true;
+        if (n->req() > 1 && n->in(1) != nullptr) {
+          trap[n->in(1)->_idx] = true; // the memory access that faults
+        }
+      }
+    }
+  }
+  for (uint i = 0; i < cfg->number_of_blocks(); i++) {
+    Block* block = cfg->get_block(i);
+    for (uint j = 0; j < block->number_of_nodes(); j++) {
+      Node* def = block->get_node(j);
+      if (def->_idx >= ra->node_regs_max_index()) {
+        return true; // not known to the allocator: assume the worst
+      }
+      if (!c2_holds_losable_state(ra, def)) {
+        continue;
+      }
+      uint last_use = j;
+      for (DUIterator_Fast kmax, k = def->fast_outs(kmax); k < kmax; k++) {
+        Node* use = def->fast_out(k);
+        if (cfg->get_block_for_node(use) != block || pos[use->_idx] <= j) {
+          return true; // live out of its block, or around a loop
+        }
+        last_use = MAX2(last_use, pos[use->_idx]);
+      }
+      for (uint t = j + 1; t <= last_use; t++) {
+        if (trap[block->get_node(t)->_idx]) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+static bool c2_code_needs_landing_slot_scrub() {
   static THREAD_LOCAL int cached_compile_id = -1;
   static THREAD_LOCAL bool cached_result = true;
   Compile* C = Compile::current();
@@ -1907,26 +2006,8 @@ static bool c2_code_uses_xstate_registers() {
   if (cached_compile_id == C->compile_id()) {
     return cached_result;
   }
-  PhaseRegAlloc* ra = C->regalloc();
-  PhaseCFG* cfg = C->cfg();
-  bool result = C->max_vector_size() > 16;
-  for (uint i = 0; i < cfg->number_of_blocks() && !result; i++) {
-    Block* block = cfg->get_block(i);
-    for (uint j = 0; j < block->number_of_nodes(); j++) {
-      Node* n = block->get_node(j);
-      if (n->_idx >= ra->node_regs_max_index()) {
-        result = true; // not known to the allocator: assume the worst
-        break;
-      }
-      OptoReg::Name reg = ra->get_reg_first(n);
-      if (OptoReg::is_reg(reg)) {
-        if (((int)reg >= (int)XMM16_num && (int)reg <= (int)XMM31p_num) || OptoReg::as_VMReg(reg)->is_KRegister()) {
-          result = true;
-          break;
-        }
-      }
-    }
-  }
+  bool result = ScrubExceptionLandingSlotAnyUse ? c2_code_uses_losable_state()
+                                                : c2_code_can_lose_state_at_a_trap();
   cached_compile_id = C->compile_id();
   cached_result = result;
   return result;
@@ -1934,7 +2015,7 @@ static bool c2_code_uses_xstate_registers() {
 
 static void c2_scrub_exception_landing_slot(C2_MacroAssembler* masm) {
   if (ScrubExceptionLandingSlot > 0 &&
-      (ScrubExceptionLandingSlotAlways || c2_code_uses_xstate_registers())) {
+      (ScrubExceptionLandingSlotAlways || c2_code_needs_landing_slot_scrub())) {
     __ scrub_exception_landing_slot();
   }
 }

@@ -110,8 +110,13 @@ define_pd_global(bool, ValueTypeReturnedAsFields, true);
                                                                             \
   product(bool, ScrubExceptionLandingSlotAlways, false, DIAGNOSTIC,         \
           "Prototype. With ScrubExceptionLandingSlot, scrub in every C2 "   \
-          "compilation, not only in those that have a vector wider than "   \
-          "128 bits or use xmm16-xmm31 or an opmask register")              \
+          "compilation")                                                    \
+                                                                            \
+  product(bool, ScrubExceptionLandingSlotAnyUse, false, DIAGNOSTIC,         \
+          "Prototype. With ScrubExceptionLandingSlot, scrub in every C2 "   \
+          "compilation that has a vector wider than 128 bits or uses "      \
+          "xmm16-xmm31 or an opmask register, not only where such state "   \
+          "can be live at a poll or an implicit null check")                \
                                                                             \
   product(int, ScrubExceptionLandingSlot, 0, DIAGNOSTIC,                    \
           "Prototype. When not 0, the length L of the XSAVE area in the "   \
