@@ -56,7 +56,13 @@ jobs:
           common="-XX:-TieredCompilation -XX:-UseSuperWord -XX:-BackgroundCompilation -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920 -XX:CompileCommand=compileonly,R4Sched::kernel -XX:+PrintOptoAssembly -Dms=2000"
           "$bin/java" $common -cp cls R4Sched > out/nosched.txt 2>&1; echo "nosched exit $?"
           "$bin/java" $common -XX:+OptoScheduling -cp cls R4Sched > out/sched.txt 2>&1; echo "sched exit $?"
-          for m in nosched sched; do
+          "$bin/javac" --add-exports java.base/jdk.internal.misc=ALL-UNNAMED -d cls src/review4/R4Sched2.java
+          c2="-XX:-TieredCompilation -XX:-UseSuperWord -XX:-BackgroundCompilation -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920 -XX:CompileCommand=compileonly,R4Sched2::kernel -XX:+PrintOptoAssembly -Dms=2000 --add-exports java.base/jdk.internal.misc=ALL-UNNAMED"
+          "$bin/java" $c2 -cp cls R4Sched2 > out/u-nosched.txt 2>&1; echo "u-nosched exit $?"
+          "$bin/java" $c2 -XX:+OptoScheduling -cp cls R4Sched2 > out/u-sched.txt 2>&1; echo "u-sched exit $?"
+          "$bin/java" $c2 -XX:+ScrubExceptionXStateHeaderAtTraps -cp cls R4Sched2 > out/u-attraps.txt 2>&1; echo "u-attraps exit $?"
+          "$bin/java" $c2 -XX:+ScrubExceptionXStateHeaderAtTraps -XX:+OptoScheduling -cp cls R4Sched2 > out/u-attraps-sched.txt 2>&1; echo "u-attraps-sched exit $?"
+          for m in nosched sched u-nosched u-sched u-attraps u-attraps-sched; do
             echo "== $m"; grep -nE "trap scrub|CALL|call_leaf|[Ss]afepoint|poll|^B[0-9]+" out/$m.txt | grep -vE "^\s*$" | head -150
           done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
