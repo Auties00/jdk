@@ -636,6 +636,27 @@ public:
 #endif
 };
 
+//------------------------------MachTrapScrubNode------------------------------
+// Placed by PhaseOutput::insert_trap_scrubs() right before a trap site at which state that a
+// resumed exception can lose is live (see Matcher::trap_scrub_needed()). Its code uses no
+// register and keeps the condition codes, so it needs no register allocation.
+class MachTrapScrubNode : public MachIdealNode {
+public:
+  MachTrapScrubNode() {}
+  virtual void emit(C2_MacroAssembler *masm, PhaseRegAlloc *ra_) const;
+  virtual uint size(PhaseRegAlloc *ra_) const;
+
+  virtual const class Type *bottom_type() const { return Type::CONTROL; }
+
+  virtual const Pipeline *pipeline() const;
+  virtual uint size_of() const { return sizeof(MachTrapScrubNode); }
+#ifndef PRODUCT
+  virtual const char *Name() const { return "TrapScrub"; }
+  virtual void format( PhaseRegAlloc *, outputStream *st ) const;
+  virtual void dump_spec(outputStream *st) const { } // No per-operand info
+#endif
+};
+
 //------------------------------MachSpillCopyNode------------------------------
 // Machine SpillCopy Node.  Copies 1 or 2 words from any location to any
 // location (stack or register).

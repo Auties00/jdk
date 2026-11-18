@@ -321,6 +321,11 @@ void PhaseOutput::Output() {
     }
   }
 
+  if (Matcher::trap_scrub_needed()) {
+    insert_trap_scrubs();
+    if (C->failing()) return;
+  }
+
   // Keeper of sizing aspects
   _buf_sizes = BufferSizingData();
 
@@ -447,6 +452,189 @@ void PhaseOutput::compute_loop_first_inst_sizes() {
 
 // The architecture description provides short branch variants for some long
 // branch instructions. Replace eligible long branches with short branches.
+// JDK-8365196, see Matcher::trap_scrub_needed(). A value holds state that a resumed exception can
+// lose when its register does.
+static bool holds_trap_losable_state(PhaseRegAlloc* ra, const Node* n) {
+  if (n->_idx >= ra->node_regs_max_index()) {
+    return false; // created after register allocation without a register (prolog, epilog)
+  }
+  OptoReg::Name reg = ra->get_reg_first(n);
+  if (!OptoReg::is_reg(reg)) {
+    return false;
+  }
+  return Matcher::trap_loses_register(reg, n->is_MachTemp() ? 0 : n->ideal_reg());
+}
+
+// Whether n can fault and resume in this frame: a loop safepoint poll that reads the polling
+// page, the memory access of an implicit null check, or, in a compilation with unsafe accesses,
+// an access to raw or unknown memory (a fault there resumes at the next instruction, see
+// JavaThread::doing_unsafe_access()).
+static bool is_resumable_trap_site(const Node* n, const VectorSet& null_check_accesses,
+                                   bool polls_trap, bool raw_accesses_trap) {
+  if (null_check_accesses.test(n->_idx)) {
+    return true;
+  }
+  if (!n->is_Mach()) {
+    return false;
+  }
+  if (n->is_MachSafePoint()) {
+    return polls_trap && !n->is_MachCall();
+  }
+  if (raw_accesses_trap) {
+    const MachNode* mach = n->as_Mach();
+    if (mach->memory_operand() == nullptr) {
+      return false;
+    }
+    const TypePtr* adr_type = mach->adr_type();
+    return adr_type == nullptr || adr_type->base() == Type::RawPtr || adr_type->base() == Type::AnyPtr;
+  }
+  return false;
+}
+
+// Places a MachTrapScrubNode right before each trap site at which a value that holds losable
+// state is live. Liveness is computed backwards over the CFG for those values only; a value
+// used by a Phi counts as live into the Phi's block, which is conservative. At a trap site the
+// node's inputs (its TEMPs included) and the node itself count as live, since the fault can
+// happen in the middle of its code.
+void PhaseOutput::insert_trap_scrubs() {
+  PhaseCFG* cfg = C->cfg();
+  PhaseRegAlloc* ra = C->regalloc();
+  ResourceMark rm;
+
+  // Number the values that hold losable state.
+  const uint unique = C->unique();
+  uint* value_of = NEW_RESOURCE_ARRAY(uint, unique);
+  for (uint i = 0; i < unique; i++) {
+    value_of[i] = max_juint;
+  }
+  uint values = 0;
+  uint max_pre_order = 0;
+  VectorSet null_check_accesses;
+  for (uint i = 0; i < cfg->number_of_blocks(); i++) {
+    Block* block = cfg->get_block(i);
+    max_pre_order = MAX2(max_pre_order, block->_pre_order);
+    for (uint j = 0; j < block->number_of_nodes(); j++) {
+      Node* n = block->get_node(j);
+      if (holds_trap_losable_state(ra, n)) {
+        value_of[n->_idx] = values++;
+      }
+      if (n->is_MachNullCheck()) {
+        null_check_accesses.set(n->in(1)->_idx);
+      }
+    }
+  }
+  if (values == 0) {
+    return;
+  }
+
+  const bool polls_trap = !Matcher::loop_safepoint_poll_uses_branch();
+  const bool raw_accesses_trap = C->has_unsafe_access();
+  const uint words = (values + BitsPerWord - 1) / BitsPerWord;
+  const uint block_count = max_pre_order + 1;
+  uintptr_t* live_in = NEW_RESOURCE_ARRAY(uintptr_t, block_count * words);
+  for (uint i = 0; i < block_count * words; i++) {
+    live_in[i] = 0;
+  }
+  uintptr_t* live = NEW_RESOURCE_ARRAY(uintptr_t, words);
+
+  auto value = [&](const Node* n) {
+    return n != nullptr && n->_idx < unique ? value_of[n->_idx] : max_juint;
+  };
+  auto add = [&](const Node* n) {
+    uint v = value(n);
+    if (v != max_juint) {
+      live[v / BitsPerWord] |= (uintptr_t)1 << (v % BitsPerWord);
+    }
+  };
+  auto live_out = [&](const Block* block) {
+    for (uint w = 0; w < words; w++) {
+      live[w] = 0;
+    }
+    for (uint s = 0; s < block->_num_succs; s++) {
+      const uintptr_t* succ = &live_in[block->_succs[s]->_pre_order * words];
+      for (uint w = 0; w < words; w++) {
+        live[w] |= succ[w];
+      }
+    }
+  };
+  auto any_live = [&]() {
+    for (uint w = 0; w < words; w++) {
+      if (live[w] != 0) {
+        return true;
+      }
+    }
+    return false;
+  };
+  // Moves live from after n to before it.
+  auto step_back = [&](const Node* n) {
+    uint v = value(n);
+    if (v != max_juint) {
+      live[v / BitsPerWord] &= ~((uintptr_t)1 << (v % BitsPerWord));
+    }
+    for (uint k = 1; k < n->req(); k++) {
+      add(n->in(k));
+    }
+  };
+
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (int i = (int)cfg->number_of_blocks() - 1; i >= 0; i--) {
+      Block* block = cfg->get_block(i);
+      live_out(block);
+      for (int j = (int)block->number_of_nodes() - 1; j >= 0; j--) {
+        step_back(block->get_node(j));
+      }
+      uintptr_t* in = &live_in[block->_pre_order * words];
+      for (uint w = 0; w < words; w++) {
+        if (in[w] != live[w]) {
+          in[w] = live[w];
+          changed = true;
+        }
+      }
+    }
+  }
+
+  // Count the scrubs first, so that the node limit is checked before the graph changes.
+  for (int pass = 0; pass < 2; pass++) {
+    uint scrubs = 0;
+    for (uint i = 0; i < cfg->number_of_blocks(); i++) {
+      Block* block = cfg->get_block(i);
+      live_out(block);
+      for (int j = (int)block->number_of_nodes() - 1; j >= 0; j--) {
+        Node* n = block->get_node(j);
+        if (is_resumable_trap_site(n, null_check_accesses, polls_trap, raw_accesses_trap)) {
+          add(n);
+          for (uint k = 0; k < n->req(); k++) {
+            add(n->in(k));
+          }
+          if (any_live()) {
+            scrubs++;
+            if (pass == 1) {
+              MachTrapScrubNode* scrub = new MachTrapScrubNode();
+              block->insert_node(scrub, j);
+              cfg->map_node_to_block(scrub, block);
+            }
+          }
+        }
+        step_back(n);
+      }
+    }
+    if (pass == 0) {
+      if (scrubs == 0) {
+        return;
+      }
+      if (C->check_node_count(scrubs, "out of nodes inserting trap scrubs")) {
+        return;
+      }
+      if (C->unique() + scrubs >= ra->node_regs_max_index()) {
+        C->record_method_not_compilable("out of register allocation slots inserting trap scrubs");
+        return;
+      }
+    }
+  }
+}
+
 void PhaseOutput::shorten_branches(uint* blk_starts) {
 
   Compile::TracePhase tp(_t_shortenBranches);

@@ -29,6 +29,7 @@
 #include "oops/compressedOops.hpp"
 #include "opto/ad.hpp"
 #include "opto/machnode.hpp"
+#include "opto/matcher.hpp"
 #include "opto/node.hpp"
 #include "opto/opcodes.hpp"
 #include "opto/output.hpp"
@@ -717,6 +718,25 @@ const RegMask &MachNullCheckNode::in_RegMask( uint idx ) const {
   } else {
     return in(1)->as_Mach()->out_RegMask();
   }
+}
+
+//=============================================================================
+#ifndef PRODUCT
+void MachTrapScrubNode::format(PhaseRegAlloc*, outputStream* st) const {
+  st->print("trap scrub\t# clear the stale exception context header");
+}
+#endif
+
+void MachTrapScrubNode::emit(C2_MacroAssembler* masm, PhaseRegAlloc* ra_) const {
+  Matcher::emit_trap_scrub(masm);
+}
+
+uint MachTrapScrubNode::size(PhaseRegAlloc* ra_) const {
+  return Matcher::trap_scrub_size();
+}
+
+const Pipeline* MachTrapScrubNode::pipeline() const {
+  return MachNode::pipeline_class();
 }
 
 //=============================================================================

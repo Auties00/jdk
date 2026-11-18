@@ -2654,6 +2654,65 @@ int Matcher::safepoint_poll_pc_offset() {
   return MacroAssembler::loop_safepoint_poll_uses_branch() ? MacroAssembler::loop_safepoint_poll_branch_size() : 0;
 }
 
+// JDK-8365196, see VM_Version::exception_resume_loses_xstate().
+bool Matcher::trap_scrub_needed() {
+  return VM_Version::exception_xstate_scrub_length() > 0;
+}
+
+// A short exception context keeps the legacy SSE state, the low 128 bits of xmm0-xmm15, and
+// the general purpose registers rax-r15; it can lose everything else.
+bool Matcher::trap_loses_register(OptoReg::Name reg, uint ideal_reg) {
+  if (!OptoReg::is_reg(reg)) {
+    return false;
+  }
+  VMReg r = OptoReg::as_VMReg(reg);
+  if (!r->is_valid()) {
+    return false;
+  }
+  if (r->is_KRegister()) {
+    return true;
+  }
+  if (r->is_XMMRegister()) {
+    if (r->as_XMMRegister()->encoding() >= 16) {
+      return true;
+    }
+    // A MachTemp (ideal_reg 0) can be used at any width by its instruction.
+    return ideal_reg == 0 || ideal_reg == Op_VecY || ideal_reg == Op_VecZ;
+  }
+  if (r->is_Register()) {
+    return r->as_Register()->encoding() >= 16; // APX extended registers
+  }
+  return false;
+}
+
+void Matcher::emit_trap_scrub(C2_MacroAssembler* masm) {
+  masm->scrub_exception_xstate_header();
+}
+
+uint Matcher::trap_scrub_size() {
+  return (uint)MacroAssembler::scrub_exception_xstate_header_size();
+}
+
+bool Matcher::trap_state_unprotected() {
+  return VM_Version::exception_xstate_unprotected();
+}
+
+// Where trap_state_unprotected(), the register classes of scalar and 128-bit and narrower vector
+// values exclude xmm16-xmm31, so only wider vectors, opmasks, temporaries of unknown width and,
+// with APX, values in general purpose registers can be lost.
+bool Matcher::trap_may_lose(uint ideal_reg, const RegMask& mask) {
+  if (ideal_reg == Op_VecY || ideal_reg == Op_VecZ || ideal_reg == Op_RegVectMask) {
+    return true;
+  }
+  RegMaskIterator rmi(mask);
+  while (rmi.has_next()) {
+    if (trap_loses_register(rmi.next(), ideal_reg)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool Matcher::supports_vector_calling_convention(void) {
   return EnableVectorSupport;
 }
