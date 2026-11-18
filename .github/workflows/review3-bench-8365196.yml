@@ -1,0 +1,78 @@
+name: 'JDK-8365196 review 3: scrub worst-case benchmarks'
+
+# Review-only. Reuses the windows-x64 bundle of run 44235980864 (commit b268008654e). Runs
+# review3/R3Bench.java with traps (A), traps and the scrub where the criterion selects (R), traps
+# and the scrub everywhere (S) and branch polls with explicit null checks (C), interleaved.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-review3-bench*'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  bench:
+    name: bench (${{ matrix.slot }})
+    runs-on: windows-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2, 3, 4]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: bundles
+          run-id: 44235980864
+          github-token: ${{ github.token }}
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Auties00/jdk-c2-avx512-windows-repro
+          path: repro
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review3
+      - name: 'JMH'
+        run: |
+          set +e
+          mkdir -p out jdk; unzip -q bundles/jdk-windows-x64.zip -d jdk
+          bin=$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          "$bin/java" -Xlog:os+cpu=info -version 2>&1 | grep "Resuming from an exception" | tee out/jvm-detect.txt
+          clang -O2 -mxsave -o c_detect.exe repro/native/xstate_detect.c -ladvapi32
+          ./c_detect.exe > out/c-detect.txt 2>&1
+          L=$(grep '^geometry: L = ' out/c-detect.txt | sed 's/.*= //'); echo "L=$L" | tee out/L.txt
+          m2=https://repo1.maven.org/maven2
+          for a in org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar; do
+            curl -sfL -o "lib-$(basename $a)" "$m2/$a" || echo "download failed: $a"
+          done
+          cp="lib-jmh-core-1.37.jar;lib-jopt-simple-5.0.4.jar;lib-commons-math3-3.6.1.jar"
+          "$bin/javac" --add-modules jdk.incubator.vector -proc:full -cp "$cp;lib-jmh-generator-annprocess-1.37.jar" -d jmhc src/review3/R3Bench.java 2>&1 | grep -v -i warning | tail -5
+          A="-XX:+UnlockDiagnosticVMOptions -XX:-UseBranchLoopSafepointPolls -XX:+ImplicitNullChecks"
+          R="$A -XX:ScrubExceptionLandingSlot=$L"
+          S="$A -XX:ScrubExceptionLandingSlot=$L -XX:+ScrubExceptionLandingSlotAlways"
+          C="-XX:+UnlockDiagnosticVMOptions -XX:+UseBranchLoopSafepointPolls -XX:-ImplicitNullChecks"
+          for round in 1 2 3; do
+            order="A R S C"; [ $round = 2 ] && order="R S C A"; [ $round = 3 ] && order="C A R S"
+            for c in $order; do
+              eval "flags=\$$c"
+              "$bin/java" -cp "jmhc;$cp" org.openjdk.jmh.Main -jvmArgsAppend "$flags" -rf csv -rff "out/jmh-$c-$round.csv" review3.R3Bench > "out/jmh-$c-$round.log" 2>&1
+              tail -6 "out/jmh-$c-$round.log"
+            done
+          done
+          { echo "### $(cat out/cpu.txt) L=$L"; echo '```'; for f in out/jmh-*.csv; do echo "$f"; cat "$f"; done; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: bench-${{ matrix.slot }}
+          path: out
+          retention-days: 30
