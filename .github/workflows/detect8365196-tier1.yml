@@ -1,0 +1,46 @@
+name: 'JDK-8365196 detect: tier1 on Windows Server 2025'
+
+# Review-only. The sanity checks run the windows-x64 tests on windows-2022, which the self-test reports as
+# unaffected. This runs the same test jobs on windows-2025, where the self-test changes the defaults, with the
+# windows-x64 bundles and the JTReg bundle built by run 44205806202 from JDK-8365196-detect-selftest.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-detect-ci-tier1*'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  bundles:
+    name: bundles
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        name: ['bundles-windows-x64', 'bundles-windows-x64-debug', 'bundles-jtreg-8.3+1']
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ matrix.name }}
+          path: bundle
+          run-id: 44205806202
+          github-token: ${{ github.token }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.name }}
+          path: bundle
+          retention-days: 3
+          compression-level: 0
+
+  test-windows-x64:
+    name: windows-x64
+    needs: bundles
+    uses: ./.github/workflows/test.yml
+    with:
+      platform: windows-x64
+      bootjdk-platform: windows-x64
+      architecture: 'x86.x64'
+      runs-on: windows-2025
+      debug-suffix: -debug
