@@ -1,0 +1,66 @@
+name: 'JDK-8365196 review 4: scrub placement under OptoScheduling'
+
+# Review-only. Reuses the windows-x64 debug bundle of run 44343210778 (the scrub6 sources, commit
+# 648d3502ad1, which have the same src/ as b95e0cc3c26), so nothing is rebuilt. Prints the C2 code of a
+# scalar kernel that keeps doubles in xmm16-xmm31 (AVX-512 hosts) across a runtime leaf call and its
+# loop poll, with and without -XX:+OptoScheduling, to see where MachTrapScrubNode ends up.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-review4-*'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  sched:
+    name: sched (${{ matrix.os }}, ${{ matrix.slot }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-2022]
+        slot: [1, 2, 3]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-debug
+          path: bundles
+          run-id: 44343210778
+          github-token: ${{ github.token }}
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review4
+      - name: 'Run'
+        run: |
+          set +e
+          mkdir -p out jdk cls
+          ls bundles
+          for z in bundles/*.zip; do unzip -q -o "$z" -d jdk; done
+          bin=$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")
+          echo "bin=$bin"
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" | tee out/build.txt
+          "$bin/java" -Xlog:os+cpu=info -version > out/detect.txt 2>&1
+          grep -E "Resuming|XSTATE|clears|Loop safepoint" out/detect.txt
+          "$bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|OptoScheduling|ExceptionXStateLength) ' | tee out/flags.txt
+          "$bin/javac" -d cls src/review4/R4Sched.java
+          common="-XX:-TieredCompilation -XX:-UseSuperWord -XX:-BackgroundCompilation -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920 -XX:CompileCommand=compileonly,R4Sched::kernel -XX:+PrintOptoAssembly -Dms=2000"
+          "$bin/java" $common -cp cls R4Sched > out/nosched.txt 2>&1; echo "nosched exit $?"
+          "$bin/java" $common -XX:+OptoScheduling -cp cls R4Sched > out/sched.txt 2>&1; echo "sched exit $?"
+          for m in nosched sched; do
+            echo "== $m"; grep -nE "trap scrub|CALL|call_leaf|[Ss]afepoint|poll|^B[0-9]+" out/$m.txt | grep -vE "^\s*$" | head -150
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: sched-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
