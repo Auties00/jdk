@@ -1,0 +1,393 @@
+name: 'JDK-8365196 scrub7 CI'
+
+# Review-only. Builds the scrub7 branch (windows-x64 and linux-x64, release and fastdebug), then: tier1
+# on linux-x64, windows-2022 and windows-2025; the tier2 and tier3 compiler groups on windows-2025
+# (fastdebug, with VerifyExceptionXStateScrub); the tier1 and tier2 compiler groups on linux-x64
+# (fastdebug) with the scrub forced on and verified, and the tier1 compiler groups again under
+# OptoScheduling in both placements; the reviewer's OptoScheduling kernels on Server 2025 and 2022;
+# TestExceptionXStateScrub under every collector on Server 2025 and 2022 VMs, with the fix, the scrub
+# before each trap, the capped fallback, and the unpatched base (bundle of run 44343210778); and
+# benchmarks of the base against the fix.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-scrub7-final*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  BASE_REF: 2b376fb353cf051331016423c80aaf7963149796
+  # The unpatched base, as built by run 44266958063 and copied by runs 44285424680 and 44343210778.
+  BASE_RUN: 44343210778
+
+jobs:
+  prepare:
+    name: 'Prepare'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+      - name: 'Build JTReg'
+        uses: ./.github/actions/build-jtreg
+
+  build-windows-x64:
+    name: windows-x64
+    needs: prepare
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      platform: windows-x64
+      runs-on: windows-2022
+      architecture: 'x86.x64'
+      msvc-toolset-version: '14.44'
+
+  build-windows-x64-base:
+    name: 'Copy the unpatched base bundle'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-base
+          path: bundle
+          run-id: ${{ env.BASE_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bundles-windows-x64-base
+          path: bundle
+          retention-days: 5
+          compression-level: 0
+
+  build-linux-x64:
+    name: linux-x64
+    needs: prepare
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      platform: linux-x64
+      gcc-major-version: '10'
+
+  tier1-linux-x64:
+    name: 'tier1 linux-x64'
+    needs: [prepare, build-linux-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: linux-x64
+      bootjdk-platform: linux-x64
+      runs-on: ubuntu-24.04
+      debug-suffix: -debug
+      tag: tier1
+      tests: '[{"test-name": "jdk/tier1 part 1", "test-suite": "test/jdk/:tier1_part1"}, {"test-name": "jdk/tier1 part 2", "test-suite": "test/jdk/:tier1_part2"}, {"test-name": "jdk/tier1 part 3", "test-suite": "test/jdk/:tier1_part3"}, {"test-name": "langtools/tier1", "test-suite": "test/langtools/:tier1"}, {"test-name": "hs/tier1 common", "test-suite": "test/hotspot/jtreg/:tier1_common", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 gc", "test-suite": "test/hotspot/jtreg/:tier1_gc", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 runtime", "test-suite": "test/hotspot/jtreg/:tier1_runtime", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 serviceability", "test-suite": "test/hotspot/jtreg/:tier1_serviceability", "debug-suffix": "-debug"}, {"test-name": "lib-test/tier1", "test-suite": "test/lib-test/:tier1", "debug-suffix": "-debug"}]'
+
+  compiler-forced-linux-x64:
+    name: 'compiler, scrub forced, linux-x64'
+    needs: [prepare, build-linux-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: linux-x64
+      bootjdk-platform: linux-x64
+      runs-on: ubuntu-24.04
+      debug-suffix: -debug
+      tag: forced
+      java-options: '-XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920 -XX:+VerifyExceptionXStateScrub'
+      tests: '[{"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}, {"test-name": "hs/tier2 compiler", "test-suite": "test/hotspot/jtreg/:tier2_compiler", "debug-suffix": "-debug"}]'
+
+  compiler-sched-linux-x64:
+    name: 'compiler, scrub forced, OptoScheduling, after writers, linux-x64'
+    needs: [prepare, build-linux-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: linux-x64
+      bootjdk-platform: linux-x64
+      runs-on: ubuntu-24.04
+      debug-suffix: -debug
+      tag: forced-sched
+      java-options: '-XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920 -XX:+VerifyExceptionXStateScrub -XX:+OptoScheduling'
+      tests: '[{"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}]'
+
+  compiler-sched-attraps-linux-x64:
+    name: 'compiler, scrub forced, OptoScheduling, before traps, linux-x64'
+    needs: [prepare, build-linux-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: linux-x64
+      bootjdk-platform: linux-x64
+      runs-on: ubuntu-24.04
+      debug-suffix: -debug
+      tag: forced-sched-attraps
+      java-options: '-XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920 -XX:+VerifyExceptionXStateScrub -XX:+OptoScheduling -XX:+ScrubExceptionXStateHeaderAtTraps'
+      tests: '[{"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}]'
+
+  tier1-windows-2022:
+    name: 'tier1 windows-2022'
+    needs: [prepare, build-windows-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: windows-x64
+      bootjdk-platform: windows-x64
+      architecture: 'x86.x64'
+      runs-on: windows-2022
+      debug-suffix: -debug
+      tag: tier1-2022
+      tests: '[{"test-name": "jdk/tier1 part 1", "test-suite": "test/jdk/:tier1_part1"}, {"test-name": "jdk/tier1 part 2", "test-suite": "test/jdk/:tier1_part2"}, {"test-name": "jdk/tier1 part 3", "test-suite": "test/jdk/:tier1_part3"}, {"test-name": "langtools/tier1", "test-suite": "test/langtools/:tier1"}, {"test-name": "hs/tier1 common", "test-suite": "test/hotspot/jtreg/:tier1_common", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 gc", "test-suite": "test/hotspot/jtreg/:tier1_gc", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 runtime", "test-suite": "test/hotspot/jtreg/:tier1_runtime", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 serviceability", "test-suite": "test/hotspot/jtreg/:tier1_serviceability", "debug-suffix": "-debug"}, {"test-name": "lib-test/tier1", "test-suite": "test/lib-test/:tier1", "debug-suffix": "-debug"}]'
+
+  tier1-windows-2025:
+    name: 'tier1 windows-2025'
+    needs: [prepare, build-windows-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: windows-x64
+      bootjdk-platform: windows-x64
+      architecture: 'x86.x64'
+      runs-on: windows-2025
+      debug-suffix: -debug
+      tag: tier1-2025
+      tests: '[{"test-name": "jdk/tier1 part 1", "test-suite": "test/jdk/:tier1_part1"}, {"test-name": "jdk/tier1 part 2", "test-suite": "test/jdk/:tier1_part2"}, {"test-name": "jdk/tier1 part 3", "test-suite": "test/jdk/:tier1_part3"}, {"test-name": "langtools/tier1", "test-suite": "test/langtools/:tier1"}, {"test-name": "hs/tier1 common", "test-suite": "test/hotspot/jtreg/:tier1_common", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 gc", "test-suite": "test/hotspot/jtreg/:tier1_gc", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 runtime", "test-suite": "test/hotspot/jtreg/:tier1_runtime", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 serviceability", "test-suite": "test/hotspot/jtreg/:tier1_serviceability", "debug-suffix": "-debug"}, {"test-name": "lib-test/tier1", "test-suite": "test/lib-test/:tier1", "debug-suffix": "-debug"}]'
+
+  compiler-windows-2025:
+    name: 'compiler tier2-3 windows-2025'
+    needs: [prepare, build-windows-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: windows-x64
+      bootjdk-platform: windows-x64
+      architecture: 'x86.x64'
+      runs-on: windows-2025
+      debug-suffix: -debug
+      tag: compiler-2025
+      java-options: '-XX:+VerifyExceptionXStateScrub'
+      tests: '[{"test-name": "hs/tier2 compiler", "test-suite": "test/hotspot/jtreg/:tier2_compiler", "debug-suffix": "-debug"}, {"test-name": "hs/tier3 compiler", "test-suite": "test/hotspot/jtreg/:tier3_compiler", "debug-suffix": "-debug"}, {"test-name": "hs/vectorapi", "test-suite": "test/hotspot/jtreg/compiler/vectorapi", "debug-suffix": "-debug"}, {"test-name": "hs/vectorization", "test-suite": "test/hotspot/jtreg/compiler/vectorization", "debug-suffix": "-debug"}]'
+
+  repro:
+    name: repro (${{ matrix.os }}, ${{ matrix.slot }})
+    needs: [prepare, build-windows-x64, build-windows-x64-base]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-2022]
+        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        exclude:
+          - { os: windows-2022, slot: 3 }
+          - { os: windows-2022, slot: 4 }
+          - { os: windows-2022, slot: 5 }
+          - { os: windows-2022, slot: 6 }
+          - { os: windows-2022, slot: 7 }
+          - { os: windows-2022, slot: 8 }
+          - { os: windows-2022, slot: 9 }
+          - { os: windows-2022, slot: 10 }
+          - { os: windows-2022, slot: 11 }
+          - { os: windows-2022, slot: 12 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - id: jtreg
+        uses: ./.github/actions/get-jtreg
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: bundles
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-base
+          path: bundles-base
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Auties00/jdk-c2-avx512-windows-repro
+          path: xstate-repro
+      - name: 'TestExceptionXStateScrub under every collector'
+        run: |
+          set +e
+          mkdir -p out jdk base tests
+          unzip -q bundles/jdk-windows-x64.zip -d jdk
+          unzip -q bundles-base/jdk-windows-x64.zip -d base
+          tar -xzf bundles/tests-windows-x64.tar.gz -C tests
+          JDK=$(cd "$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W)
+          BASE=$(cd "$(dirname "$(find base -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W)
+          NAT=$(cd "$(dirname "$(find tests -name ExceptionXState.dll | head -1)")" && pwd -W)
+          JT='${{ steps.jtreg.outputs.path }}'
+          echo "JDK=$JDK BASE=$BASE NAT=$NAT JT=$JT"
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" | tee out/build.txt
+          "$JDK/bin/java" -Xlog:os+cpu=info -version 2>&1 | grep -i -E "exception|xsave|xstate|capped" | tee out/jvm-detect.txt
+          "$JDK/bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|UseAPX|ExceptionXStateLength|ScrubExceptionXStateHeader|UseUpperXMMRegistersInC1) ' | tee out/flags.txt
+          clang -O2 -mxsave -o c_detect.exe xstate-repro/native/xstate_detect.c -ladvapi32
+          ./c_detect.exe > out/c-detect.txt 2>&1
+          grep '^geometry: L = ' out/c-detect.txt | sed 's/.*= //' | tee out/L.txt
+          jvmL=$(grep ExceptionXStateLength out/flags.txt | awk '{print $4}')
+          echo "SUMMARY detection: $(cat out/jvm-detect.txt | head -1 | sed 's/.*\] //') | JVM L=$jvmL | C L=$(cat out/L.txt)" | tee out/summary.txt
+          test=test/hotspot/jtreg/compiler/runtime/safepoints/TestExceptionXStateScrub.java
+          run() {
+            local tag=$1 jdk=$2 opts=$3
+            "$JDK/bin/java" -jar "$JT/lib/jtreg.jar" -jdk:"$jdk" -nativepath:"$NAT" -w "wk/$tag" -r "rp/$tag" \
+              -timeoutFactor:4 -verbose:summary -vmoptions:"-XX:-CreateCoredumpOnCrash $opts" $test > "out/jtreg-$tag.txt" 2>&1
+            local pass=$(grep -c '^Passed: ' "out/jtreg-$tag.txt")
+            local fail=$(grep -c -E '^(FAILED|Error): ' "out/jtreg-$tag.txt")
+            mkdir -p "out/jtr/$tag"; find "wk/$tag" -name '*.jtr' -exec cp {} "out/jtr/$tag/" \; 2>/dev/null
+            local wrong=$(cat out/jtr/$tag/*.jtr 2>/dev/null | grep -o 'calls=[0-9]* wrong=[0-9]*' | tr '\n' ' ')
+            echo "SUMMARY [$tag] passed=$pass failed=$fail $(grep -E '^(FAILED|Error): ' "out/jtreg-$tag.txt" | sed 's/.*#//' | tr '\n' ' ') :: $wrong" | tee -a out/summary.txt
+          }
+          CAP="-XX:+UnlockDiagnosticVMOptions -XX:-ScrubExceptionXStateHeader"
+          ATT="-XX:+UnlockDiagnosticVMOptions -XX:+ScrubExceptionXStateHeaderAtTraps"
+          for r in 1 2 3; do
+            run "fix-$r" "$JDK" ""
+            [ $r -le 2 ] && run "base-$r" "$BASE" ""
+            [ $r -le 1 ] && run "attraps-$r" "$JDK" "$ATT"
+            [ $r -le 1 ] && run "capped-$r" "$JDK" "$CAP"
+          done
+          "$JDK/bin/java" -jar "$JT/lib/jtreg.jar" -jdk:"$JDK" -nativepath:"$NAT" -w wk/default -r rp/default -verbose:summary \
+            test/hotspot/jtreg/compiler/runtime/safepoints/TestExceptionXStateDefaults.java > out/jtreg-default.txt 2>&1
+          find wk/default -name '*.jtr' -exec cp {} out/ \;
+          echo "SUMMARY [default-flags oracle] $(grep -E '^(Passed|FAILED|Error): ' out/jtreg-default.txt | tr '\n' ' ') $(grep -h 'Native probe' out/*.jtr | head -1)" | tee -a out/summary.txt
+          { echo "### $(cat out/cpu.txt) | $(cat out/build.txt)"; echo '```'; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: repro-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
+
+  sched:
+    name: sched (${{ matrix.os }}, ${{ matrix.slot }})
+    needs: [build-windows-x64]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-2022]
+        slot: [1, 2]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-debug
+          path: bundles
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review4
+      - name: 'The reviewer kernels under OptoScheduling, both placements, natural and forced length'
+        run: |
+          set +e
+          mkdir -p out jdk cls
+          for z in bundles/*.zip; do unzip -q -o "$z" -d jdk; done
+          bin=$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" | tee out/build.txt
+          "$bin/java" -Xlog:os+cpu=info -version > out/detect.txt 2>&1
+          "$bin/javac" -d cls src/review4/R4Sched.java
+          "$bin/javac" --add-exports java.base/jdk.internal.misc=ALL-UNNAMED -d cls src/review4/R4Sched2.java
+          for len in natural 1920; do
+            L=""; [ $len = 1920 ] && L="-XX:ExceptionXStateLength=1920"
+            for k in R4Sched R4Sched2; do
+              opts="-XX:-TieredCompilation -XX:-UseSuperWord -XX:-BackgroundCompilation -XX:+UnlockDiagnosticVMOptions $L -XX:+VerifyExceptionXStateScrub -XX:CompileCommand=compileonly,$k::kernel -XX:+PrintOptoAssembly -XX:-CreateCoredumpOnCrash -Dms=2000 --add-exports java.base/jdk.internal.misc=ALL-UNNAMED"
+              for m in nosched sched attraps attraps-sched; do
+                o=""
+                case $m in
+                  sched) o="-XX:+OptoScheduling";;
+                  attraps) o="-XX:+ScrubExceptionXStateHeaderAtTraps";;
+                  attraps-sched) o="-XX:+ScrubExceptionXStateHeaderAtTraps -XX:+OptoScheduling";;
+                esac
+                "$bin/java" $opts $o -cp cls $k > out/$k-$len-$m.txt 2>&1
+                e=$?
+                echo "SUMMARY [$k $len $m] exit=$e scrubs=$(grep -c 'trap scrub' out/$k-$len-$m.txt) $(grep -m1 -E 'assert|stale XSAVE' out/$k-$len-$m.txt)" | tee -a out/summary.txt
+              done
+            done
+          done
+          { echo "### $(cat out/cpu.txt) | $(cat out/build.txt)"; echo '```'; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: sched-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
+
+  bench:
+    name: bench (${{ matrix.slot }})
+    needs: [build-windows-x64, build-windows-x64-base]
+    runs-on: windows-2025
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2, 3, 4, 5]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: bundles
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-base
+          path: bundles-base
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review2
+            review3
+            review5
+            review6
+      - name: 'JMH and Renaissance: base (B), fix (S), fix with the scrub before each trap (T), capped fallback (U)'
+        run: |
+          set +e
+          mkdir -p out jdk base; unzip -q bundles/jdk-windows-x64.zip -d jdk; unzip -q bundles-base/jdk-windows-x64.zip -d base
+          bin=$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")
+          basebin=$(dirname "$(find base -name java.exe -path '*/bin/*' | head -1)")
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          "$bin/java" -Xlog:os+cpu=info -version 2>&1 | grep -i -E "exception|xsave|capped" | tee out/jvm-detect.txt
+          "$bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|UseAPX|ExceptionXStateLength) ' | tee out/flags.txt
+          m2=https://repo1.maven.org/maven2
+          for a in org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar; do
+            curl -sfL -o "lib-$(basename $a)" "$m2/$a" || echo "download failed: $a"
+          done
+          cp="lib-jmh-core-1.37.jar;lib-jopt-simple-5.0.4.jar;lib-commons-math3-3.6.1.jar"
+          "$basebin/javac" --add-modules jdk.incubator.vector -proc:full -cp "$cp;lib-jmh-generator-annprocess-1.37.jar" -d jmhc src/review2/R2Bench.java src/review3/R3Bench.java src/review5/R5Bench.java src/review6/R6Bench.java 2>&1 | grep -v -i warning | tail -5
+          for v in 0.16.1 0.16.0 0.15.0; do
+            curl -sfL -o renaissance.jar "https://github.com/renaissance-benchmarks/renaissance/releases/download/v$v/renaissance-gpl-$v.jar" && break
+          done
+          ls -la renaissance.jar
+          declare -A JAVA FLAGS
+          JAVA[B]="$basebin/java"; FLAGS[B]=""
+          JAVA[S]="$bin/java"; FLAGS[S]=""
+          JAVA[U]="$bin/java"; FLAGS[U]="-XX:+UnlockDiagnosticVMOptions -XX:-ScrubExceptionXStateHeader"
+          JAVA[T]="$bin/java"; FLAGS[T]="-XX:+UnlockDiagnosticVMOptions -XX:+ScrubExceptionXStateHeaderAtTraps"
+          for round in 1 2 3; do
+            order="B S T U"; [ $round = 2 ] && order="S T U B"; [ $round = 3 ] && order="T U B S"
+            for c in $order; do
+              "${JAVA[$c]}" -cp "jmhc;$cp" org.openjdk.jmh.Main -jvmArgsAppend "--add-modules jdk.incubator.vector ${FLAGS[$c]}" -rf csv -rff "out/jmh-$c-$round.csv" -f 2 -wi 4 -i 6 -w 1 -r 1 "review2.R2Bench|review3.R3Bench|review5.R5Bench|review6.R6Bench" > "out/jmh-$c-$round.log" 2>&1
+              tail -25 "out/jmh-$c-$round.log"
+            done
+          done
+          RB="scrabble future-genetic mnemonics fj-kmeans"
+          for round in 1 2 3; do
+            order="B S T U"; [ $round = 2 ] && order="S T U B"; [ $round = 3 ] && order="T U B S"
+            for b in $RB; do
+              for c in $order; do
+                timeout 600 "${JAVA[$c]}" ${FLAGS[$c]} -Xms2g -Xmx2g -jar renaissance.jar -r 12 --csv "out/ren-$b-$c-$round.csv" $b > "out/ren-$b-$c-$round.log" 2>&1 || echo "renaissance $b $c failed: $(tail -3 out/ren-$b-$c-$round.log | tr '\n' ' ')"
+              done
+            done
+          done
+          echo done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: bench-${{ matrix.slot }}
+          path: out
+          retention-days: 30
