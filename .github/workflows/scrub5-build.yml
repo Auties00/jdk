@@ -1,0 +1,50 @@
+name: 'JDK-8365196 scrub5 compile check'
+
+# Review-only: hotspot builds of the scrub5 branch on windows-x64 and linux-x64 (fastdebug and release).
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-scrub5-build*'
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: 'Prepare'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+      - name: 'Build JTReg'
+        uses: ./.github/actions/build-jtreg
+
+  windows-x64:
+    needs: prepare
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      platform: windows-x64
+      runs-on: windows-2022
+      architecture: 'x86.x64'
+      msvc-toolset-version: '14.44'
+      make-target: 'hotspot'
+      debug-levels: '[ "debug", "release" ]'
+
+  linux-x64:
+    needs: prepare
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      platform: linux-x64
+      gcc-major-version: '10'
+      make-target: 'hotspot'
+      debug-levels: '[ "debug" ]'
+
+  linux-cross:
+    needs: prepare
+    uses: ./.github/workflows/build-cross-compile.yml
+    with:
+      gcc-major-version: '10'
