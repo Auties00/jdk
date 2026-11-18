@@ -1123,8 +1123,8 @@ reg_class float_reg_evex(XMM0,
                     XMM30,
                     XMM31);
 
-reg_class_dynamic float_reg(float_reg_evex, float_reg_legacy, %{ VM_Version::supports_evex() %} );
-reg_class_dynamic float_reg_vl(float_reg_evex, float_reg_legacy, %{ VM_Version::supports_evex() && VM_Version::supports_avx512vl() %} );
+reg_class_dynamic float_reg(float_reg_evex, float_reg_legacy, %{ (VM_Version::supports_evex()) && !VM_Version::exception_xstate_unprotected() %} );
+reg_class_dynamic float_reg_vl(float_reg_evex, float_reg_legacy, %{ (VM_Version::supports_evex() && VM_Version::supports_avx512vl()) && !VM_Version::exception_xstate_unprotected() %} );
 
 // Class for pre evex double registers
 reg_class double_reg_legacy(XMM0,  XMM0b,
@@ -1178,8 +1178,8 @@ reg_class double_reg_evex(XMM0,  XMM0b,
                      XMM30, XMM30b,
                      XMM31, XMM31b);
 
-reg_class_dynamic double_reg(double_reg_evex, double_reg_legacy, %{ VM_Version::supports_evex() %} );
-reg_class_dynamic double_reg_vl(double_reg_evex, double_reg_legacy, %{ VM_Version::supports_evex() && VM_Version::supports_avx512vl() %} );
+reg_class_dynamic double_reg(double_reg_evex, double_reg_legacy, %{ (VM_Version::supports_evex()) && !VM_Version::exception_xstate_unprotected() %} );
+reg_class_dynamic double_reg_vl(double_reg_evex, double_reg_legacy, %{ (VM_Version::supports_evex() && VM_Version::supports_avx512vl()) && !VM_Version::exception_xstate_unprotected() %} );
 
 // Class for pre evex 32bit vector registers
 reg_class vectors_reg_legacy(XMM0,
@@ -1233,8 +1233,8 @@ reg_class vectors_reg_evex(XMM0,
                       XMM30,
                       XMM31);
 
-reg_class_dynamic vectors_reg(vectors_reg_evex, vectors_reg_legacy, %{ VM_Version::supports_evex() %} );
-reg_class_dynamic vectors_reg_vlbwdq(vectors_reg_evex, vectors_reg_legacy, %{ VM_Version::supports_avx512vlbwdq() %} );
+reg_class_dynamic vectors_reg(vectors_reg_evex, vectors_reg_legacy, %{ (VM_Version::supports_evex()) && !VM_Version::exception_xstate_unprotected() %} );
+reg_class_dynamic vectors_reg_vlbwdq(vectors_reg_evex, vectors_reg_legacy, %{ (VM_Version::supports_avx512vlbwdq()) && !VM_Version::exception_xstate_unprotected() %} );
 
 // Class for all 64bit vector registers
 reg_class vectord_reg_legacy(XMM0,  XMM0b,
@@ -1288,8 +1288,8 @@ reg_class vectord_reg_evex(XMM0,  XMM0b,
                       XMM30, XMM30b,
                       XMM31, XMM31b);
 
-reg_class_dynamic vectord_reg(vectord_reg_evex, vectord_reg_legacy, %{ VM_Version::supports_evex() %} );
-reg_class_dynamic vectord_reg_vlbwdq(vectord_reg_evex, vectord_reg_legacy, %{ VM_Version::supports_avx512vlbwdq() %} );
+reg_class_dynamic vectord_reg(vectord_reg_evex, vectord_reg_legacy, %{ (VM_Version::supports_evex()) && !VM_Version::exception_xstate_unprotected() %} );
+reg_class_dynamic vectord_reg_vlbwdq(vectord_reg_evex, vectord_reg_legacy, %{ (VM_Version::supports_avx512vlbwdq()) && !VM_Version::exception_xstate_unprotected() %} );
 
 // Class for all 128bit vector registers
 reg_class vectorx_reg_legacy(XMM0,  XMM0b,  XMM0c,  XMM0d,
@@ -1343,8 +1343,8 @@ reg_class vectorx_reg_evex(XMM0,  XMM0b,  XMM0c,  XMM0d,
                       XMM30, XMM30b, XMM30c, XMM30d,
                       XMM31, XMM31b, XMM31c, XMM31d);
 
-reg_class_dynamic vectorx_reg(vectorx_reg_evex, vectorx_reg_legacy, %{ VM_Version::supports_evex() %} );
-reg_class_dynamic vectorx_reg_vlbwdq(vectorx_reg_evex, vectorx_reg_legacy, %{ VM_Version::supports_avx512vlbwdq() %} );
+reg_class_dynamic vectorx_reg(vectorx_reg_evex, vectorx_reg_legacy, %{ (VM_Version::supports_evex()) && !VM_Version::exception_xstate_unprotected() %} );
+reg_class_dynamic vectorx_reg_vlbwdq(vectorx_reg_evex, vectorx_reg_legacy, %{ (VM_Version::supports_avx512vlbwdq()) && !VM_Version::exception_xstate_unprotected() %} );
 
 // Class for all 256bit vector registers
 reg_class vectory_reg_legacy(XMM0,  XMM0b,  XMM0c,  XMM0d,  XMM0e,  XMM0f,  XMM0g,  XMM0h,
