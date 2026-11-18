@@ -445,45 +445,33 @@ public:
 
   // Java-Native vector calling convention
   static bool supports_vector_calling_convention();
+  static OptoRegPair vector_return_value(uint ideal_reg);
 
-  // Whether loop safepoints test the thread's poll word and branch instead of loading from
-  // the polling page; their poll input is then the current thread, not a polling page address.
-  static bool loop_safepoint_poll_uses_branch();
-
-  // Offset of the poll instruction, which carries the debug info, from the start of a loop
-  // SafePoint's code.
-  static int safepoint_poll_pc_offset();
-
-  // JDK-8365196. On some systems resuming from a hardware exception can reset processor state
-  // that the context of the exception left out: on x86 under some Windows builds, the upper
-  // halves of the vector registers, the registers only AVX-512 or APX adds, and the opmask
-  // registers. C2 code keeps its loop polls and implicit null checks trapping and, before each
-  // trap site at which such state is live, clears the stack location from which the system
-  // would take the incomplete layout (MachTrapScrubNode, PhaseOutput::insert_trap_scrubs()).
+  // On some systems resuming from a hardware exception can reset processor state that the
+  // context of the exception left out (on x86, under some Windows builds: the upper halves of
+  // the vector registers, the registers only AVX-512 or APX adds, the opmask registers), when
+  // a stale header lies where the system builds the context. C2 code keeps that place clear
+  // wherever a trap site at which such state is live can be reached (MachTrapScrubNode,
+  // PhaseOutput::insert_trap_scrubs()). Only x86 implements these; the shared defaults
+  // (matcher.cpp) say that no scrub is needed.
   //
-  // Whether trap sites need that scrub.
+  // Whether trap sites need the scrub.
   static bool trap_scrub_needed();
   // Whether a value of ideal register class ideal_reg in register reg is lost when it is live
-  // at a trap and the scrub is missing. A MachTemp passes 0 for ideal_reg: its width is
+  // at a trap and the place is not clear. A MachTemp passes 0 for ideal_reg: its width is
   // unknown.
   static bool trap_loses_register(OptoReg::Name reg, uint ideal_reg);
-  // Whether n, besides calls, may write deep below the stack pointer and then let the frame's code
-  // continue, so that the stale header must be cleared again after it.
+  // Whether n, besides calls and the method and exception entries, may write deep below the
+  // stack pointer and then let the frame's code continue.
   static bool trap_scrub_writer(const MachNode* n);
-  // Whether the scrub goes right before each trap site instead of after each writer.
+  // Whether the scrub goes right before each such trap site instead of after each writer.
   static bool trap_scrub_at_traps();
-  // Emits the scrub; it uses no register and keeps the condition codes.
+  // Whether to check, right before each such trap site, that the place is clear.
+  static bool trap_scrub_verify();
+  // Emit the scrub (no register used, condition codes kept) and the check.
   static void emit_trap_scrub(C2_MacroAssembler* masm);
   static uint trap_scrub_size();
-  // Whether such state can be lost at a trap and the scrub cannot be used. Implicit null
-  // checks are then used only in compilations that cannot hold such state
-  // (PhaseCFG::may_lose_state_at_trap()), and loop polls do not trap.
-  static bool trap_state_unprotected();
-  // Before register allocation: whether a value of ideal register class ideal_reg, whose
-  // register is one of mask, can be lost at a trap (0 for a MachTemp, as above).
-  static bool trap_may_lose(uint ideal_reg, const RegMask& mask);
-
-  static OptoRegPair vector_return_value(uint ideal_reg);
+  static void emit_trap_scrub_check(C2_MacroAssembler* masm);
 
   // Is this branch offset small enough to be addressed by a short branch?
   bool is_short_branch_offset(int rule, int br_size, int offset);

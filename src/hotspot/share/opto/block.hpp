@@ -480,10 +480,6 @@ class PhaseCFG : public Phase {
   // I can generate a memory op if there is not one nearby.
   void implicit_null_check(Block* block, Node *proj, Node *val, int allowed_reasons);
 
-  // Whether a value of this compilation can hold state that a resumed exception can lose,
-  // whatever register it gets (JDK-8365196, see Matcher::trap_state_unprotected()).
-  bool may_lose_state_at_trap() const;
-
   // Perform a Depth First Search (DFS).
   // Setup 'vertex' as DFS to vertex mapping.
   // Setup 'semi' as vertex to DFS mapping.

@@ -106,29 +106,6 @@ void PhaseCFG::ensure_node_is_at_block_or_above(Node* n, Block* b) {
   move_node_and_its_projections_to_block(n, b);
 }
 
-bool PhaseCFG::may_lose_state_at_trap() const {
-  for (uint i = 0; i < number_of_blocks(); i++) {
-    Block* block = get_block(i);
-    for (uint j = 0; j < block->number_of_nodes(); j++) {
-      Node* n = block->get_node(j);
-      if (!n->is_Mach() && !n->is_Phi()) {
-        continue;
-      }
-      uint ideal_reg = 0;
-      if (!n->is_MachTemp()) {
-        ideal_reg = n->ideal_reg();
-        if (ideal_reg == 0) {
-          continue;
-        }
-      }
-      if (Matcher::trap_may_lose(ideal_reg, n->out_RegMask())) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
 //------------------------------implicit_null_check----------------------------
 // Detect implicit-null-check opportunities.  Basically, find null checks
 // with suitable memory ops nearby.  Use the memory op to do the null check.

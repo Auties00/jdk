@@ -371,17 +371,19 @@ protected:
   static address   _exception_xstate_segv_addr; // address of the instruction which causes the SEGV of the exception XSTATE check
   static address   _exception_xstate_cont_addr; // address of the instruction after it
 
-  // Extended processor state of the exception taken by the exception XSTATE check, as the
+  // Extended processor state of the last exception taken by the exception XSTATE check, as the
   // exception handler found it: the stack pointer at the fault, and the address and length of
-  // the XSTATE part of the context (nullptr and 0 if the context has none).
+  // the XSTATE chunk of the context (nullptr and 0 if the context has none). The chunk's length
+  // includes the alignment padding of that trap, so it is not the L of the header position.
   static address   _exception_xstate_trap_sp;
-  static address   _exception_xstate_area;
-  static int       _exception_xstate_area_length;
+  static address   _exception_xstate_chunk;
+  static int       _exception_xstate_chunk_length;
 
   // Outcome of the exception XSTATE check.
   static bool      _exception_resume_loses_xstate;
+  static int       _exception_xstate_measured_length; // L, or 0 if the contexts had no single L
   static int       _exception_xstate_scrub_length;
-  static bool      _exception_xstate_unprotected;
+  static bool      _exception_xstate_capped;
 
   /*
    * Update following files when declaring new flags:
@@ -837,28 +839,34 @@ public:
   static void set_exception_xstate_cont_addr(address pc) { _exception_xstate_cont_addr = pc; }
   static address  exception_xstate_cont_addr()           { return _exception_xstate_cont_addr; }
   // Called by the exception handler for the fault of the exception XSTATE check.
-  static void record_exception_xstate(address trap_sp, address xstate_area, int xstate_area_length) {
+  static void record_exception_xstate(address trap_sp, address xstate_chunk, int xstate_chunk_length) {
     _exception_xstate_trap_sp = trap_sp;
-    _exception_xstate_area = xstate_area;
-    _exception_xstate_area_length = xstate_area_length;
+    _exception_xstate_chunk = xstate_chunk;
+    _exception_xstate_chunk_length = xstate_chunk_length;
   }
 
-  // JDK-8365196. Some Windows builds copy the context of an exception to the stack with a routine
-  // that trusts the XSAVE header already at the destination, which is stale stack memory. A stale
-  // header that looks like a compacted one leaves out of the context the state components it does
-  // not name, and resuming from that context resets them: the upper halves of ymm/zmm, xmm16-xmm31,
-  // the opmask registers, the APX registers. The check at startup takes such an exception with a
-  // header-like value on the stack and tells whether the state survives.
+  // Some Windows builds (Server 2025) copy the context of an exception to the stack with a routine
+  // that trusts the XSAVE header already at the destination, (sp - L) & -64 for the stack pointer
+  // sp of the fault, which is stale stack memory. A stale header that looks like a compacted one
+  // leaves out of the context the state components it does not name, and resuming from that
+  // context resets them: the upper halves of ymm/zmm, xmm16-xmm31, the opmask registers, the APX
+  // registers. The check at startup takes such exceptions with a header-like value on the stack
+  // and tells whether the state survives. It runs on the thread that creates the VM only: L is
+  // the length of the context's extended state, which depends on the enabled features, not on the
+  // thread. Code outside the VM that writes below a thread's stack pointer asynchronously (a
+  // special user APC) can still leave a stale header between a scrub and a trap.
   //
   // Whether resuming from an exception can lose extended processor state.
   static bool exception_resume_loses_xstate() { return _exception_resume_loses_xstate; }
-  // The length L of the extended state of an exception context when compiled code clears the
-  // stale header before its trap sites (see MacroAssembler::scrub_exception_xstate_header()),
-  // otherwise 0.
+  // The length L of the extended state of an exception context when compiled code keeps the
+  // stale header position clear (see MacroAssembler::scrub_exception_xstate_header()), else 0.
   static int exception_xstate_scrub_length() { return _exception_xstate_scrub_length; }
-  // Whether the state can be lost and the scrub is not used: loop polls then branch instead
-  // of trapping, and C2 keeps implicit null checks only where no such state can be live.
-  static bool exception_xstate_unprotected() { return _exception_xstate_unprotected; }
+  // Whether the state can be lost and the scrub is not used: then UseAVX is at most 2,
+  // MaxVectorSize at most 16 and APX off, so that no code keeps such state in registers.
+  static bool exception_xstate_capped() { return _exception_xstate_capped; }
+  // The XSAVE state components a short context can leave out that the JVM may use: the ones
+  // VerifyExceptionXStateScrub requires in a compacted header.
+  static uint64_t exception_xstate_losable_components();
 
   static void set_cpuinfo_segv_addr_apx(address pc) { _cpuinfo_segv_addr_apx = pc; }
   static bool  is_cpuinfo_segv_addr_apx(address pc) { return _cpuinfo_segv_addr_apx == pc; }

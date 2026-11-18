@@ -994,47 +994,6 @@ const RegMask* Matcher::predicate_reg_mask(void) {
 }
 
 // Vector calling convention not yet implemented.
-bool Matcher::loop_safepoint_poll_uses_branch() {
-  return false;
-}
-
-int Matcher::safepoint_poll_pc_offset() {
-  return 0;
-}
-
-bool Matcher::trap_scrub_needed() {
-  return false;
-}
-
-bool Matcher::trap_scrub_writer(const MachNode* n) {
-  return false;
-}
-
-bool Matcher::trap_scrub_at_traps() {
-  return false;
-}
-
-bool Matcher::trap_loses_register(OptoReg::Name reg, uint ideal_reg) {
-  return false;
-}
-
-void Matcher::emit_trap_scrub(C2_MacroAssembler* masm) {
-  ShouldNotCallThis();
-}
-
-uint Matcher::trap_scrub_size() {
-  ShouldNotCallThis();
-  return 0;
-}
-
-bool Matcher::trap_state_unprotected() {
-  return false;
-}
-
-bool Matcher::trap_may_lose(uint ideal_reg, const RegMask& mask) {
-  return false;
-}
-
 bool Matcher::supports_vector_calling_convention(void) {
   return false;
 }

@@ -113,23 +113,25 @@ define_pd_global(bool, ValueTypeReturnedAsFields, true);
           "default where resuming from an exception can lose AVX state "    \
           "(see ScrubExceptionXStateHeader)")                               \
                                                                             \
-  product(bool, UseBranchLoopSafepointPolls, false, DIAGNOSTIC,             \
-          "Compiled loop safepoint polls test the thread's poll word and "  \
-          "branch to the safepoint handler instead of reading the polling " \
-          "page. On by default where resuming from an exception can lose "  \
-          "AVX state and ScrubExceptionXStateHeader cannot be used")        \
-                                                                            \
   product(bool, ScrubExceptionXStateHeader, true, DIAGNOSTIC,               \
           "Where resuming from an exception can lose AVX state (some "      \
           "Windows builds read a stale XSAVE header from the stack), C2 "   \
-          "code clears that stack location before trap sites at which "     \
-          "such state is live")                                             \
+          "code keeps that stack location clear wherever a trap site at "   \
+          "which such state is live can be reached. Without it, such "      \
+          "systems run with UseAVX at most 2, MaxVectorSize at most 16 "    \
+          "and without APX")                                                \
                                                                             \
-  product(bool, ScrubExceptionXStateHeaderAtTraps, false, DIAGNOSTIC,     \
+  product(bool, ScrubExceptionXStateHeaderAtTraps, false, DIAGNOSTIC,       \
           "Clear the stale XSAVE header right before each trap site at "    \
           "which state that can be lost is live, instead of after each "    \
           "call or other instruction that may write below the stack "       \
           "pointer")                                                        \
+                                                                            \
+  develop(bool, VerifyExceptionXStateScrub, false,                          \
+          "Before each C2 trap site at which state that can be lost is "    \
+          "live, check that no stale XSAVE header that would lose it is "   \
+          "below the stack pointer. Use with ExceptionXStateLength on "     \
+          "systems that do not need the scrub")                             \
                                                                             \
   product(int, ExceptionXStateLength, 0, DIAGNOSTIC,                        \
           "Length in bytes of the extended processor state the OS saves "   \

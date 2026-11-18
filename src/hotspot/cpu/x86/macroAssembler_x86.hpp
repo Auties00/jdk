@@ -775,20 +775,8 @@ public:
 
   void safepoint_poll(Label& slow_path, bool at_return, bool in_nmethod);
 
-  // Whether compiled code tests the poll word and branches to the safepoint handler blob at
-  // loop safepoint polls, instead of taking the polling page trap (UseBranchLoopSafepointPolls).
-  // Windows Server 2025 can build the exception context of the trap without the AVX and
-  // AVX-512 state components (ymm/zmm upper halves, opmask registers, xmm16-xmm31) that the
-  // thread is using; the handler cannot add them back, and resuming from that context resets
-  // them to zero. Compiled code keeps values in these registers across loop polls.
-  static bool loop_safepoint_poll_uses_branch();
-
-  // Size of the poll word test and branch that safepoint_poll(slow_path, false, true) emits for a
-  // loop poll when the slow path label is not yet bound.
-  static int loop_safepoint_poll_branch_size();
-
   // Clears, below a 16-byte aligned stack pointer, the stack location where Windows would read
-  // a stale XSAVE header if the next instruction raised an exception (JDK-8365196, see
+  // a stale XSAVE header if the next instruction raised an exception (see
   // VM_Version::exception_resume_loses_xstate()). The header is at (sp - length) & -64, so
   // for each of the four values of sp modulo 64 one quadword store clears its XCOMP_BV, which
   // then no longer passes for a compacted header. Needs no register, keeps the flags.
@@ -799,7 +787,10 @@ public:
   // The scrub where it is in use (see VM_Version::exception_xstate_scrub_length()), else nothing:
   // for the slow paths that call out and then continue in a compiled frame.
   void scrub_exception_xstate_header_if_enabled(int sp_offset = 0);
-  static int scrub_exception_xstate_header_size_if_enabled(int sp_offset = 0);
+  // VerifyExceptionXStateScrub: stops the VM if the stale header position for an exception at
+  // this instruction holds a compacted XSAVE header that leaves out a component that can be lost.
+  // Keeps every register and the flags; writes three words below the stack pointer.
+  void verify_exception_xstate_header(int length = VM_Version::exception_xstate_scrub_length());
 
   void verify_tlab();
 

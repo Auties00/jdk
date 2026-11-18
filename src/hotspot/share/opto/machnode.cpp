@@ -723,16 +723,24 @@ const RegMask &MachNullCheckNode::in_RegMask( uint idx ) const {
 //=============================================================================
 #ifndef PRODUCT
 void MachTrapScrubNode::format(PhaseRegAlloc*, outputStream* st) const {
-  st->print("trap scrub\t# clear the stale exception context header");
+  if (_check) {
+    st->print("trap scrub check\t# verify that no stale exception context header is below");
+  } else {
+    st->print("trap scrub\t# clear the stale exception context header");
+  }
 }
 #endif
 
 void MachTrapScrubNode::emit(C2_MacroAssembler* masm, PhaseRegAlloc* ra_) const {
-  Matcher::emit_trap_scrub(masm);
+  if (_check) {
+    Matcher::emit_trap_scrub_check(masm);
+  } else {
+    Matcher::emit_trap_scrub(masm);
+  }
 }
 
 uint MachTrapScrubNode::size(PhaseRegAlloc* ra_) const {
-  return Matcher::trap_scrub_size();
+  return _check ? MachNode::size(ra_) : Matcher::trap_scrub_size();
 }
 
 const Pipeline* MachTrapScrubNode::pipeline() const {

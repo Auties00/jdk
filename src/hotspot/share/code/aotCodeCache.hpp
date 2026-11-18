@@ -433,7 +433,6 @@ public:
   do_var(int,   AllocatePrefetchStepSize)               /* stubs and nmethods */ \
   do_var(uint,  CodeEntryAlignment)                     /* array copy stubs and nmethods */ \
   do_var(bool,  EnableContended)                        /* nmethods */ \
-  do_var(bool,  ImplicitNullChecks)                     /* nmethods */ \
   do_var(intx,  OptoLoopAlignment)                      /* array copy stubs and nmethods */ \
   do_var(bool,  RestrictContended)                      /* nmethods */ \
   do_var(int,   ContendedPaddingWidth) \
@@ -543,10 +542,12 @@ public:
   do_var(int,   CopyAVX3Threshold) \
   do_var(bool,  EnableX86ECoreOpts)                     /* nmethods */ \
   do_var(bool,  UseCountTrailingZerosInstruction) \
-  do_var(bool,  UseBranchLoopSafepointPolls)            /* nmethods */ \
+  /* Where resuming from an exception can lose AVX state, C1 code avoids xmm16-xmm31 and C2 code */ \
+  /* clears the stale XSAVE header L bytes below rsp: a cache made where either differs (another */ \
+  /* OS build, or other CPU features and so another L) is rejected. */ \
   do_var(bool,  UseUpperXMMRegistersInC1)               /* C1 nmethods */ \
   do_fun(int,   VM_exception_xstate_scrub_length, VM_Version::exception_xstate_scrub_length()) /* C2 nmethods */ \
-  do_fun(bool,  VM_exception_xstate_unprotected, VM_Version::exception_xstate_unprotected())   /* C2 nmethods */ \
+  do_fun(bool,  VM_exception_xstate_capped, VM_Version::exception_xstate_capped()) /* stubs and nmethods */ \
   do_var(bool,  UseLibmIntrinsic) \
   do_var(bool,  UseSSE42Intrinsics) \
   do_var(bool,  CheckJNICalls) \

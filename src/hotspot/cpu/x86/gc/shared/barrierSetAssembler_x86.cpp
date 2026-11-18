@@ -661,7 +661,8 @@ SaveLiveRegisters::~SaveLiveRegisters() {
   }
 
   // The spill area and the runtime call may have left a value that passes for an XSAVE header
-  // where the next exception of the compiled frame would find it (JDK-8365196).
+  // where the next exception of the compiled frame would find it (see
+  // MacroAssembler::scrub_exception_xstate_header()).
   __ scrub_exception_xstate_header_if_enabled();
 }
 

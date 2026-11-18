@@ -3171,7 +3171,6 @@ SafepointBlob* SharedRuntime::generate_handler_blob(StubId id, address call_ptr)
     //      85 03       test   %eax,(%rbx)
     //      85 06       test   %eax,(%rsi)
     //      85 07       test   %eax,(%rdi)
-    //      85 c0       test   %eax,%eax     (poll site of a branching loop poll, UseBranchLoopSafepointPolls)
     //
     //   41 85 00       test   %eax,(%r8)
     //   41 85 01       test   %eax,(%r9)
@@ -3240,8 +3239,9 @@ SafepointBlob* SharedRuntime::generate_handler_blob(StubId id, address call_ptr)
   // Normal exit, restore registers and exit.
   RegisterSaver::restore_live_registers(masm, save_wide_vectors);
   if (!cause_return) {
-    // The saved registers may pass for an XSAVE header where the next exception of the compiled
-    // frame we return to would find it (JDK-8365196). Its stack pointer is above the return pc.
+    // The saved registers may pass for a stale XSAVE header where the next exception of the
+    // compiled frame we return to would find it (see MacroAssembler::scrub_exception_xstate_header()).
+    // That frame's stack pointer is above the return pc.
     __ scrub_exception_xstate_header_if_enabled(wordSize);
   }
   __ ret(0);

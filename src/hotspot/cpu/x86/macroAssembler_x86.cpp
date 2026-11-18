@@ -2617,19 +2617,28 @@ void MacroAssembler::scrub_exception_xstate_header_if_enabled(int sp_offset) {
   }
 }
 
-int MacroAssembler::scrub_exception_xstate_header_size_if_enabled(int sp_offset) {
-  int length = VM_Version::exception_xstate_scrub_length();
-  return length > 0 ? scrub_exception_xstate_header_size(length, sp_offset) : 0;
-}
-
-bool MacroAssembler::loop_safepoint_poll_uses_branch() {
-  return UseBranchLoopSafepointPolls;
-}
-
-int MacroAssembler::loop_safepoint_poll_branch_size() {
-  // testb [r15 + disp], imm8: REX.B, F6, ModRM, disp8 or disp32, imm8; then jcc rel32 (6 bytes).
-  int disp = in_bytes(JavaThread::polling_word_offset());
-  return 3 + ((-0x80 <= disp && disp < 0x80) ? 1 : 4) + 1 + 6;
+void MacroAssembler::verify_exception_xstate_header(int length) {
+  assert(length > 0, "no scrub");
+  Label ok;
+  pushf();
+  push(rax);
+  push(rcx);
+  // The header the kernel would read for an exception at this instruction: the stack pointer of
+  // the trap is above the three words just pushed.
+  lea(rax, Address(rsp, 3 * wordSize - length));
+  andptr(rax, -64);
+  movq(rcx, Address(rax, 8)); // XCOMP_BV
+  testq(rcx, rcx);
+  jcc(Assembler::positive, ok); // bit 63 clear: not a compacted header, the context is complete
+  int components = (int)VM_Version::exception_xstate_losable_components();
+  andq(rcx, components);
+  cmpq(rcx, components);
+  jcc(Assembler::equal, ok); // names every component that can be lost: a kernel-written header
+  stop("stale XSAVE header below a compiled trap site: an instruction wrote below the stack pointer without the scrub");
+  bind(ok);
+  pop(rcx);
+  pop(rax);
+  popf();
 }
 
 void MacroAssembler::safepoint_poll(Label& slow_path, bool at_return, bool in_nmethod) {

@@ -1123,8 +1123,8 @@ reg_class float_reg_evex(XMM0,
                     XMM30,
                     XMM31);
 
-reg_class_dynamic float_reg(float_reg_evex, float_reg_legacy, %{ (VM_Version::supports_evex()) && !VM_Version::exception_xstate_unprotected() %} );
-reg_class_dynamic float_reg_vl(float_reg_evex, float_reg_legacy, %{ (VM_Version::supports_evex() && VM_Version::supports_avx512vl()) && !VM_Version::exception_xstate_unprotected() %} );
+reg_class_dynamic float_reg(float_reg_evex, float_reg_legacy, %{ VM_Version::supports_evex() %} );
+reg_class_dynamic float_reg_vl(float_reg_evex, float_reg_legacy, %{ VM_Version::supports_evex() && VM_Version::supports_avx512vl() %} );
 
 // Class for pre evex double registers
 reg_class double_reg_legacy(XMM0,  XMM0b,
@@ -1178,8 +1178,8 @@ reg_class double_reg_evex(XMM0,  XMM0b,
                      XMM30, XMM30b,
                      XMM31, XMM31b);
 
-reg_class_dynamic double_reg(double_reg_evex, double_reg_legacy, %{ (VM_Version::supports_evex()) && !VM_Version::exception_xstate_unprotected() %} );
-reg_class_dynamic double_reg_vl(double_reg_evex, double_reg_legacy, %{ (VM_Version::supports_evex() && VM_Version::supports_avx512vl()) && !VM_Version::exception_xstate_unprotected() %} );
+reg_class_dynamic double_reg(double_reg_evex, double_reg_legacy, %{ VM_Version::supports_evex() %} );
+reg_class_dynamic double_reg_vl(double_reg_evex, double_reg_legacy, %{ VM_Version::supports_evex() && VM_Version::supports_avx512vl() %} );
 
 // Class for pre evex 32bit vector registers
 reg_class vectors_reg_legacy(XMM0,
@@ -1233,8 +1233,8 @@ reg_class vectors_reg_evex(XMM0,
                       XMM30,
                       XMM31);
 
-reg_class_dynamic vectors_reg(vectors_reg_evex, vectors_reg_legacy, %{ (VM_Version::supports_evex()) && !VM_Version::exception_xstate_unprotected() %} );
-reg_class_dynamic vectors_reg_vlbwdq(vectors_reg_evex, vectors_reg_legacy, %{ (VM_Version::supports_avx512vlbwdq()) && !VM_Version::exception_xstate_unprotected() %} );
+reg_class_dynamic vectors_reg(vectors_reg_evex, vectors_reg_legacy, %{ VM_Version::supports_evex() %} );
+reg_class_dynamic vectors_reg_vlbwdq(vectors_reg_evex, vectors_reg_legacy, %{ VM_Version::supports_avx512vlbwdq() %} );
 
 // Class for all 64bit vector registers
 reg_class vectord_reg_legacy(XMM0,  XMM0b,
@@ -1288,8 +1288,8 @@ reg_class vectord_reg_evex(XMM0,  XMM0b,
                       XMM30, XMM30b,
                       XMM31, XMM31b);
 
-reg_class_dynamic vectord_reg(vectord_reg_evex, vectord_reg_legacy, %{ (VM_Version::supports_evex()) && !VM_Version::exception_xstate_unprotected() %} );
-reg_class_dynamic vectord_reg_vlbwdq(vectord_reg_evex, vectord_reg_legacy, %{ (VM_Version::supports_avx512vlbwdq()) && !VM_Version::exception_xstate_unprotected() %} );
+reg_class_dynamic vectord_reg(vectord_reg_evex, vectord_reg_legacy, %{ VM_Version::supports_evex() %} );
+reg_class_dynamic vectord_reg_vlbwdq(vectord_reg_evex, vectord_reg_legacy, %{ VM_Version::supports_avx512vlbwdq() %} );
 
 // Class for all 128bit vector registers
 reg_class vectorx_reg_legacy(XMM0,  XMM0b,  XMM0c,  XMM0d,
@@ -1343,8 +1343,8 @@ reg_class vectorx_reg_evex(XMM0,  XMM0b,  XMM0c,  XMM0d,
                       XMM30, XMM30b, XMM30c, XMM30d,
                       XMM31, XMM31b, XMM31c, XMM31d);
 
-reg_class_dynamic vectorx_reg(vectorx_reg_evex, vectorx_reg_legacy, %{ (VM_Version::supports_evex()) && !VM_Version::exception_xstate_unprotected() %} );
-reg_class_dynamic vectorx_reg_vlbwdq(vectorx_reg_evex, vectorx_reg_legacy, %{ (VM_Version::supports_avx512vlbwdq()) && !VM_Version::exception_xstate_unprotected() %} );
+reg_class_dynamic vectorx_reg(vectorx_reg_evex, vectorx_reg_legacy, %{ VM_Version::supports_evex() %} );
+reg_class_dynamic vectorx_reg_vlbwdq(vectorx_reg_evex, vectorx_reg_legacy, %{ VM_Version::supports_avx512vlbwdq() %} );
 
 // Class for all 256bit vector registers
 reg_class vectory_reg_legacy(XMM0,  XMM0b,  XMM0c,  XMM0d,  XMM0e,  XMM0f,  XMM0g,  XMM0h,
@@ -2646,15 +2646,7 @@ void MachUEPNode::emit(C2_MacroAssembler* masm, PhaseRegAlloc* ra_) const
 
 //=============================================================================
 
-bool Matcher::loop_safepoint_poll_uses_branch() {
-  return MacroAssembler::loop_safepoint_poll_uses_branch();
-}
-
-int Matcher::safepoint_poll_pc_offset() {
-  return MacroAssembler::loop_safepoint_poll_uses_branch() ? MacroAssembler::loop_safepoint_poll_branch_size() : 0;
-}
-
-// JDK-8365196, see VM_Version::exception_resume_loses_xstate().
+// See VM_Version::exception_resume_loses_xstate().
 bool Matcher::trap_scrub_needed() {
   return VM_Version::exception_xstate_scrub_length() > 0;
 }
@@ -2685,18 +2677,24 @@ bool Matcher::trap_loses_register(OptoReg::Name reg, uint ideal_reg) {
   return false;
 }
 
-// The secondary supers lookup may call a stub (and that stub its slow path). Other instructions
-// write at most a few words below the stack pointer (stack-to-stack spill copies, pushf in the
-// floating point compare fixups, the string intrinsics that copy a short string to the stack),
-// which no stale header position reaches: it is at least L - 15 >= 305 bytes below. Out of line
-// slow paths that call out clear the header themselves before they return (SaveLiveRegisters,
-// the conversion fixups, the safepoint handler blobs).
+// The instructions, other than calls, that can write deep below the stack pointer and let the
+// frame's code continue: the secondary supers lookup, which may call a stub (and the stub its
+// slow path). Everything else writes at most a few words below the stack pointer: stack-to-stack
+// spill copies ([rsp - 64] at most), pushf in the floating point compare fixups, the string
+// intrinsics that copy a short string to the stack, and the f2i/d2l fixup stubs that conversions
+// and Math.round call (four pushes). The stale header position is at least L - 15 >= 305 bytes
+// below. The out of line slow paths that call the runtime clear the header before they return
+// (SaveLiveRegisters, the safepoint handler blobs). VerifyExceptionXStateScrub checks all this.
 bool Matcher::trap_scrub_writer(const MachNode* n) {
   return n->ideal_Opcode() == Op_PartialSubtypeCheck;
 }
 
 bool Matcher::trap_scrub_at_traps() {
-  return ScrubExceptionXStateHeaderAtTraps || VerifyOops;
+  return ScrubExceptionXStateHeaderAtTraps || VerifyOops; // VerifyOops calls out from instructions
+}
+
+bool Matcher::trap_scrub_verify() {
+  return VerifyExceptionXStateScrub;
 }
 
 void Matcher::emit_trap_scrub(C2_MacroAssembler* masm) {
@@ -2707,24 +2705,8 @@ uint Matcher::trap_scrub_size() {
   return (uint)MacroAssembler::scrub_exception_xstate_header_size();
 }
 
-bool Matcher::trap_state_unprotected() {
-  return VM_Version::exception_xstate_unprotected();
-}
-
-// Where trap_state_unprotected(), the register classes of scalar and 128-bit and narrower vector
-// values exclude xmm16-xmm31, so only wider vectors, opmasks, temporaries of unknown width and,
-// with APX, values in general purpose registers can be lost.
-bool Matcher::trap_may_lose(uint ideal_reg, const RegMask& mask) {
-  if (ideal_reg == Op_VecY || ideal_reg == Op_VecZ || ideal_reg == Op_RegVectMask) {
-    return true;
-  }
-  RegMaskIterator rmi(mask);
-  while (rmi.has_next()) {
-    if (trap_loses_register(rmi.next(), ideal_reg)) {
-      return true;
-    }
-  }
-  return false;
+void Matcher::emit_trap_scrub_check(C2_MacroAssembler* masm) {
+  masm->verify_exception_xstate_header();
 }
 
 bool Matcher::supports_vector_calling_convention(void) {
@@ -17108,7 +17090,6 @@ instruct cmpFastUnlock(rFlagsReg cr, rRegP object, rax_RegP rax_reg, rRegP tmp) 
 // Safepoint Instructions
 instruct safePoint_poll_tls(rFlagsReg cr, rRegP poll)
 %{
-  predicate(!Matcher::loop_safepoint_poll_uses_branch());
   match(SafePoint poll);
   effect(KILL cr, USE poll);
 
@@ -17122,45 +17103,6 @@ instruct safePoint_poll_tls(rFlagsReg cr, rRegP poll)
     assert(nativeInstruction_at(pre_pc)->is_safepoint_poll(), "must emit test %%eax [reg]");
   %}
   ins_pipe(ialu_reg_mem);
-%}
-
-// Loop safepoint poll that tests the poll word and branches to the safepoint handler instead of
-// trapping (UseBranchLoopSafepointPolls). The poll input is the current thread. The relocated
-// `test eax, eax` after the branch is the poll site: it carries the debug info
-// (Matcher::safepoint_poll_pc_offset()), and the handler returns past it, so that execution
-// continues after the poll as it does after a polling page trap. It is a poll encoding the
-// handler knows how to skip, and it accesses no memory.
-instruct safePoint_poll_branch(rFlagsReg cr, r15_RegP poll)
-%{
-  predicate(Matcher::loop_safepoint_poll_uses_branch());
-  match(SafePoint poll);
-  effect(KILL cr, USE poll);
-
-  format %{ "testb   [$poll + polling_word], 1\n\t"
-            "jnz     safepoint_poll_stub\n\t"
-            "testl   rax, rax\t# Safepoint: poll site" %}
-  ins_cost(150);
-  ins_encode %{
-    Label dummy_label;
-    Label* code_stub = &dummy_label;
-    C2SafepointPollStub* stub = nullptr;
-    if (!ra_->C->output()->in_scratch_emit_size()) {
-      stub = new (ra_->C->comp_arena()) C2SafepointPollStub(0, false /* at_return */);
-      ra_->C->output()->add_stub(stub);
-      code_stub = &stub->entry();
-    }
-    int start = __ offset();
-    __ safepoint_poll(*code_stub, false /* at_return */, true /* in_nmethod */);
-    guarantee(__ offset() - start == Matcher::safepoint_poll_pc_offset(), "poll site must be at the recorded offset");
-    if (stub != nullptr) {
-      stub->set_safepoint_offset(__ offset());
-    }
-    __ relocate(relocInfo::poll_type);
-    address pre_pc = __ pc();
-    __ testl(rax, rax);
-    assert(nativeInstruction_at(pre_pc)->is_safepoint_poll(), "must emit a test of eax");
-  %}
-  ins_pipe(pipe_slow);
 %}
 
 instruct mask_all_evexL(kReg dst, rRegL src) %{

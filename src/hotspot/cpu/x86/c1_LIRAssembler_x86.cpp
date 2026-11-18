@@ -558,22 +558,6 @@ int LIR_Assembler::store_value_type_fields_to_buf(ciValueKlass* vk) {
 int LIR_Assembler::safepoint_poll(LIR_Opr tmp, CodeEmitInfo* info) {
   guarantee(info != nullptr, "Shouldn't be null");
   int offset = __ offset();
-  if (MacroAssembler::loop_safepoint_poll_uses_branch()) {
-    // The poll word test branches to the safepoint handler. The `test eax, eax` after it is the
-    // poll site: it carries the debug info, and the handler returns past it, so execution
-    // continues after the poll as it does after a polling page trap.
-    C1SafepointPollStub* stub = new C1SafepointPollStub(false /* at_return */);
-    append_code_stub(stub);
-    __ safepoint_poll(*stub->entry(), false /* at_return */, true /* in_nmethod */);
-    add_debug_info_for_branch(info);
-    stub->set_safepoint_offset(__ offset());
-    __ relocate(relocInfo::poll_type);
-    address pre_pc = __ pc();
-    __ testl(rax, rax);
-    address post_pc = __ pc();
-    guarantee(pointer_delta(post_pc, pre_pc, 1) == 2, "must be exact length");
-    return offset;
-  }
   const Register poll_addr = rscratch1;
   __ movptr(poll_addr, Address(r15_thread, JavaThread::polling_page_offset()));
   add_debug_info_for_branch(info);

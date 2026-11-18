@@ -44,20 +44,10 @@ void C1SafepointPollStub::emit_code(LIR_Assembler* ce) {
   __ lea(rscratch1, safepoint_pc);
   __ movptr(Address(r15_thread, JavaThread::saved_exception_pc_offset()), rscratch1);
 
-  address stub;
-  if (at_return()) {
-    assert(SharedRuntime::polling_page_return_handler_blob() != nullptr,
-           "polling page return stub not created yet");
-    stub = SharedRuntime::polling_page_return_handler_blob()->entry_point();
-  } else {
-    // A loop poll that branches here instead of trapping (see
-    // MacroAssembler::loop_safepoint_poll_uses_branch()). C1 code has no wide vectors,
-    // see SharedRuntime::get_poll_stub().
-    assert(MacroAssembler::loop_safepoint_poll_uses_branch(), "only used when loop polls branch");
-    assert(SharedRuntime::polling_page_safepoint_handler_blob() != nullptr,
-           "polling page safepoint stub not created yet");
-    stub = SharedRuntime::polling_page_safepoint_handler_blob()->entry_point();
-  }
+  assert(SharedRuntime::polling_page_return_handler_blob() != nullptr,
+         "polling page return stub not created yet");
+
+  address stub = SharedRuntime::polling_page_return_handler_blob()->entry_point();
   __ jump(RuntimeAddress(stub));
 }
 

@@ -369,6 +369,9 @@ public:
     }
   }
 
+  // Whether this is a MachTrapScrubNode.
+  virtual bool is_trap_scrub() const { return false; }
+
   // If this is a memory op, return the base pointer and fixed offset.
   // If there are no such, return null.  If there are multiple addresses
   // or the address is indeterminate (rare cases) then return (Node*)-1,
@@ -637,12 +640,17 @@ public:
 };
 
 //------------------------------MachTrapScrubNode------------------------------
-// Placed by PhaseOutput::insert_trap_scrubs() right before a trap site at which state that a
-// resumed exception can lose is live (see Matcher::trap_scrub_needed()). Its code uses no
-// register and keeps the condition codes, so it needs no register allocation.
+// Clears the place where the system may read a stale header when it saves the processor state
+// of an exception (see Matcher::trap_scrub_needed()), or, as a check, verifies that it is clear.
+// Placed by PhaseOutput::insert_trap_scrubs() after register allocation: after a writer below the
+// stack pointer, or right before a trap site. Its code uses no register and keeps the condition
+// codes, and it must not be moved (Scheduling leaves its block alone).
 class MachTrapScrubNode : public MachIdealNode {
+  const bool _check;
 public:
-  MachTrapScrubNode() {}
+  MachTrapScrubNode(bool check = false) : _check(check) {}
+  bool is_check() const { return _check; }
+  virtual bool is_trap_scrub() const { return true; }
   virtual void emit(C2_MacroAssembler *masm, PhaseRegAlloc *ra_) const;
   virtual uint size(PhaseRegAlloc *ra_) const;
 
@@ -651,7 +659,7 @@ public:
   virtual const Pipeline *pipeline() const;
   virtual uint size_of() const { return sizeof(MachTrapScrubNode); }
 #ifndef PRODUCT
-  virtual const char *Name() const { return "TrapScrub"; }
+  virtual const char *Name() const { return _check ? "TrapScrubCheck" : "TrapScrub"; }
   virtual void format( PhaseRegAlloc *, outputStream *st ) const;
   virtual void dump_spec(outputStream *st) const { } // No per-operand info
 #endif

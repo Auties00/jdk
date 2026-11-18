@@ -2724,14 +2724,14 @@ struct ContextEx {
 };
 
 static void record_exception_xstate(PCONTEXT context) {
-  address xstate = nullptr;
+  address chunk = nullptr;
   int length = 0;
   if ((context->ContextFlags & CONTEXT_XSTATE) == CONTEXT_XSTATE) {
     ContextEx* context_ex = (ContextEx*)(context + 1);
-    xstate = (address)context_ex + context_ex->XState.Offset;
+    chunk = (address)context_ex + context_ex->XState.Offset;
     length = (int)context_ex->XState.Length;
   }
-  VM_Version::record_exception_xstate((address)context->Rsp, xstate, length);
+  VM_Version::record_exception_xstate((address)context->Rsp, chunk, length);
 }
 #endif
 
@@ -2759,7 +2759,7 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
   if ((exception_code == EXCEPTION_ACCESS_VIOLATION) &&
       VM_Version::is_exception_xstate_segv_addr(pc)) {
     // Check whether resuming from an exception keeps the AVX state, and record where the
-    // context has its extended state.
+    // context has its extended state (VM_Version::check_exception_xstate()).
     record_exception_xstate(exceptionInfo->ContextRecord);
     return Handle_Exception(exceptionInfo, VM_Version::exception_xstate_cont_addr());
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, 2026, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2020, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,7 +24,6 @@
 
 #include "opto/c2_MacroAssembler.hpp"
 #include "opto/c2_CodeStubs.hpp"
-#include "opto/compile.hpp"
 #include "runtime/objectMonitor.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/stubRoutines.hpp"
@@ -32,44 +31,21 @@
 #define __ masm.
 
 int C2SafepointPollStub::max_size() const {
-  return 37;
+  return 33;
 }
 
 void C2SafepointPollStub::emit(C2_MacroAssembler& masm) {
-  address stub;
-  if (at_return()) {
-    assert(SharedRuntime::polling_page_return_handler_blob() != nullptr,
-           "polling page return stub not created yet");
-    stub = SharedRuntime::polling_page_return_handler_blob()->entry_point();
-  } else {
-    // A loop poll that branches here instead of trapping (see
-    // MacroAssembler::loop_safepoint_poll_uses_branch()). Enter the same handler blob the
-    // polling page trap would have entered, see SharedRuntime::get_poll_stub().
-    assert(MacroAssembler::loop_safepoint_poll_uses_branch(), "only used when loop polls branch");
-    SafepointBlob* blob = SharedRuntime::is_wide_vector(Compile::current()->max_vector_size())
-                          ? SharedRuntime::polling_page_vectors_safepoint_handler_blob()
-                          : SharedRuntime::polling_page_safepoint_handler_blob();
-    assert(blob != nullptr, "polling page safepoint stub not created yet");
-    stub = blob->entry_point();
-  }
+  assert(SharedRuntime::polling_page_return_handler_blob() != nullptr,
+         "polling page return stub not created yet");
+  address stub = SharedRuntime::polling_page_return_handler_blob()->entry_point();
 
   RuntimeAddress callback_addr(stub);
 
   __ bind(entry());
   InternalAddress safepoint_pc(masm.pc() - masm.offset() + _safepoint_offset);
-  if (at_return()) {
-    __ lea(rscratch1, safepoint_pc);
-    __ movptr(Address(r15_thread, JavaThread::saved_exception_pc_offset()), rscratch1);
-    __ jump(callback_addr);
-  } else {
-    // All registers are live at a loop poll: the handler blob saves them, as it does when it is
-    // entered from the trap. The stack pointer must be the one of the poll.
-    __ push(rscratch1);
-    __ lea(rscratch1, safepoint_pc);
-    __ movptr(Address(r15_thread, JavaThread::saved_exception_pc_offset()), rscratch1);
-    __ pop(rscratch1);
-    __ jump(callback_addr, noreg);
-  }
+  __ lea(rscratch1, safepoint_pc);
+  __ movptr(Address(r15_thread, JavaThread::saved_exception_pc_offset()), rscratch1);
+  __ jump(callback_addr);
 }
 
 int C2EntryBarrierStub::max_size() const {

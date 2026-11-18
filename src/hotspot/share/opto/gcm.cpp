@@ -1815,10 +1815,7 @@ void PhaseCFG::global_code_motion() {
   // Detect implicit-null-check opportunities.  Basically, find null checks
   // with suitable memory ops nearby.  Use the memory op to do the null check.
   // I can generate a memory op if there is not one nearby.
-  // Where the state that a resumed exception can lose is not protected at trap sites, only
-  // compilations that cannot hold such state get implicit null checks (JDK-8365196).
-  if (C->is_method_compilation() &&
-      !(Matcher::trap_state_unprotected() && may_lose_state_at_trap())) {
+  if (C->is_method_compilation()) {
     // By reversing the loop direction we get a very minor gain on mpegaudio.
     // Feel free to revert to a forward loop for clarity.
     // for( int i=0; i < (int)matcher._null_check_tests.size(); i+=2 ) {

@@ -2835,14 +2835,9 @@ void Parse::add_safepoint() {
   // Create a node for the polling address
   Node* polladr;
   Node* thread = _gvn.transform(new ThreadLocalNode());
-  if (Matcher::loop_safepoint_poll_uses_branch()) {
-    // The poll tests the thread's poll word: no polling page address is needed.
-    polladr = thread;
-  } else {
-    Node* polling_page_load_addr = _gvn.transform(off_heap_plus_addr(thread, in_bytes(JavaThread::polling_page_offset())));
-    polladr = _gvn.transform(make_load(control(), polling_page_load_addr, TypeRawPtr::BOTTOM, T_ADDRESS, MemNode::unordered));
-  }
-  sfpnt->init_req(TypeFunc::Parms+0, polladr);
+  Node* polling_page_load_addr = _gvn.transform(off_heap_plus_addr(thread, in_bytes(JavaThread::polling_page_offset())));
+  polladr = make_load(control(), polling_page_load_addr, TypeRawPtr::BOTTOM, T_ADDRESS, MemNode::unordered);
+  sfpnt->init_req(TypeFunc::Parms+0, _gvn.transform(polladr));
 
   // Fix up the JVM State edges
   add_safepoint_edges(sfpnt);

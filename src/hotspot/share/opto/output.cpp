@@ -224,6 +224,7 @@ PhaseOutput::PhaseOutput()
     _node_bundling_base(nullptr),
     _orig_pc_slot_offset_in_bytes(0),
     _java_callees(nullptr),
+    DEBUG_ONLY(_trap_scrub_hot_traps(nullptr) COMMA)
     _buf_sizes(),
     _block(nullptr),
     _index(0) {
@@ -366,6 +367,7 @@ void PhaseOutput::Output() {
   }
 
   ScheduleAndBundle();
+  DEBUG_ONLY(verify_trap_scrubs();)
   if (C->failing()) {
     return;
   }
@@ -450,10 +452,8 @@ void PhaseOutput::compute_loop_first_inst_sizes() {
   } // if( MaxLoopPad < OptoLoopAlignment-1 )
 }
 
-// The architecture description provides short branch variants for some long
-// branch instructions. Replace eligible long branches with short branches.
-// JDK-8365196, see Matcher::trap_scrub_needed(). A value holds state that a resumed exception can
-// lose when its register does.
+// See Matcher::trap_scrub_needed(). A value holds state that a resumed exception can lose when
+// its register does.
 static bool holds_trap_losable_state(PhaseRegAlloc* ra, const Node* n) {
   if (n->_idx >= ra->node_regs_max_index()) {
     return false; // created after register allocation without a register (prolog, epilog)
@@ -469,12 +469,10 @@ static bool may_be_raw_memory(const TypePtr* adr_type) {
   return adr_type == nullptr || adr_type->base() == Type::RawPtr || adr_type->base() == Type::AnyPtr;
 }
 
-// Whether n can fault and resume in this frame: a loop safepoint poll that reads the polling
-// page, the memory access of an implicit null check, or, in a compilation with unsafe accesses,
-// an access to raw or unknown memory (a fault there resumes at the next instruction, see
-// JavaThread::doing_unsafe_access()).
-static bool is_resumable_trap_site(const Node* n, const VectorSet& null_check_accesses,
-                                   bool polls_trap, bool raw_accesses_trap) {
+// Whether n can fault and resume in this frame: a loop safepoint poll, the memory access of an
+// implicit null check, or, in a compilation with unsafe accesses, an access to raw or unknown
+// memory (a fault there resumes at the next instruction, see JavaThread::doing_unsafe_access()).
+static bool is_resumable_trap_site(const Node* n, const VectorSet& null_check_accesses, bool raw_accesses_trap) {
   if (null_check_accesses.test(n->_idx)) {
     return true;
   }
@@ -482,7 +480,7 @@ static bool is_resumable_trap_site(const Node* n, const VectorSet& null_check_ac
     return false;
   }
   if (n->is_MachSafePoint()) {
-    return polls_trap && !n->is_MachCall();
+    return !n->is_MachCall();
   }
   if (raw_accesses_trap) {
     const MachNode* mach = n->as_Mach();
@@ -499,8 +497,7 @@ static bool is_resumable_trap_site(const Node* n, const VectorSet& null_check_ac
 // caller and of whatever ran before on this thread), exception entry (the unwinding runtime),
 // and the instructions the platform names (Matcher::trap_scrub_writer()). Everything else C2
 // emits writes only into its own frame, above the stack pointer, or a few words below it; out of
-// line slow paths that call out (GC barriers, conversion fixups, the safepoint handler entered
-// from a poll) clear the stale header themselves before they return.
+// line slow paths that call out clear the stale header themselves before they return.
 static bool is_trap_scrub_writer(const Node* n) {
   if (!n->is_Mach()) {
     return false;
@@ -510,19 +507,24 @@ static bool is_trap_scrub_writer(const Node* n) {
          Matcher::trap_scrub_writer(mach);
 }
 
-// Clears the stale exception context header wherever a trap site at which a value that holds
-// losable state is live (a hot trap) can be reached with the header dirty.
+static bool is_trap_scrub(const Node* n, bool check) {
+  return n->is_Mach() && n->as_Mach()->is_trap_scrub() && ((MachTrapScrubNode*)n)->is_check() == check;
+}
+
+// Keeps the place where a resumed exception would find a stale header clear wherever a trap site
+// at which a value that holds losable state is live (a hot trap) can be reached.
 //
 // Liveness is computed backwards over the CFG for those values only; a value used by a Phi
 // counts as live into the Phi's block, which is conservative. At a trap site the node's inputs
 // (its TEMPs included) and the node itself count as live, since the fault can happen in the
 // middle of its code.
 //
-// The header can only become dirty at a writer (is_trap_scrub_writer()), so a MachTrapScrubNode
+// The place can only become dirty at a writer (is_trap_scrub_writer()), so a MachTrapScrubNode
 // goes right after each writer from which a hot trap is reachable without passing another
 // writer: a backward dataflow over the CFG. A loop without calls then has no scrub inside it,
 // whatever traps it contains. With Matcher::trap_scrub_at_traps() (or where a writer ends its
-// block) the scrub goes right before each hot trap instead.
+// block) the scrub goes right before each hot trap instead. With Matcher::trap_scrub_verify(), a
+// check goes right before each hot trap as well.
 void PhaseOutput::insert_trap_scrubs() {
   PhaseCFG* cfg = C->cfg();
   PhaseRegAlloc* ra = C->regalloc();
@@ -554,7 +556,6 @@ void PhaseOutput::insert_trap_scrubs() {
     return;
   }
 
-  const bool polls_trap = !Matcher::loop_safepoint_poll_uses_branch();
   const bool raw_accesses_trap = C->has_unsafe_access();
   const uint words = (values + BitsPerWord - 1) / BitsPerWord;
   const uint block_count = max_pre_order + 1;
@@ -623,48 +624,47 @@ void PhaseOutput::insert_trap_scrubs() {
   }
 
   // The hot traps.
+  GrowableArray<Node*> hot_traps;
   VectorSet hot;
-  uint hot_count = 0;
   for (uint i = 0; i < cfg->number_of_blocks(); i++) {
     Block* block = cfg->get_block(i);
     live_out(block);
     for (int j = (int)block->number_of_nodes() - 1; j >= 0; j--) {
       Node* n = block->get_node(j);
-      if (is_resumable_trap_site(n, null_check_accesses, polls_trap, raw_accesses_trap)) {
+      if (is_resumable_trap_site(n, null_check_accesses, raw_accesses_trap)) {
         add(n);
         for (uint k = 0; k < n->req(); k++) {
           add(n->in(k));
         }
         if (any_live()) {
           hot.set(n->_idx);
-          hot_count++;
+          hot_traps.append(n);
         }
       }
       step_back(n);
     }
   }
-  if (hot_count == 0) {
+  if (hot_traps.is_empty()) {
     return;
   }
 
   // Nodes after which (writers) or before which (hot traps) a scrub goes.
   GrowableArray<Node*> after;
-  GrowableArray<Node*> before;
   bool at_traps = Matcher::trap_scrub_at_traps();
   // need_in[b]: a hot trap is reachable from the start of b without passing a writer.
   bool* need_in = NEW_RESOURCE_ARRAY(bool, block_count);
   for (uint i = 0; i < block_count; i++) {
     need_in[i] = false;
   }
-  if (!at_traps) {
-    auto need_out = [&](const Block* block) {
-      for (uint s = 0; s < block->_num_succs; s++) {
-        if (need_in[block->_succs[s]->_pre_order]) {
-          return true;
-        }
+  auto need_out = [&](const Block* block) {
+    for (uint s = 0; s < block->_num_succs; s++) {
+      if (need_in[block->_succs[s]->_pre_order]) {
+        return true;
       }
-      return false;
-    };
+    }
+    return false;
+  };
+  if (!at_traps) {
     changed = true;
     while (changed) {
       changed = false;
@@ -692,7 +692,7 @@ void PhaseOutput::insert_trap_scrubs() {
       for (int j = (int)block->number_of_nodes() - 1; j >= 0; j--) {
         Node* n = block->get_node(j);
         if (is_trap_scrub_writer(n)) {
-          if (need) {
+          if (need && !(TrapScrubOmitAfterCalls && n->is_MachCall())) {
             if ((uint)j + 1 >= block->number_of_nodes()) {
               // No place after it in its block: fall back to scrubbing at the traps.
               at_traps = true;
@@ -707,27 +707,14 @@ void PhaseOutput::insert_trap_scrubs() {
         }
       }
     }
-    if (need_in[cfg->get_root_block()->_pre_order]) {
-      at_traps = true; // a hot trap reachable from the code entry without passing a writer
-    }
   }
   if (at_traps) {
     after.clear();
-    for (uint i = 0; i < cfg->number_of_blocks(); i++) {
-      Block* block = cfg->get_block(i);
-      for (uint j = 0; j < block->number_of_nodes(); j++) {
-        Node* n = block->get_node(j);
-        if (hot.test(n->_idx)) {
-          before.append(n);
-        }
-      }
-    }
   }
+  const bool verify = Matcher::trap_scrub_verify();
 
-  uint scrubs = (uint)(2 * after.length() + before.length()); // a call's Catch has at most a few successors
-  if (scrubs == 0) {
-    return;
-  }
+  // A call's Catch can have several successors.
+  uint scrubs = (uint)(2 * after.length() + 2 * hot_traps.length());
   if (C->check_node_count(scrubs, "out of nodes inserting trap scrubs")) {
     return;
   }
@@ -735,6 +722,7 @@ void PhaseOutput::insert_trap_scrubs() {
     C->record_method_not_compilable("out of register allocation slots inserting trap scrubs");
     return;
   }
+
   // A call whose block ends in a Catch must be followed only by its projections and the Catch
   // (the exception table is built from the call's return): the scrub then goes at the start of
   // each successor that needs it, other than the exception handlers (they start with CreateEx,
@@ -776,15 +764,88 @@ void PhaseOutput::insert_trap_scrubs() {
     block->insert_node(scrub, k);
     cfg->map_node_to_block(scrub, block);
   }
-  for (int i = 0; i < before.length(); i++) {
-    Node* trap = before.at(i);
+  for (int i = 0; i < hot_traps.length(); i++) {
+    Node* trap = hot_traps.at(i);
     Block* block = cfg->get_block_for_node(trap);
-    MachTrapScrubNode* scrub = new MachTrapScrubNode();
-    block->insert_node(scrub, block->find_node(trap));
-    cfg->map_node_to_block(scrub, block);
+    if (at_traps) {
+      MachTrapScrubNode* scrub = new MachTrapScrubNode();
+      block->insert_node(scrub, block->find_node(trap));
+      cfg->map_node_to_block(scrub, block);
+    }
+    if (verify) {
+      MachTrapScrubNode* check = new MachTrapScrubNode(true /* check */);
+      block->insert_node(check, block->find_node(trap));
+      cfg->map_node_to_block(check, block);
+    }
   }
+
+#ifdef ASSERT
+  // Kept for verify_trap_scrubs(), after scheduling.
+  _trap_scrub_hot_traps = new (C->comp_arena()) GrowableArray<Node*>(C->comp_arena(), hot_traps.length(), 0, nullptr);
+  for (int i = 0; i < hot_traps.length(); i++) {
+    _trap_scrub_hot_traps->append(hot_traps.at(i));
+  }
+#endif
 }
 
+#ifdef ASSERT
+// Checks the final order of the nodes: no hot trap can be reached from a writer, or from the code
+// entry, without passing a scrub (see insert_trap_scrubs()).
+void PhaseOutput::verify_trap_scrubs() {
+  if (_trap_scrub_hot_traps == nullptr || TrapScrubOmitAfterCalls) {
+    return;
+  }
+  PhaseCFG* cfg = C->cfg();
+  ResourceMark rm;
+  VectorSet hot;
+  for (int i = 0; i < _trap_scrub_hot_traps->length(); i++) {
+    hot.set(_trap_scrub_hot_traps->at(i)->_idx);
+  }
+  uint block_count = 0;
+  for (uint i = 0; i < cfg->number_of_blocks(); i++) {
+    block_count = MAX2(block_count, cfg->get_block(i)->_pre_order + 1);
+  }
+  bool* need_in = NEW_RESOURCE_ARRAY(bool, block_count);
+  for (uint i = 0; i < block_count; i++) {
+    need_in[i] = false;
+  }
+  for (int round = 0; ; round++) {
+    bool changed = false;
+    for (int i = (int)cfg->number_of_blocks() - 1; i >= 0; i--) {
+      Block* block = cfg->get_block(i);
+      bool need = false;
+      for (uint s = 0; s < block->_num_succs; s++) {
+        need |= need_in[block->_succs[s]->_pre_order];
+      }
+      for (int j = (int)block->number_of_nodes() - 1; j >= 0; j--) {
+        Node* n = block->get_node(j);
+        if (is_trap_scrub(n, false /* check */)) {
+          need = false;
+        } else if (is_trap_scrub_writer(n)) {
+          if (need) {
+            n->dump();
+          }
+          assert(!need, "a hot trap can be reached from this writer without passing a trap scrub");
+          need = false;
+        }
+        if (hot.test(n->_idx)) {
+          need = true;
+        }
+      }
+      if (need != need_in[block->_pre_order]) {
+        need_in[block->_pre_order] = need;
+        changed = true;
+      }
+    }
+    if (!changed) {
+      break;
+    }
+  }
+}
+#endif
+
+// The architecture description provides short branch variants for some long
+// branch instructions. Replace eligible long branches with short branches.
 void PhaseOutput::shorten_branches(uint* blk_starts) {
 
   Compile::TracePhase tp(_t_shortenBranches);
@@ -1431,8 +1492,6 @@ void PhaseOutput::Process_OopMap_Node(MachNode *mach, int current_offset) {
       return_scalarized = true;
     }
     safepoint_pc_offset += mcall->ret_addr_offset();
-  } else {
-    safepoint_pc_offset += Matcher::safepoint_poll_pc_offset();
   }
   C->debug_info()->add_safepoint(safepoint_pc_offset, sfn->_oop_map);
 
@@ -1973,9 +2032,7 @@ void PhaseOutput::fill_buffer(C2_MacroAssembler* masm, uint* blk_starts) {
                    "Safepoint address should be offset from the first instruction and should not point after the node");
           } else if (is_sfn) {
             assert(mach->ideal_Opcode() == Op_SafePoint, "An unexpected safepoint node, which might need handling above");
-            if (Matcher::safepoint_poll_pc_offset() == 0) {
-              padding = nop_size;
-            }
+            padding = nop_size;
           }
         }
         if (padding == 0 && mach->avoid_back_to_back(MachNode::AVOID_BEFORE) &&
@@ -2990,6 +3047,17 @@ void Scheduling::DoScheduling() {
     // Skip empty, connector blocks
     if (bb->is_connector())
       continue;
+
+    // A trap scrub must stay where PhaseOutput::insert_trap_scrubs() put it: it has no
+    // dependences that would keep it there, so leave its block as it is.
+    bool has_trap_scrub = false;
+    for (uint j = 0; j < bb->number_of_nodes() && !has_trap_scrub; j++) {
+      Node* n = bb->get_node(j);
+      has_trap_scrub = n->is_Mach() && n->as_Mach()->is_trap_scrub();
+    }
+    if (has_trap_scrub) {
+      continue;
+    }
 
     // If the following block is not the sole successor of
     // this one, then reset the pipeline information

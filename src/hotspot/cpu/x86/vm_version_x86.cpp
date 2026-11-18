@@ -68,11 +68,12 @@ address VM_Version::_exception_xstate_segv_addr = nullptr;
 // Address of the instruction after it
 address VM_Version::_exception_xstate_cont_addr = nullptr;
 address VM_Version::_exception_xstate_trap_sp = nullptr;
-address VM_Version::_exception_xstate_area = nullptr;
-int VM_Version::_exception_xstate_area_length = 0;
+address VM_Version::_exception_xstate_chunk = nullptr;
+int VM_Version::_exception_xstate_chunk_length = 0;
 bool VM_Version::_exception_resume_loses_xstate = false;
+int VM_Version::_exception_xstate_measured_length = 0;
 int VM_Version::_exception_xstate_scrub_length = 0;
-bool VM_Version::_exception_xstate_unprotected = false;
+bool VM_Version::_exception_xstate_capped = false;
 
 static BufferBlob* stub_blob;
 static const int stub_size = 2800;
@@ -781,7 +782,7 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
 
   // void exception_xstate_check(ExceptionXStateCheck* check)
   //
-  // Windows only (JDK-8365196, see VM_Version::exception_resume_loses_xstate()). Fills
+  // Windows only (see VM_Version::exception_resume_loses_xstate()). Fills
   // check->fill_qwords quadwords below a 16-byte aligned stack pointer with a value that passes
   // for a compacted XSAVE header naming no component, loads ymm0, raises an access violation,
   // and stores ymm0 to check->ymm after the exception handler has resumed at the next
@@ -1558,6 +1559,10 @@ void VM_Version::get_processor_features() {
   } else {
     // If default, use highest supported configuration
     FLAG_SET_DEFAULT(MaxVectorSize, max_vector_size);
+  }
+  if (_exception_xstate_capped && MaxVectorSize > 16) {
+    // See set_exception_xstate_mitigation(): no ymm values.
+    FLAG_SET_ERGO(MaxVectorSize, 16);
   }
 
 #ifdef ASSERT
@@ -2361,9 +2366,8 @@ static int exception_xstate_distance(address trap_sp, address area, int area_len
 }
 
 // Sets _exception_resume_loses_xstate and, when the contexts of four traps (one for each value
-// of sp modulo 64) put their XSTATE part at (sp - L) & -64 for a single L, sets
-// _exception_xstate_area_length to the largest such L (they all place it alike), else to 0.
-// The XState length of a context is not L: it also counts the alignment padding of its trap.
+// of sp modulo 64) put their XSTATE chunk at (sp - L) & -64 for a single L, sets
+// _exception_xstate_measured_length to the largest such L (they all place it alike), else to 0.
 void VM_Version::check_exception_xstate() {
   // The stub fills its stack and must not reach the guard zones.
   size_t fill = (size_t)exception_xstate_check_fill_size();
@@ -2372,10 +2376,13 @@ void VM_Version::check_exception_xstate() {
   size_t stack_size;
   os::current_stack_base_and_size(&stack_base, &stack_size);
   address stack_end = stack_base - stack_size;
-  _exception_xstate_area_length = 0;
+  _exception_xstate_measured_length = 0;
   if (sp < stack_end || (size_t)(sp - stack_end) < fill + 64 * K) {
-    log_info(os, cpu)("Not enough stack to check whether resuming from an exception keeps AVX state");
-    _exception_resume_loses_xstate = true;
+    // Only an embedder that creates the VM on a small stack gets here. Assume the system is not
+    // affected rather than restrict every system the check cannot run on.
+    log_warning(os, cpu)("Not enough stack to check whether resuming from an exception keeps AVX "
+                         "state; assuming it does");
+    _exception_resume_loses_xstate = false;
     return;
   }
   int distance[4];
@@ -2387,11 +2394,11 @@ void VM_Version::check_exception_xstate() {
     if (lost_here) {
       lost++;
     }
-    distance[i] = exception_xstate_distance(_exception_xstate_trap_sp, _exception_xstate_area,
-                                            _exception_xstate_area_length);
+    distance[i] = exception_xstate_distance(_exception_xstate_trap_sp, _exception_xstate_chunk,
+                                            _exception_xstate_chunk_length);
     sp_mod[i] = (int)((uintptr_t)_exception_xstate_trap_sp & 63);
     log_debug(os, cpu)("Exception XSTATE check: sp %% 64 = %d, XSTATE at sp - %d, length %d, %s",
-                       sp_mod[i], distance[i], _exception_xstate_area_length, lost_here ? "lost" : "kept");
+                       sp_mod[i], distance[i], _exception_xstate_chunk_length, lost_here ? "lost" : "kept");
     if (distance[i] < 0) {
       layout = false;
     }
@@ -2414,7 +2421,7 @@ void VM_Version::check_exception_xstate() {
       }
     }
     if (fits) {
-      _exception_xstate_area_length = length;
+      _exception_xstate_measured_length = length;
       log_info(os, cpu)("Exception context XSTATE length %d", length);
       return;
     }
@@ -2431,9 +2438,9 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
       return false;
     }
     if (_exception_xstate_trap_sp == nullptr ||
-        _exception_xstate_area != align_down(_exception_xstate_trap_sp - length, 64)) {
+        _exception_xstate_chunk != align_down(_exception_xstate_trap_sp - length, 64)) {
       log_info(os, cpu)("Exception context XSTATE moved: sp " PTR_FORMAT ", XSTATE " PTR_FORMAT,
-                        p2i(_exception_xstate_trap_sp), p2i(_exception_xstate_area));
+                        p2i(_exception_xstate_trap_sp), p2i(_exception_xstate_chunk));
       return false;
     }
   }
@@ -2441,20 +2448,26 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
 }
 #endif // _WINDOWS
 
-// Chooses how compiled code protects its state at trap sites (see
-// exception_resume_loses_xstate()): clear the stale header before trap sites, or, where that
-// cannot be verified, loop polls that branch and implicit null checks only where nothing can
-// be lost. C1 keeps its implicit exceptions: with xmm0-xmm15 only it has nothing to lose.
+// The components a short context can leave out and the JVM may use: AVX (the upper halves of
+// ymm0-15), the opmask registers, ZMM_Hi256, Hi16_ZMM and APX.
+uint64_t VM_Version::exception_xstate_losable_components() {
+  const uint64_t components = (uint64_t)0xE4 | (UseAPX ? (uint64_t)1 << 19 : 0);
+  return components & (uint64_t)_cpuid_info.xem_xcr0_eax.value;
+}
+
+// Chooses how the JVM protects the state a resumed exception can lose (see
+// exception_resume_loses_xstate()): C2 code keeps the stale header position clear where a trap
+// site with such state live can be reached, or, where that cannot be verified, the JVM uses no
+// such state at all (UseAVX <= 2, MaxVectorSize <= 16, no APX). C1 keeps its implicit
+// exceptions: with xmm0-xmm15 only it has nothing to lose.
 void VM_Version::set_exception_xstate_mitigation() {
-  int measured = 0;
 #ifdef _WINDOWS
-  if (UseAVX > 0) {
+  if (UseAVX > 0 || supports_apx_f()) {
     check_exception_xstate();
-    measured = _exception_xstate_area_length;
   }
 #endif
   bool forced = ExceptionXStateLength > 0;
-  int length = forced ? ExceptionXStateLength : measured;
+  int length = forced ? ExceptionXStateLength : _exception_xstate_measured_length;
   int scrub = 0;
   if (ScrubExceptionXStateHeader && length > 0 && (forced || _exception_resume_loses_xstate)) {
     // The scrub stores at most 64 + L bytes below the stack pointer of a compiled frame, which
@@ -2475,16 +2488,21 @@ void VM_Version::set_exception_xstate_mitigation() {
   if (scrub > 0) {
     FLAG_SET_ERGO(ExceptionXStateLength, scrub);
     log_info(os, cpu)("Compiled code clears the stale XSAVE header %d bytes below the stack "
-                      "pointer before trap sites", scrub);
+                      "pointer where a trap site with AVX state live can be reached", scrub);
   }
   if (_exception_resume_loses_xstate) {
     if (scrub == 0) {
-      _exception_xstate_unprotected = true;
-      if (FLAG_IS_DEFAULT(UseBranchLoopSafepointPolls)) {
-        FLAG_SET_DEFAULT(UseBranchLoopSafepointPolls, true);
+      // Use no state that a short context leaves out: the low 128 bits of xmm0-xmm15 and the
+      // legacy general purpose registers are in every context. MaxVectorSize is capped where it
+      // is set (C2 intrinsics keep wider temporaries only within one instruction, which has no
+      // trap site).
+      _exception_xstate_capped = true;
+      if (UseAVX > 2) {
+        FLAG_SET_ERGO(UseAVX, 2);
       }
-      log_info(os, cpu)("Loop safepoint polls branch, and C2 uses implicit null checks only where "
-                        "no AVX state can be lost");
+      clear_feature(CPU_APX_F);
+      log_info(os, cpu)("Resuming from an exception can lose AVX state and the stale header cannot "
+                        "be cleared: UseAVX at most 2, MaxVectorSize at most 16, no APX");
     }
     if (FLAG_IS_DEFAULT(UseUpperXMMRegistersInC1)) {
       FLAG_SET_DEFAULT(UseUpperXMMRegistersInC1, false);
