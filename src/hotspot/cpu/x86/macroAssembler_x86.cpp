@@ -2585,6 +2585,30 @@ void MacroAssembler::round_to(Register reg, int modulus) {
   andptr(reg, -modulus);
 }
 
+// Offset from a 16-byte aligned sp of the most significant byte of the XCOMP_BV of the XSAVE
+// header at (sp - length) & -64, for sp % 64 == sp_mod_64.
+static int exception_xstate_header_scrub_offset(int length, int sp_mod_64) {
+  int misalignment = (sp_mod_64 - length) & 63;
+  return -(length + misalignment) + 15;
+}
+
+void MacroAssembler::scrub_exception_xstate_header(int length) {
+  assert(length > 0, "no scrub");
+  for (int sp_mod_64 = 0; sp_mod_64 < 64; sp_mod_64 += 16) {
+    movb(Address(rsp, exception_xstate_header_scrub_offset(length, sp_mod_64)), 0);
+  }
+}
+
+int MacroAssembler::scrub_exception_xstate_header_size(int length) {
+  int size = 0;
+  for (int sp_mod_64 = 0; sp_mod_64 < 64; sp_mod_64 += 16) {
+    int offset = exception_xstate_header_scrub_offset(length, sp_mod_64);
+    // C6 /0 with a SIB byte for rsp, disp8 or disp32, imm8
+    size += 3 + (is_simm8(offset) ? 1 : 4) + 1;
+  }
+  return size;
+}
+
 bool MacroAssembler::loop_safepoint_poll_uses_branch() {
   return UseBranchLoopSafepointPolls;
 }

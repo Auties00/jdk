@@ -108,11 +108,30 @@ define_pd_global(bool, ValueTypeReturnedAsFields, true);
   product(bool, UseAPX, false,                                              \
           "Use Intel Advanced Performance Extensions")                      \
                                                                             \
-  product(bool, UseUpperXMMRegistersInC1, true, DIAGNOSTIC,                           "C1 allocates xmm16-xmm31 when AVX-512 is enabled. Off by "                 "default on Windows when a check at startup finds that "                    "resuming from an exception loses AVX state, which C1 code "                "then cannot lose at its implicit exceptions")                                                                                                  product(bool, UseBranchLoopSafepointPolls, false, DIAGNOSTIC,             \
+  product(bool, UseUpperXMMRegistersInC1, true, DIAGNOSTIC,                 \
+          "C1 allocates xmm16-xmm31 when AVX-512 is enabled. Off by "       \
+          "default where resuming from an exception can lose AVX state "    \
+          "(see ScrubExceptionXStateHeader)")                               \
+                                                                            \
+  product(bool, UseBranchLoopSafepointPolls, false, DIAGNOSTIC,             \
           "Compiled loop safepoint polls test the thread's poll word and "  \
-          "branch to the safepoint handler instead of loading from the "    \
-          "polling page. On by default on Windows when a check at "        \
-          "startup finds that resuming from an exception loses AVX state")  \
+          "branch to the safepoint handler instead of reading the polling " \
+          "page. On by default where resuming from an exception can lose "  \
+          "AVX state and ScrubExceptionXStateHeader cannot be used")        \
+                                                                            \
+  product(bool, ScrubExceptionXStateHeader, true, DIAGNOSTIC,               \
+          "Where resuming from an exception can lose AVX state (some "      \
+          "Windows builds read a stale XSAVE header from the stack), C2 "   \
+          "code clears that stack location before trap sites at which "     \
+          "such state is live")                                             \
+                                                                            \
+  product(int, ExceptionXStateLength, 0, DIAGNOSTIC,                        \
+          "Length in bytes of the extended processor state the OS saves "   \
+          "below the stack pointer of an exception, used by "               \
+          "ScrubExceptionXStateHeader. 0: measured at startup where "       \
+          "needed. Any other value enables the scrub on every system, "     \
+          "for testing")                                                    \
+          range(0, 16384)                                                   \
                                                                             \
   product(bool, UseKNLSetting, false, DIAGNOSTIC,                           \
           "Control whether Knights platform setting should be used")        \

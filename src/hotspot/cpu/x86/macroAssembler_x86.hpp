@@ -787,6 +787,15 @@ public:
   // loop poll when the slow path label is not yet bound.
   static int loop_safepoint_poll_branch_size();
 
+  // Clears, below a 16-byte aligned stack pointer, the stack location where Windows would read
+  // a stale XSAVE header if the next instruction raised an exception (JDK-8365196, see
+  // VM_Version::exception_resume_loses_xstate()). The header is at (sp - length) & -64, so
+  // for each of the four values of sp modulo 64 one byte store clears the most significant
+  // byte of its XCOMP_BV, which then no longer passes for a compacted header. Needs no
+  // register, keeps the flags.
+  void scrub_exception_xstate_header(int length = VM_Version::exception_xstate_scrub_length());
+  static int scrub_exception_xstate_header_size(int length = VM_Version::exception_xstate_scrub_length());
+
   void verify_tlab();
 
   static Condition negate_condition(Condition cond);

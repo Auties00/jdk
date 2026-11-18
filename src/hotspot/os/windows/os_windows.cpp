@@ -2711,6 +2711,31 @@ static bool grow_windows_stack_to(address target) {
 
 //-----------------------------------------------------------------------------
 JNIEXPORT
+#if defined(_M_AMD64)
+// The layout descriptor that follows a CONTEXT with CONTEXT_XSTATE (CONTEXT_EX of the Windows
+// Driver Kit): each chunk's offset is relative to the descriptor.
+struct ContextExChunk {
+  LONG  Offset;
+  DWORD Length;
+};
+struct ContextEx {
+  ContextExChunk All;
+  ContextExChunk Legacy;
+  ContextExChunk XState;
+};
+
+static void record_exception_xstate(PCONTEXT context) {
+  address xstate = nullptr;
+  int length = 0;
+  if ((context->ContextFlags & CONTEXT_XSTATE) == CONTEXT_XSTATE) {
+    ContextEx* context_ex = (ContextEx*)(context + 1);
+    xstate = (address)context_ex + context_ex->XState.Offset;
+    length = (int)context_ex->XState.Length;
+  }
+  VM_Version::record_exception_xstate((address)context->Rsp, xstate, length);
+}
+#endif
+
 LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
   PreserveLastError ple;
   if (InterceptOSException) return EXCEPTION_CONTINUE_SEARCH;
@@ -2733,7 +2758,9 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
 
   if ((exception_code == EXCEPTION_ACCESS_VIOLATION) &&
       VM_Version::is_exception_xstate_segv_addr(pc)) {
-    // Check whether resuming from an exception keeps the AVX state.
+    // Check whether resuming from an exception keeps the AVX state, and record where the
+    // context has its extended state.
+    record_exception_xstate(exceptionInfo->ContextRecord);
     return Handle_Exception(exceptionInfo, VM_Version::exception_xstate_cont_addr());
   }
 

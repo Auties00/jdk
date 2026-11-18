@@ -36,6 +36,7 @@
 #include "runtime/icache.hpp"
 #include "runtime/java.hpp"
 #include "runtime/os.inline.hpp"
+#include "runtime/stackOverflow.hpp"
 #include "runtime/stubCodeGenerator.hpp"
 #include "runtime/vm_version.hpp"
 #include "utilities/checkedCast.hpp"
@@ -65,9 +66,23 @@ address VM_Version::_cpuinfo_cont_addr_apx = nullptr;
 address VM_Version::_exception_xstate_segv_addr = nullptr;
 // Address of the instruction after it
 address VM_Version::_exception_xstate_cont_addr = nullptr;
+address VM_Version::_exception_xstate_trap_sp = nullptr;
+address VM_Version::_exception_xstate_area = nullptr;
+int VM_Version::_exception_xstate_area_length = 0;
+bool VM_Version::_exception_resume_loses_xstate = false;
+int VM_Version::_exception_xstate_scrub_length = 0;
+bool VM_Version::_exception_xstate_unprotected = false;
 
 static BufferBlob* stub_blob;
-static const int stub_size = 2700;
+static const int stub_size = 2800;
+
+#ifdef _WINDOWS
+// Argument of the exception XSTATE check stub.
+struct ExceptionXStateCheck {
+  jint fill_qwords; // number of quadwords below the stack pointer to fill
+  jint ymm[8];      // ymm0 after resuming from the exception
+};
+#endif
 
 VM_Version::VM_Features VM_Version::_features;
 VM_Version::VM_Features VM_Version::_cpu_features;
@@ -528,6 +543,18 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
     __ lea(rsi, Address(rbp, in_bytes(VM_Version::zmm16to31_xstate_offset_offset())));
     __ movl(Address(rsi, 0), rbx);
 
+    // Query CPUID 0xD sub-leaf 0 and 1 for the sizes of the XSAVE area
+    __ movl(rax, 0xD);
+    __ movl(rcx, 0);
+    __ cpuid();
+    __ movl(Address(rbp, in_bytes(VM_Version::xsave_size_xcr0_offset())), rbx);
+    __ movl(Address(rbp, in_bytes(VM_Version::xsave_size_max_offset())), rcx);
+
+    __ movl(rax, 0xD);
+    __ movl(rcx, 1);
+    __ cpuid();
+    __ movl(Address(rbp, in_bytes(VM_Version::xsave_size_xcr0_xss_offset())), rbx);
+
     //
     // Some OSs have a bug when upper 128/256bits of YMM/ZMM
     // registers are not restored after a signal processing.
@@ -750,45 +777,55 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
   };
 
 
-  // void exception_xstate_check(int save[8])
+  // void exception_xstate_check(ExceptionXStateCheck* check)
   //
-  // Windows only (JDK-8365196). Some Windows builds copy the context of an exception to the
-  // user stack with a routine that trusts the 16 bytes already at the destination when they
-  // look like the header of a compacted XSAVE area, and then leave out of the context the
-  // state components that stale header does not name. Continuing from the exception resets
-  // those components. The stub fills the stack below rsp with a value that passes for a
-  // header naming no component, loads ymm0, raises an access violation, and stores ymm0
-  // after the exception handler has resumed at the next instruction. The caller compares
-  // the stored value with ymm_test_value().
-  address generate_exception_xstate_check() {
-    StubCodeMark mark(this, "VM_Version", "exception_xstate_check_stub");
+  // Windows only (JDK-8365196, see VM_Version::exception_resume_loses_xstate()). Fills
+  // check->fill_qwords quadwords below a 16-byte aligned stack pointer with a value that passes
+  // for a compacted XSAVE header naming no component, loads ymm0, raises an access violation,
+  // and stores ymm0 to check->ymm after the exception handler has resumed at the next
+  // instruction. With scrub_length > 0 the stub clears the stale header before the access
+  // violation, with the same code C2 emits before its trap sites. The fill is cleared again
+  // before returning, so that it is not left on the stack for later exceptions of this thread.
+  address generate_exception_xstate_check(int scrub_length) {
+    StubCodeMark mark(this, "VM_Version", scrub_length == 0 ? "exception_xstate_check_stub"
+                                                            : "exception_xstate_scrub_check_stub");
 #   define __ _masm->
 
     address start = __ pc();
 #ifdef _WINDOWS
-    // Fill 16K: the context of an exception with every AVX-512 and AMX component is about 11K.
-    const int fill_words = 2048;
     Label fill, clear;
+    bool set_features = !VM_Version::supports_avx();
     int saved_useavx = UseAVX;
+    if (set_features) {
+      VM_Version::set_avx_cpuFeatures(); // Enable temporary to pass asserts
+    }
+    UseAVX = MAX2(UseAVX, 1);
 
+    __ push(rbp);
+    __ movptr(rbp, rsp);
+    // Compiled code traps with a 16-byte aligned stack pointer.
+    __ andptr(rsp, -16);
     __ movptr(r8, c_rarg0);
+    __ movl(r9, Address(r8, offset_of(ExceptionXStateCheck, fill_qwords)));
     // Nothing is live below rsp. Writing downwards also commits the stack pages in order.
     __ mov64(rax, min_jlong);
     __ movptr(rdx, rsp);
-    __ movl(rcx, fill_words);
+    __ movl(rcx, r9);
     __ bind(fill);
     __ subptr(rdx, wordSize);
     __ movptr(Address(rdx, 0), rax);
     __ decrementl(rcx);
     __ jcc(Assembler::notZero, fill);
 
-    VM_Version::set_avx_cpuFeatures(); // Enable temporary to pass asserts
-    UseAVX = 1;
     // load value into all 32 bytes of ymm0 register
     __ movl(rcx, VM_Version::ymm_test_value());
     __ movdl(xmm0, rcx);
     __ pshufd(xmm0, xmm0, 0x00);
     __ vinsertf128_high(xmm0, xmm0);
+
+    if (scrub_length > 0) {
+      __ scrub_exception_xstate_header(scrub_length);
+    }
 
     __ xorl(rdx, rdx);
     VM_Version::set_exception_xstate_segv_addr(__ pc());
@@ -797,18 +834,22 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
 
     VM_Version::set_exception_xstate_cont_addr(__ pc());
     // Returns here after the exception.
-    __ vmovdqu(Address(r8, 0), xmm0);
+    __ vmovdqu(Address(r8, offset_of(ExceptionXStateCheck, ymm)), xmm0);
     __ vzeroupper_uncached();
-    // Do not leave the header-like values on the stack for later exceptions of this thread.
     __ xorl(rax, rax);
     __ movptr(rdx, rsp);
-    __ movl(rcx, fill_words);
+    __ movl(rcx, r9);
     __ bind(clear);
     __ subptr(rdx, wordSize);
     __ movptr(Address(rdx, 0), rax);
     __ decrementl(rcx);
     __ jcc(Assembler::notZero, clear);
-    VM_Version::clean_cpuFeatures();
+    __ movptr(rsp, rbp);
+    __ pop(rbp);
+
+    if (set_features) {
+      VM_Version::clean_cpuFeatures();
+    }
     UseAVX = saved_useavx;
 #endif // _WINDOWS
     __ ret(0);
@@ -1110,25 +1151,7 @@ void VM_Version::get_processor_features() {
     FLAG_SET_DEFAULT(UseAVX, use_avx_limit);
   }
 
-#ifdef _WINDOWS
-  // JDK-8365196: some Windows builds can resume an access violation in compiled code without
-  // the AVX and AVX-512 state the thread had when it was raised. Compiled code keeps values
-  // in these registers across loop safepoint polls and C2 implicit null checks, so avoid both
-  // traps where a check at startup shows the loss.
-  if (UseAVX > 0 && exception_resume_loses_xstate()) {
-    if (FLAG_IS_DEFAULT(UseBranchLoopSafepointPolls)) {
-      FLAG_SET_DEFAULT(UseBranchLoopSafepointPolls, true);
-    }
-    if (FLAG_IS_DEFAULT(ImplicitNullChecks)) {
-      FLAG_SET_DEFAULT(ImplicitNullChecks, false);
-    }
-    // C1 keeps its implicit null and division checks. It only has scalar floating point
-    // values in XMM registers, so restricting it to xmm0-xmm15 leaves it nothing to lose.
-    if (FLAG_IS_DEFAULT(UseUpperXMMRegistersInC1)) {
-      FLAG_SET_DEFAULT(UseUpperXMMRegistersInC1, false);
-    }
-  }
-#endif
+  set_exception_xstate_mitigation();
 
   if (UseAVX < 3) {
     clear_feature(CPU_AVX512F);
@@ -2270,22 +2293,138 @@ void VM_Version::clear_apx_test_state() {
 static bool _vm_version_initialized = false;
 
 #ifdef _WINDOWS
-bool VM_Version::exception_resume_loses_xstate() {
-  int save[8];
-  for (int i = 0; i < 8; i++) {
-    save[i] = 0;
+// Bytes below the stack pointer the exception XSTATE check fills: the whole context of an
+// exception, whose XSAVE header the kernel places at (sp - L) & -64 for the length L of the
+// extended state, must lie in the filled part.
+int VM_Version::exception_xstate_check_fill_size() {
+  uint32_t xsave_size = MAX3(_cpuid_info.xsave_size_xcr0, _cpuid_info.xsave_size_max,
+                             _cpuid_info.xsave_size_xcr0_xss);
+  if (xsave_size == 0) {
+    xsave_size = 16 * K; // not reported
   }
-  exception_xstate_check_stub(save);
+  // A page more for the CONTEXT record and the alignment of the area.
+  return align_up((int)xsave_size + 4 * K, 4 * K);
+}
+
+// Takes one exception with a stale XSAVE header below the stack pointer, after clearing it with
+// the scrub when scrub_length > 0. Returns whether ymm0 lost its value. The exception handler
+// records the extended state of the context (record_exception_xstate()).
+bool VM_Version::run_exception_xstate_check(int scrub_length) {
+  exception_xstate_check_stub_t stub = exception_xstate_check_stub;
+  if (scrub_length > 0) {
+    // Generated now that the length is known; the blob is kept, it is small.
+    BufferBlob* blob = BufferBlob::create("VM_Version exception XSTATE scrub check", 512);
+    if (blob == nullptr) {
+      return true;
+    }
+    CodeBuffer c(blob);
+    VM_Version_StubGenerator g(&c);
+    stub = CAST_TO_FN_PTR(exception_xstate_check_stub_t, g.generate_exception_xstate_check(scrub_length));
+  }
+  ExceptionXStateCheck check;
+  check.fill_qwords = exception_xstate_check_fill_size() / wordSize;
+  for (int i = 0; i < 8; i++) {
+    check.ymm[i] = 0;
+  }
+  record_exception_xstate(nullptr, nullptr, 0);
+  stub(&check);
   bool lost = false;
   for (int i = 0; i < 8; i++) {
-    if (save[i] != ymm_test_value()) {
+    if (check.ymm[i] != ymm_test_value()) {
       lost = true;
     }
   }
-  log_info(os, cpu)("Resuming from an exception %s AVX state", lost ? "can lose" : "keeps");
   return lost;
 }
+
+// Sets _exception_resume_loses_xstate, and the length of the extended state of an exception
+// context in _exception_xstate_area_length when the context had the expected layout (else 0).
+void VM_Version::check_exception_xstate() {
+  // The stub fills its stack and must not reach the guard zones.
+  size_t fill = (size_t)exception_xstate_check_fill_size();
+  address sp = os::current_stack_pointer();
+  address stack_end = os::current_stack_base() - os::current_stack_size();
+  if (sp < stack_end || (size_t)(sp - stack_end) < fill + 64 * K) {
+    log_info(os, cpu)("Not enough stack to check whether resuming from an exception keeps AVX state");
+    _exception_resume_loses_xstate = true;
+    _exception_xstate_area_length = 0;
+    return;
+  }
+  _exception_resume_loses_xstate = run_exception_xstate_check(0);
+  log_info(os, cpu)("Resuming from an exception %s AVX state",
+                    _exception_resume_loses_xstate ? "can lose" : "keeps");
+  int length = _exception_xstate_area_length;
+  if (length <= 0 || _exception_xstate_area == nullptr || _exception_xstate_trap_sp == nullptr ||
+      _exception_xstate_area != align_down(_exception_xstate_trap_sp - length, 64)) {
+    log_info(os, cpu)("Exception context XSTATE: area " PTR_FORMAT ", length %d, sp " PTR_FORMAT
+                      ": not the expected layout", p2i(_exception_xstate_area), length,
+                      p2i(_exception_xstate_trap_sp));
+    _exception_xstate_area_length = 0;
+  } else {
+    log_info(os, cpu)("Exception context XSTATE length %d", length);
+  }
+}
 #endif // _WINDOWS
+
+// Chooses how compiled code protects its state at trap sites (see
+// exception_resume_loses_xstate()): clear the stale header before trap sites, or, where that
+// cannot be verified, loop polls that branch and implicit null checks only where nothing can
+// be lost. C1 keeps its implicit exceptions: with xmm0-xmm15 only it has nothing to lose.
+void VM_Version::set_exception_xstate_mitigation() {
+  int measured = 0;
+#ifdef _WINDOWS
+  if (UseAVX > 0) {
+    check_exception_xstate();
+    measured = _exception_xstate_area_length;
+  }
+#endif
+  bool forced = ExceptionXStateLength > 0;
+  int length = forced ? ExceptionXStateLength : measured;
+  int scrub = 0;
+  if (ScrubExceptionXStateHeader && length > 0 && (forced || _exception_resume_loses_xstate)) {
+    // The scrub stores at most 64 + L bytes below the stack pointer of a compiled frame, which
+    // must be in the stack shadow zone that the frame's stack bang has made accessible.
+    if ((size_t)length + 64 + 4 * K > StackOverflow::stack_shadow_zone_size()) {
+      log_info(os, cpu)("Exception context XSTATE length %d exceeds the stack shadow zone", length);
+    } else if (forced) {
+      scrub = length;
+#ifdef _WINDOWS
+    } else if (run_exception_xstate_check(length)) {
+      log_info(os, cpu)("Clearing the stale XSAVE header does not keep AVX state");
+    } else if (_exception_xstate_area_length != length) {
+      log_info(os, cpu)("Exception context XSTATE length changed from %d to %d", length,
+                        _exception_xstate_area_length);
+#endif
+    } else {
+      scrub = length;
+    }
+  }
+  _exception_xstate_scrub_length = scrub;
+  if (scrub > 0) {
+    FLAG_SET_ERGO(ExceptionXStateLength, scrub);
+    log_info(os, cpu)("Compiled code clears the stale XSAVE header %d bytes below the stack "
+                      "pointer before trap sites", scrub);
+  }
+  if (_exception_resume_loses_xstate) {
+    if (scrub == 0) {
+      _exception_xstate_unprotected = true;
+      if (FLAG_IS_DEFAULT(UseBranchLoopSafepointPolls)) {
+        FLAG_SET_DEFAULT(UseBranchLoopSafepointPolls, true);
+      }
+      log_info(os, cpu)("Loop safepoint polls branch, and C2 uses implicit null checks only where "
+                        "no AVX state can be lost");
+    }
+    if (FLAG_IS_DEFAULT(UseUpperXMMRegistersInC1)) {
+      FLAG_SET_DEFAULT(UseUpperXMMRegistersInC1, false);
+    }
+#if INCLUDE_JVMCI
+    if (EnableJVMCI) {
+      log_warning(os, cpu)("Resuming from an exception can lose AVX state: JVMCI compiled code is not "
+                           "protected (JDK-8365196)");
+    }
+#endif
+  }
+}
 
 void VM_Version::initialize() {
   ResourceMark rm;
@@ -2307,7 +2446,7 @@ void VM_Version::initialize() {
   getCPUIDBrandString_stub = CAST_TO_FN_PTR(getCPUIDBrandString_stub_t,
                                      g.generate_getCPUIDBrandString());
   exception_xstate_check_stub = CAST_TO_FN_PTR(exception_xstate_check_stub_t,
-                                     g.generate_exception_xstate_check());
+                                     g.generate_exception_xstate_check(0));
   get_processor_features();
 
   Assembler::precompute_instructions();

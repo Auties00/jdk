@@ -368,8 +368,20 @@ protected:
   static address   _cpuinfo_cont_addr;     // address of instruction after the one which causes SEGV
   static address   _cpuinfo_segv_addr_apx; // address of instruction which causes APX specific SEGV
   static address   _cpuinfo_cont_addr_apx; // address of instruction after the one which causes APX specific SEGV
-  static address   _exception_xstate_segv_addr; // address of the instruction which causes the SEGV of the XSTATE check
+  static address   _exception_xstate_segv_addr; // address of the instruction which causes the SEGV of the exception XSTATE check
   static address   _exception_xstate_cont_addr; // address of the instruction after it
+
+  // Extended processor state of the exception taken by the exception XSTATE check, as the
+  // exception handler found it: the stack pointer at the fault, and the address and length of
+  // the XSTATE part of the context (nullptr and 0 if the context has none).
+  static address   _exception_xstate_trap_sp;
+  static address   _exception_xstate_area;
+  static int       _exception_xstate_area_length;
+
+  // Outcome of the exception XSTATE check.
+  static bool      _exception_resume_loses_xstate;
+  static int       _exception_xstate_scrub_length;
+  static bool      _exception_xstate_unprotected;
 
   /*
    * Update following files when declaring new flags:
@@ -719,6 +731,11 @@ protected:
     uint32_t          zmm0to15_hi256_xstate_offset;  // EBX: offset of ZMM_Hi256 component
     uint32_t          zmm16to31_xstate_offset;       // EBX: offset of Hi16_ZMM component
 
+    // cpuid function 0xD, subleaf 0 and 1 (sizes of the XSAVE area)
+    uint32_t          xsave_size_xcr0;          // subleaf 0 EBX: features enabled in XCR0
+    uint32_t          xsave_size_max;           // subleaf 0 ECX: all supported features
+    uint32_t          xsave_size_xcr0_xss;      // subleaf 1 EBX: features enabled in XCR0 | IA32_XSS, compacted
+
     VM_Features feature_flags() const;
 
     // Asserts
@@ -758,9 +775,13 @@ private:
   static bool compute_has_intel_jcc_erratum();
 
   static bool os_supports_avx_vectors();
-  // Windows only: whether resuming from an exception can lose AVX state (JDK-8365196).
-  static bool exception_resume_loses_xstate();
   static bool os_supports_apx_egprs();
+#ifdef _WINDOWS
+  static int  exception_xstate_check_fill_size();
+  static bool run_exception_xstate_check(int scrub_length);
+  static void check_exception_xstate();
+#endif
+  static void set_exception_xstate_mitigation();
   static void get_processor_features();
   static void apply_aot_cache_cpu_features();
 
@@ -790,6 +811,9 @@ public:
   static ByteSize opmask_xstate_offset_offset() { return byte_offset_of(CpuidInfo, opmask_xstate_offset); }
   static ByteSize zmm0to15_hi256_xstate_offset_offset() { return byte_offset_of(CpuidInfo, zmm0to15_hi256_xstate_offset); }
   static ByteSize zmm16to31_xstate_offset_offset() { return byte_offset_of(CpuidInfo, zmm16to31_xstate_offset); }
+  static ByteSize xsave_size_xcr0_offset() { return byte_offset_of(CpuidInfo, xsave_size_xcr0); }
+  static ByteSize xsave_size_max_offset() { return byte_offset_of(CpuidInfo, xsave_size_max); }
+  static ByteSize xsave_size_xcr0_xss_offset() { return byte_offset_of(CpuidInfo, xsave_size_xcr0_xss); }
 
   static uint32_t apx_xstate_offset() { return _cpuid_info.apx_xstate_offset; }
   static uint32_t apx_xstate_size()   { return _cpuid_info.apx_xstate_size; }
@@ -811,6 +835,29 @@ public:
   static bool  is_exception_xstate_segv_addr(address pc) { return _exception_xstate_segv_addr == pc; }
   static void set_exception_xstate_cont_addr(address pc) { _exception_xstate_cont_addr = pc; }
   static address  exception_xstate_cont_addr()           { return _exception_xstate_cont_addr; }
+  // Called by the exception handler for the fault of the exception XSTATE check.
+  static void record_exception_xstate(address trap_sp, address xstate_area, int xstate_area_length) {
+    _exception_xstate_trap_sp = trap_sp;
+    _exception_xstate_area = xstate_area;
+    _exception_xstate_area_length = xstate_area_length;
+  }
+
+  // JDK-8365196. Some Windows builds copy the context of an exception to the stack with a routine
+  // that trusts the XSAVE header already at the destination, which is stale stack memory. A stale
+  // header that looks like a compacted one leaves out of the context the state components it does
+  // not name, and resuming from that context resets them: the upper halves of ymm/zmm, xmm16-xmm31,
+  // the opmask registers, the APX registers. The check at startup takes such an exception with a
+  // header-like value on the stack and tells whether the state survives.
+  //
+  // Whether resuming from an exception can lose extended processor state.
+  static bool exception_resume_loses_xstate() { return _exception_resume_loses_xstate; }
+  // The length L of the extended state of an exception context when compiled code clears the
+  // stale header before its trap sites (see MacroAssembler::scrub_exception_xstate_header()),
+  // otherwise 0.
+  static int exception_xstate_scrub_length() { return _exception_xstate_scrub_length; }
+  // Whether the state can be lost and the scrub is not used: loop polls then branch instead
+  // of trapping, and C2 keeps implicit null checks only where no such state can be live.
+  static bool exception_xstate_unprotected() { return _exception_xstate_unprotected; }
 
   static void set_cpuinfo_segv_addr_apx(address pc) { _cpuinfo_segv_addr_apx = pc; }
   static bool  is_cpuinfo_segv_addr_apx(address pc) { return _cpuinfo_segv_addr_apx == pc; }
