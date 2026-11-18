@@ -112,8 +112,8 @@ import jdk.incubator.vector.VectorSpecies;
 /*
  * Accumulators of -0.0 stay -0.0 under -0.0 additions; an upper lane reset by an incomplete
  * exception context becomes +0.0 and stays, so the final AND of the lanes detects any loss.
- * Before each loop, a native helper writes 0x8000000000000000 below the compiled frame's stack
- * pointer, where Windows Server 2025 reads the XSAVE header of the next exception's context.
+ * Before each loop, and every 4096 iterations in it, a native helper writes 0x8000000000000000
+ * below the compiled frame's stack pointer, where Windows Server 2025 reads the XSAVE header of the next exception's context.
  * Register spills of -0.0 vectors (GC barrier stubs, the safepoint handler) write the same value
  * there. The loop takes trapping safepoint polls (SafepointALot), GC load barriers, and, in every
  * NULL_PERIOD-th call, an implicit null check that faults and resumes in the compiled frame.
@@ -121,6 +121,7 @@ import jdk.incubator.vector.VectorSpecies;
 public class TestExceptionXStateScrub {
     static final int ITERS = 200_000;
     static final int NULL_PERIOD = 64;
+    static final int REFILL_MASK = (1 << 12) - 1;
     static final long SECONDS = Long.getLong("seconds", 10);
 
     static volatile boolean stop;
@@ -148,6 +149,10 @@ public class TestExceptionXStateScrub {
         int hmask = holders.length - 1;
         int count = 0;
         for (int i = 0; i < ITERS; i++) {
+            if ((i & REFILL_MASK) == REFILL_MASK) {
+                // A rarely taken call keeps the loop's safepoint poll.
+                ExceptionXState.fillBelowStack();
+            }
             if (refs[i & mask] != null) {
                 count++;
             }
@@ -198,6 +203,10 @@ public class TestExceptionXStateScrub {
         int hmask = holders.length - 1;
         int count = 0;
         for (int i = 0; i < ITERS; i++) {
+            if ((i & REFILL_MASK) == REFILL_MASK) {
+                // A rarely taken call keeps the loop's safepoint poll.
+                ExceptionXState.fillBelowStack();
+            }
             if (refs[i & mask] != null) {
                 count++;
             }
