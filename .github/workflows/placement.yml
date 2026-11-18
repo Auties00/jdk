@@ -1,0 +1,45 @@
+name: 'JDK-8365196 scrub6: scrub placement'
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-scrub6-placement*'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  placement:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: review6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64-debug
+          path: bundles
+          run-id: 44343210778
+          github-token: ${{ github.token }}
+      - name: 'Count scrubs per method'
+        shell: bash
+        run: |
+          mkdir jdk && tar -xzf bundles/jdk-linux-x64-debug.tar.gz -C jdk
+          bin=$(dirname "$(find jdk -name java -path '*/bin/*' | head -1)")
+          "$bin/javac" --add-modules jdk.incubator.vector -d cls review6/ScrubPlacement.java 2>&1 | grep -v warning || true
+          for mode in after traps; do
+            extra=""; [ $mode = traps ] && extra="-XX:+ScrubExceptionXStateHeaderAtTraps"
+            for m in counted uncounted withCall scalar; do
+              "$bin/java" --add-modules jdk.incubator.vector -XX:-TieredCompilation -XX:CICompilerCount=1 -XX:-UseOnStackReplacement                 -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920 $extra -XX:CompileCommand=quiet                 -XX:CompileCommand=dontinline,ScrubPlacement::callee -XX:CompileCommand=print,ScrubPlacement::$m                 -cp cls ScrubPlacement > out-$mode-$m.txt 2>&1 || true
+              echo "$mode $m: $(grep -c 'trap scrub' out-$mode-$m.txt) scrubs"
+            done
+          done | tee summary.txt
+          cat summary.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: placement
+          path: |
+            out-*.txt
+            summary.txt
