@@ -1,0 +1,113 @@
+name: 'JDK-8365196 scrub7: AssemblerX86.validate_other_vm'
+
+# Review-only. Uses the fastdebug bundles of scrub7 CI run BUILD_RUN. The gtest sets UseAVX = 3 and the
+# EVEX features at run time; on an AVX2 host a C1 compilation finishing afterwards walks 32 caller-save
+# xmm registers in RegisterVerifier while FrameMap initialized 16. Runs the gtest alone many times on
+# Server 2025 (UseUpperXMMRegistersInC1 off by default there, and forced on), Server 2022 (on) and
+# linux-x64 (on), and counts the crashes.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-scrub7-gtest*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  BUILD_RUN: 44451051334
+  RUNS: 40
+
+jobs:
+  windows:
+    name: gtest (${{ matrix.os }}, ${{ matrix.slot }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-2022]
+        slot: [1, 2, 3]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-debug
+          path: bundles
+          run-id: ${{ env.BUILD_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'Run the gtest repeatedly'
+        run: |
+          set +e
+          mkdir -p out jdk tests
+          ls bundles
+          for z in bundles/*.zip; do unzip -q -o "$z" -d jdk; done
+          for t in bundles/*.tar.gz; do tar -xzf "$t" -C tests; done
+          JDK=$(cd "$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W)
+          GT=$(find tests -name 'gtestLauncher.exe' | grep server | head -1)
+          echo "JDK=$JDK GT=$GT"
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" | tee out/build.txt
+          "$JDK/bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|UseUpperXMMRegistersInC1|ExceptionXStateLength) ' | tee out/flags.txt
+          for mode in default upper-on; do
+            o=""; [ $mode = upper-on ] && o="-XX:+UnlockDiagnosticVMOptions -XX:+UseUpperXMMRegistersInC1"
+            crash=0; pass=0
+            for i in $(seq 1 $RUNS); do
+              "$GT" -jdk:"$JDK" --gtest_filter=AssemblerX86.validate_other_vm $o > out/run-$mode-$i.txt 2>&1
+              if grep -q "should not call this otherwise" out/run-$mode-$i.txt; then crash=$((crash+1)); else rm -f out/run-$mode-$i.txt; fi
+              pass=$((pass+1))
+            done
+            echo "SUMMARY [$mode] runs=$pass c1-verifier-crashes=$crash" | tee -a out/summary.txt
+          done
+          { echo "### $(cat out/cpu.txt) | $(cat out/build.txt)"; echo '```'; cat out/flags.txt out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: gtest-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
+
+  linux:
+    name: gtest (linux, ${{ matrix.slot }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2]
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64-debug
+          path: bundles
+          run-id: ${{ env.BUILD_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'Run the gtest repeatedly'
+        run: |
+          set +e
+          mkdir -p out jdk tests
+          ls bundles
+          for t in bundles/*.tar.gz; do case "$t" in *tests*) tar -xzf "$t" -C tests;; *) tar -xzf "$t" -C jdk;; esac; done
+          JDK=$(cd "$(dirname "$(find jdk -name java -path '*/bin/*' -type f | head -1)")/.." && pwd)
+          GT=$(find tests -name 'gtestLauncher' | grep server | head -1)
+          echo "JDK=$JDK GT=$GT"
+          grep -m1 "model name" /proc/cpuinfo | sed 's/.*: //' | tee out/cpu.txt
+          "$JDK/bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|UseUpperXMMRegistersInC1) ' | tee out/flags.txt
+          crash=0
+          for i in $(seq 1 $RUNS); do
+            "$GT" -jdk:"$JDK" --gtest_filter=AssemblerX86.validate_other_vm > out/run-$i.txt 2>&1
+            if grep -q "should not call this otherwise" out/run-$i.txt; then crash=$((crash+1)); else rm -f out/run-$i.txt; fi
+          done
+          echo "SUMMARY [linux default] runs=$RUNS c1-verifier-crashes=$crash" | tee -a out/summary.txt
+          { echo "### $(cat out/cpu.txt)"; echo '```'; cat out/flags.txt out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: gtest-linux-${{ matrix.slot }}
+          path: out
+          retention-days: 30
