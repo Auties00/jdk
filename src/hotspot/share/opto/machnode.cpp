@@ -726,7 +726,7 @@ void MachTrapScrubNode::format(PhaseRegAlloc*, outputStream* st) const {
   if (_check) {
     st->print("trap scrub check\t# verify that no stale exception context header is below");
   } else {
-    st->print("trap scrub\t# clear the stale exception context header");
+    st->print("trap scrub%s\t# clear the stale exception context header", _after_call ? " after call" : "");
   }
 }
 #endif
