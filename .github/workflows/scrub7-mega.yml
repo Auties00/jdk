@@ -1,0 +1,108 @@
+name: 'JDK-8365196 scrub7: vectorLoopMegamorphicCall'
+
+# Review-only. Uses the bundles of scrub7 CI run BUILD_RUN (nothing is rebuilt). On each Server 2025
+# VM: R3Bench.vectorLoopMegamorphicCall, vectorLoopStaticCall and vectorLoopNoCall with 5 forks of
+# 5 warmup and 10 measurement iterations, base (B), fix (S) and the scrub before each trap (T)
+# interleaved in rotated order over 6 rounds, plus B and S with other code alignments (BA, SA) to
+# see whether the differences follow the code layout. One VM also prints the C2 code of the loops.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-scrub7-mega*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  BUILD_RUN: 44416410474
+
+jobs:
+  mega:
+    name: mega (${{ matrix.slot }})
+    runs-on: windows-2025
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: bundles
+          run-id: ${{ env.BUILD_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-base
+          path: bundles-base
+          run-id: ${{ env.BUILD_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-debug
+          path: bundles-debug
+          run-id: ${{ env.BUILD_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review3
+            review8
+      - name: 'Interleaved JMH and generated code'
+        run: |
+          set +e
+          mkdir -p out jdk base dbg
+          unzip -q bundles/jdk-windows-x64.zip -d jdk; unzip -q bundles-base/jdk-windows-x64.zip -d base
+          for z in bundles-debug/*.zip; do unzip -q -o "$z" -d dbg; done
+          bin=$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")
+          basebin=$(dirname "$(find base -name java.exe -path '*/bin/*' | head -1)")
+          dbgbin=$(dirname "$(find dbg -name java.exe -path '*/bin/*' | head -1)")
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          "$bin/java" -Xlog:os+cpu=info -version 2>&1 | grep -i -E "exception|xstate" | tee out/jvm-detect.txt
+          "$bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|ExceptionXStateLength) ' | tee out/flags.txt
+          m2=https://repo1.maven.org/maven2
+          for a in org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar; do
+            curl -sfL -o "lib-$(basename $a)" "$m2/$a" || echo "download failed: $a"
+          done
+          cp="lib-jmh-core-1.37.jar;lib-jopt-simple-5.0.4.jar;lib-commons-math3-3.6.1.jar"
+          "$basebin/javac" --add-modules jdk.incubator.vector -proc:full -cp "$cp;lib-jmh-generator-annprocess-1.37.jar" -d jmhc src/review3/R3Bench.java src/review8/MegaDriver.java 2>&1 | grep -v -i warning | tail -5
+          # Generated code of the two call loops, fix (after writers) and scrub before traps.
+          L=$(grep ExceptionXStateLength out/flags.txt | awk '{print $4}')
+          for m in S T; do
+            o=""; [ $m = T ] && o="-XX:+ScrubExceptionXStateHeaderAtTraps"
+            "$dbgbin/java" --add-modules jdk.incubator.vector -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=$L $o \
+              -XX:CompileCommand=option,review3.R3Bench::vectorLoop*,PrintOptoAssembly -XX:CompileCommand=quiet \
+              -cp "jmhc;$cp" review8.MegaDriver > out/code-$m.txt 2>&1
+          done
+          declare -A JAVA FLAGS
+          JAVA[B]="$basebin/java"; FLAGS[B]=""
+          JAVA[S]="$bin/java"; FLAGS[S]=""
+          JAVA[T]="$bin/java"; FLAGS[T]="-XX:+UnlockDiagnosticVMOptions -XX:+ScrubExceptionXStateHeaderAtTraps"
+          JAVA[BA]="$basebin/java"; FLAGS[BA]="-XX:CodeEntryAlignment=64 -XX:OptoLoopAlignment=32"
+          JAVA[SA]="$bin/java"; FLAGS[SA]="-XX:CodeEntryAlignment=64 -XX:OptoLoopAlignment=32"
+          for round in 1 2 3 4 5 6; do
+            case $round in
+              1) order="B S T BA SA";; 2) order="S T BA SA B";; 3) order="T BA SA B S";;
+              4) order="BA SA B S T";; 5) order="SA B S T BA";; 6) order="B T S SA BA";;
+            esac
+            for c in $order; do
+              "${JAVA[$c]}" -cp "jmhc;$cp" org.openjdk.jmh.Main -jvmArgsAppend "--add-modules jdk.incubator.vector ${FLAGS[$c]}" \
+                -rf csv -rff "out/jmh-$c-$round.csv" -f 5 -wi 5 -i 10 -w 1 -r 1 \
+                "review3.R3Bench.(vectorLoopMegamorphicCall|vectorLoopStaticCall|vectorLoopNoCall)" > "out/jmh-$c-$round.log" 2>&1
+              tail -6 "out/jmh-$c-$round.log"
+            done
+          done
+          echo done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: mega-${{ matrix.slot }}
+          path: out
+          retention-days: 30
