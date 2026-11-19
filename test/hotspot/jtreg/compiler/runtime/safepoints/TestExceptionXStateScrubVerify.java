@@ -28,7 +28,7 @@
  *          VerifyExceptionXStateScrub before every protected C2 trap site find the place clear:
  *          no instruction that writes deep below the stack pointer was left without a scrub.
  * @requires os.arch == "amd64" | os.arch == "x86_64"
- * @requires vm.debug & vm.compiler2.enabled & vm.gc.G1
+ * @requires vm.debug & vm.compiler2.enabled & vm.gc.G1 & vm.flagless
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
@@ -42,7 +42,7 @@
  * @test id=Serial
  * @bug 8365196
  * @requires os.arch == "amd64" | os.arch == "x86_64"
- * @requires vm.debug & vm.compiler2.enabled & vm.gc.Serial
+ * @requires vm.debug & vm.compiler2.enabled & vm.gc.Serial & vm.flagless
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
@@ -57,7 +57,7 @@
  * @test id=Parallel
  * @bug 8365196
  * @requires os.arch == "amd64" | os.arch == "x86_64"
- * @requires vm.debug & vm.compiler2.enabled & vm.gc.Parallel
+ * @requires vm.debug & vm.compiler2.enabled & vm.gc.Parallel & vm.flagless
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
@@ -72,7 +72,7 @@
  * @test id=Z
  * @bug 8365196
  * @requires os.arch == "amd64" | os.arch == "x86_64"
- * @requires vm.debug & vm.compiler2.enabled & vm.gc.Z
+ * @requires vm.debug & vm.compiler2.enabled & vm.gc.Z & vm.flagless
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
@@ -86,7 +86,7 @@
  * @test id=Shenandoah
  * @bug 8365196
  * @requires os.arch == "amd64" | os.arch == "x86_64"
- * @requires vm.debug & vm.compiler2.enabled & vm.gc.Shenandoah
+ * @requires vm.debug & vm.compiler2.enabled & vm.gc.Shenandoah & vm.flagless
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
@@ -100,7 +100,7 @@
  * @test id=at-traps
  * @bug 8365196
  * @requires os.arch == "amd64" | os.arch == "x86_64"
- * @requires vm.debug & vm.compiler2.enabled
+ * @requires vm.debug & vm.compiler2.enabled & vm.flagless
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
@@ -113,10 +113,10 @@
 /*
  * @test id=opto-scheduling
  * @bug 8365196
- * @summary The scrub stays in place under OptoScheduling, which could move it past the trap it
- *          protects: PhaseOutput::verify_trap_scrubs() checks the order after scheduling.
+ * @summary OptoScheduling is turned off where scrubs are placed, so it cannot move a scrub past
+ *          the trap it protects; TrapScrubs::verify() checks the order after scheduling.
  * @requires os.arch == "amd64" | os.arch == "x86_64"
- * @requires vm.debug & vm.compiler2.enabled
+ * @requires vm.debug & vm.compiler2.enabled & vm.flagless
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
@@ -130,7 +130,7 @@
  * @test id=opto-scheduling-at-traps
  * @bug 8365196
  * @requires os.arch == "amd64" | os.arch == "x86_64"
- * @requires vm.debug & vm.compiler2.enabled
+ * @requires vm.debug & vm.compiler2.enabled & vm.flagless
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
@@ -138,6 +138,24 @@
  *      -XX:+VerifyExceptionXStateScrub -XX:+ScrubExceptionXStateHeaderAtTraps -XX:+OptoScheduling -XX:-TieredCompilation
  *      -XX:-UseSuperWord -XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee
  *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify
+ */
+
+/*
+ * @test id=connector
+ * @bug 8365196
+ * @summary The scrub after a call whose return block is empty (a call in an arm of an if or a
+ *          switch, merging into a join) is placed where it runs, not in the empty connector block
+ *          that the code layout skips: the check before the vector loop after the join stops the
+ *          VM otherwise, deterministically and on any OS.
+ * @requires os.arch == "amd64" | os.arch == "x86_64"
+ * @requires vm.debug & vm.compiler2.enabled & vm.flagless
+ * @modules jdk.incubator.vector java.base/jdk.internal.misc
+ * @library /test/lib /
+ * @build compiler.runtime.safepoints.ExceptionXState
+ * @run main/othervm/native -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
+ *      -XX:+VerifyExceptionXStateScrub -XX:-TieredCompilation -XX:+UseCountedLoopSafepoints
+ *      -XX:LoopStripMiningIter=1000
+ *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify connector
  */
 
 /*
@@ -213,6 +231,97 @@ public class TestExceptionXStateScrubVerify {
         return r.lane(0) == Long.MIN_VALUE ? 0 : 1;
     }
 
+    // A call in each arm of an if, or in one arm, or in each arm of a switch, then vector state live
+    // across a loop with implicit null checks and a poll. The return block of each call is empty,
+    // so it is a connector by the time scrubs are placed; the native calls leave
+    // 0x8000000000000000 where the header would be read. The loop is written out in each kernel
+    // so that the vectors are live in the kernel's own frame.
+    static long joinBoth(double neg, boolean c, Holder[] hs) {
+        if (c) {
+            ExceptionXState.fillBelowStack();
+        } else {
+            ExceptionXState.fillBelowStack();
+        }
+        DoubleVector v = DoubleVector.broadcast(S256, neg);
+        DoubleVector a0 = v, a1 = v, a2 = v, a3 = v;
+        int count = 0, m = hs.length - 1;
+        for (int i = 0; i < 4000; i++) {
+            try {
+                count += hs[i & m].x;
+            } catch (NullPointerException e) {
+                count--;
+            }
+            a0 = a0.add(v); a1 = a1.add(v); a2 = a2.add(v); a3 = a3.add(v);
+        }
+        sink = count;
+        LongVector r = a0.reinterpretAsLongs().and(a1.reinterpretAsLongs())
+                         .and(a2.reinterpretAsLongs()).and(a3.reinterpretAsLongs());
+        return r.lane(0) == Long.MIN_VALUE ? 0 : 1;
+    }
+
+    static long joinOne(double neg, boolean c, Holder[] hs) {
+        if (c) {
+            ExceptionXState.fillBelowStack();
+        }
+        DoubleVector v = DoubleVector.broadcast(S256, neg);
+        DoubleVector a0 = v, a1 = v, a2 = v, a3 = v;
+        int count = 0, m = hs.length - 1;
+        for (int i = 0; i < 4000; i++) {
+            try {
+                count += hs[i & m].x;
+            } catch (NullPointerException e) {
+                count--;
+            }
+            a0 = a0.add(v); a1 = a1.add(v); a2 = a2.add(v); a3 = a3.add(v);
+        }
+        sink = count;
+        LongVector r = a0.reinterpretAsLongs().and(a1.reinterpretAsLongs())
+                         .and(a2.reinterpretAsLongs()).and(a3.reinterpretAsLongs());
+        return r.lane(0) == Long.MIN_VALUE ? 0 : 1;
+    }
+
+    static long joinSwitch(double neg, int k, Holder[] hs) {
+        switch (k % 3) {
+            case 0 -> ExceptionXState.fillBelowStack();
+            case 1 -> ExceptionXState.fillBelowStack();
+            default -> ExceptionXState.fillBelowStack();
+        }
+        DoubleVector v = DoubleVector.broadcast(S256, neg);
+        DoubleVector a0 = v, a1 = v, a2 = v, a3 = v;
+        int count = 0, m = hs.length - 1;
+        for (int i = 0; i < 4000; i++) {
+            try {
+                count += hs[i & m].x;
+            } catch (NullPointerException e) {
+                count--;
+            }
+            a0 = a0.add(v); a1 = a1.add(v); a2 = a2.add(v); a3 = a3.add(v);
+        }
+        sink = count;
+        LongVector r = a0.reinterpretAsLongs().and(a1.reinterpretAsLongs())
+                         .and(a2.reinterpretAsLongs()).and(a3.reinterpretAsLongs());
+        return r.lane(0) == Long.MIN_VALUE ? 0 : 1;
+    }
+
+    static void connector(long millis) {
+        Holder[] hs = new Holder[256];
+        for (int i = 0; i < hs.length; i++) {
+            hs[i] = new Holder();
+        }
+        Holder[] withNull = hs.clone();
+        withNull[7] = null;
+        long end = System.nanoTime() + millis * 1_000_000L;
+        long calls = 0;
+        while (System.nanoTime() < end) {
+            Holder[] h = (calls & 63) == 63 ? withNull : hs;
+            sink = joinBoth(-0.0, (calls & 1) == 0, h);
+            sink = joinOne(-0.0, (calls & 1) == 0, h);
+            sink = joinSwitch(-0.0, (int) calls, h);
+            calls++;
+        }
+        System.out.println("connector calls=" + calls);
+    }
+
     // Vector state live across a loop with a call in it (the scrub after the call).
     static double vectorCallKernel(double neg, double[] a) {
         DoubleVector acc = DoubleVector.broadcast(S256, neg);
@@ -283,6 +392,8 @@ public class TestExceptionXStateScrubVerify {
                 sinkD = vectorCallKernel(-0.0, data);
                 r += scalarSinKernel(r * 1e-300, 1000);
                 r += rawKernel(r * 1e-300, addr, 1000);
+                sink = joinBoth(-0.0, (calls & 1) == 0, holders);
+                sink = joinSwitch(-0.0, (int) calls, holders);
             }
             calls++;
         }
@@ -294,6 +405,10 @@ public class TestExceptionXStateScrubVerify {
     public static void main(String[] args) throws Exception {
         if (args.length > 0 && args[0].equals("negative")) {
             negative();
+            return;
+        }
+        if (args.length > 0 && args[0].equals("connector")) {
+            connector(Long.getLong("millis", 8000));
             return;
         }
         if (args.length > 0 && args[0].equals("child")) {

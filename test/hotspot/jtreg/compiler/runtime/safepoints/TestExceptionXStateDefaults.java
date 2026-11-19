@@ -27,8 +27,8 @@
  * @summary The startup check of whether resuming from an exception can lose AVX state agrees with
  *          an independent native probe, and selects the mitigation: the scrub of the stale
  *          exception context header at the length the probe measures, or, without the scrub,
- *          no state that can be lost (UseAVX at most 2, MaxVectorSize at most 16). C1 avoids
- *          xmm16-xmm31 where state can be lost.
+ *          no state that can be lost (UseAVX at most 2, MaxVectorSize at most 16, with a
+ *          warning when that overrides the command line). APX is off where state can be lost.
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.flagless
  * @library /test/lib /
@@ -90,11 +90,10 @@ public class TestExceptionXStateDefaults {
         boolean jvmKeeps = out.getStdout().contains(KEEPS);
 
         if (!(Platform.isWindows() && useAVX > 0)) {
-            // The check runs on Windows with AVX (or APX) only.
+            // The check runs on Windows with AVX only.
             if (jvmLoses || jvmKeeps) {
                 throw new RuntimeException("startup check ran with UseAVX = " + useAVX);
             }
-            expect(out, "UseUpperXMMRegistersInC1", true);
             expect(out, "ExceptionXStateLength", 0);
             return;
         }
@@ -109,12 +108,11 @@ public class TestExceptionXStateDefaults {
         }
 
         if (!jvmLoses) {
-            expect(out, "UseUpperXMMRegistersInC1", true);
             expect(out, "ExceptionXStateLength", 0);
             return;
         }
 
-        expect(out, "UseUpperXMMRegistersInC1", false);
+        expect(out, "UseAPX", false);
         int length = intFlag(out, "ExceptionXStateLength");
         if (probe.loses() && probe.scrubWorks()) {
             // The JVM measures the same context length and protects its traps with the scrub.
@@ -129,7 +127,12 @@ public class TestExceptionXStateDefaults {
         expect(noScrub, "ExceptionXStateLength", 0);
         checkCapped(noScrub);
 
-        expect(flags("-XX:+UseUpperXMMRegistersInC1"), "UseUpperXMMRegistersInC1", true);
+        // An explicit UseAVX=3 that the cap overrides is reported.
+        if (useAVX == 3) {
+            OutputAnalyzer explicit = flags("-XX:-ScrubExceptionXStateHeader", "-XX:UseAVX=3");
+            expect(explicit, "UseAVX", 2);
+            explicit.shouldContain("UseAVX=3 reduced to 2");
+        }
 
         // Without AVX there is no state to lose, and no check.
         OutputAnalyzer noAvx = flags("-XX:UseAVX=0");
