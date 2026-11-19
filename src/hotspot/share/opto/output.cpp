@@ -325,7 +325,9 @@ void PhaseOutput::Output() {
 
   const TrapScrubPlatform* trap_scrub = Matcher::trap_scrub();
   if (trap_scrub != nullptr) {
-    DEBUG_ONLY(_trap_scrub_hot_traps = new (C->comp_arena()) GrowableArray<Node*>(C->comp_arena(), 8, 0, nullptr);)
+#ifdef ASSERT
+    _trap_scrub_hot_traps = new (C->comp_arena()) GrowableArray<Node*>(C->comp_arena(), 8, 0, nullptr);
+#endif
     TrapScrubs::insert(C, trap_scrub, DEBUG_ONLY(_trap_scrub_hot_traps) NOT_DEBUG(nullptr));
     if (C->failing()) return;
   }
