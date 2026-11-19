@@ -524,9 +524,9 @@ static bool is_trap_scrub(const Node* n, bool check) {
 // The place can only become dirty at a writer (is_trap_scrub_writer()), so a MachTrapScrubNode
 // goes right after each writer from which a hot trap is reachable without passing another
 // writer: a backward dataflow over the CFG. A loop without calls then has no scrub inside it,
-// whatever traps it contains. A hot trap that runs less often than the writers it can be reached
-// from gets the scrub right before it instead (by block frequency), so that a loop that calls out
-// on every iteration runs no scrub for a trap after the loop. With Matcher::trap_scrub_at_traps()
+// whatever traps it contains. A hot trap whose own scrub costs less, by block frequency, than
+// those of the writers it can be reached from gets the scrub right before it instead, so that a
+// loop that calls out on every iteration runs no scrub for a trap after the loop. With Matcher::trap_scrub_at_traps()
 // (or where a writer ends its block) the scrub goes right before each hot trap instead. With Matcher::trap_scrub_verify(), a
 // check goes right before each hot trap as well.
 void PhaseOutput::insert_trap_scrubs() {
@@ -656,9 +656,11 @@ void PhaseOutput::insert_trap_scrubs() {
   GrowableArray<Node*> after;
   bool at_traps = Matcher::trap_scrub_at_traps();
 
-  // A hot trap that runs less often than the writers it can be reached from (the poll of the
-  // outer strip-mined loop around a loop that calls out, for example) gets its own scrub right
-  // before it, and the writers no scrub for its sake.
+  // A hot trap whose own scrub costs less than the scrubs of the writers it can be reached from
+  // (the poll of the outer strip-mined loop around a loop that calls out, for example) gets its
+  // own scrub right before it, and the writers no scrub for its sake. Costs are frequencies
+  // weighted by code: a scrub after a call computes the position and stores once, the others
+  // store four times.
   VectorSet local;
   if (!at_traps) {
     VectorSet seen;
@@ -666,11 +668,12 @@ void PhaseOutput::insert_trap_scrubs() {
     for (int i = 0; i < hot_traps.length(); i++) {
       Node* trap = hot_traps.at(i);
       Block* trap_block = cfg->get_block_for_node(trap);
-      double writer_freq = 0;
+      double writer_cost = 0;
+      const double trap_cost = 4 * trap_block->_freq;
       auto scan = [&](Block* block, int from) {
         for (int j = from; j >= 0; j--) {
           if (is_trap_scrub_writer(block->get_node(j))) {
-            writer_freq += block->_freq;
+            writer_cost += block->_freq * (block->get_node(j)->is_MachCall() ? 2 : 4);
             return;
           }
         }
@@ -681,13 +684,13 @@ void PhaseOutput::insert_trap_scrubs() {
       seen.clear();
       work.clear();
       scan(trap_block, (int)trap_block->find_node(trap) - 1);
-      while (work.is_nonempty() && writer_freq <= trap_block->_freq) {
+      while (work.is_nonempty() && writer_cost <= trap_cost) {
         Block* block = work.pop();
         if (!seen.test_set(block->_pre_order)) {
           scan(block, (int)block->number_of_nodes() - 1);
         }
       }
-      if (trap_block->_freq < writer_freq) {
+      if (trap_cost < writer_cost) {
         local.set(trap->_idx);
         hot.remove(trap->_idx);
       }
