@@ -1,0 +1,96 @@
+name: 'JDK-8365196 scrub7: ScopedValue StressStackOverflow'
+
+# Review-only. java/lang/ScopedValue/StressStackOverflow.java#default died with STATUS_STACK_OVERFLOW
+# (0xC00000FD) in tier1 windows-2025 of run NEW_RUN. Runs it repeatedly on Server 2025 VMs with the
+# fix (NEW_RUN), the previous fix (OLD_RUN, four stores after calls), the unpatched base, and the fix
+# without the scrub, and records the CPU and the measured L.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-scrub7-sso3*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  NEW_RUN: 44470674699
+  OLD_RUN: 44416410474
+  RUNS: 10
+
+jobs:
+  sso:
+    name: sso (${{ matrix.os }}, ${{ matrix.slot }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025]
+        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-jtreg-8.3+1
+          path: jtreg/installed
+          run-id: ${{ env.OLD_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-new
+          run-id: ${{ env.NEW_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-old
+          run-id: ${{ env.OLD_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-base
+          path: b-base
+          run-id: ${{ env.OLD_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'Run the test repeatedly'
+        run: |
+          set +e
+          mkdir -p out new old base
+          unzip -q b-new/jdk-windows-x64.zip -d new; unzip -q b-old/jdk-windows-x64.zip -d old; unzip -q b-base/jdk-windows-x64.zip -d base
+          home() { cd "$(dirname "$(find $1 -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W; }
+          NEW=$(home new); OLD=$(home old); BASE=$(home base)
+          JT="$(pwd -W)/jtreg/installed"
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" | tee out/build.txt
+          "$NEW/bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|ExceptionXStateLength|StackShadowPages|StackYellowPages|StackRedPages|StackReservedPages) ' | tee out/flags.txt
+          run() {
+            local tag=$1 jdk=$2 opts=$3 fail=0 names=""
+            for i in $(seq 1 $RUNS); do
+              "$jdk/bin/java" -jar "$JT/lib/jtreg.jar" -jdk:"$jdk" -w "wk/$tag-$i" -r "rp/$tag-$i" -verbose:summary -timeoutFactor:4                 -vmoptions:"-Xmx768m -XX:MaxRAMPercentage=25 -XX:-CreateCoredumpOnCrash $opts" -javaoptions:"-ea -esa"                 'test/jdk/java/lang/ScopedValue/StressStackOverflow.java' > "out/$tag-$i.txt" 2>&1
+              n=$(grep -c -E '^(FAILED|Error): ' "out/$tag-$i.txt")
+              if [ "$n" -ne 0 ]; then
+                fail=$((fail+n)); names="$names $(grep -E '^(FAILED|Error): ' "out/$tag-$i.txt" | sed 's/.*#//' | tr '
+' ' ')"
+                mkdir -p "out/jtr/$tag-$i"; find "wk/$tag-$i" -name '*.jtr' -exec cp {} "out/jtr/$tag-$i/" \;
+              else rm -f "out/$tag-$i.txt"; fi
+            done
+            echo "SUMMARY [$tag] runs=$RUNS (x4 ids) failed=$fail :$names" | tee -a out/summary.txt
+          }
+          run new "$NEW" ""
+          run old "$OLD" ""
+          run base "$BASE" ""
+          run new-noscrub "$NEW" "-XX:+UnlockDiagnosticVMOptions -XX:-ScrubExceptionXStateHeader"
+          { echo "### $(cat out/cpu.txt) | $(cat out/build.txt)"; echo '```'; cat out/flags.txt out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: sso-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
