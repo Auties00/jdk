@@ -2610,6 +2610,14 @@ int MacroAssembler::scrub_exception_xstate_header_size(int length, int sp_offset
   return size;
 }
 
+void MacroAssembler::scrub_exception_xstate_header(Register tmp, int length) {
+  assert(length > 0, "no scrub");
+  // The XCOMP_BV of the header at (rsp - length) & -64.
+  lea(tmp, Address(rsp, -length));
+  andptr(tmp, -64);
+  movslq(Address(tmp, 8), 0);
+}
+
 void MacroAssembler::scrub_exception_xstate_header_if_enabled(int sp_offset) {
   int length = VM_Version::exception_xstate_scrub_length();
   if (length > 0) {

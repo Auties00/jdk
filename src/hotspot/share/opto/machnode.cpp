@@ -735,12 +735,12 @@ void MachTrapScrubNode::emit(C2_MacroAssembler* masm, PhaseRegAlloc* ra_) const 
   if (_check) {
     Matcher::emit_trap_scrub_check(masm);
   } else {
-    Matcher::emit_trap_scrub(masm);
+    Matcher::emit_trap_scrub(masm, _after_call);
   }
 }
 
 uint MachTrapScrubNode::size(PhaseRegAlloc* ra_) const {
-  return _check ? MachNode::size(ra_) : Matcher::trap_scrub_size();
+  return (_check || _after_call) ? MachNode::size(ra_) : Matcher::trap_scrub_size();
 }
 
 const Pipeline* MachTrapScrubNode::pipeline() const {

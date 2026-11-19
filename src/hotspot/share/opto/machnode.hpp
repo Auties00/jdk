@@ -647,8 +647,9 @@ public:
 // codes, and it must not be moved (Scheduling leaves its block alone).
 class MachTrapScrubNode : public MachIdealNode {
   const bool _check;
+  const bool _after_call; // right after a call: may use the registers the call does not preserve
 public:
-  MachTrapScrubNode(bool check = false) : _check(check) {}
+  MachTrapScrubNode(bool check = false, bool after_call = false) : _check(check), _after_call(after_call) {}
   bool is_check() const { return _check; }
   virtual bool is_trap_scrub() const { return true; }
   virtual void emit(C2_MacroAssembler *masm, PhaseRegAlloc *ra_) const;

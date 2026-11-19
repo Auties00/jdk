@@ -787,6 +787,8 @@ public:
   // The scrub where it is in use (see VM_Version::exception_xstate_scrub_length()), else nothing:
   // for the slow paths that call out and then continue in a compiled frame.
   void scrub_exception_xstate_header_if_enabled(int sp_offset = 0);
+  // The same with one store, where tmp and the condition codes are free.
+  void scrub_exception_xstate_header(Register tmp, int length = VM_Version::exception_xstate_scrub_length());
   // VerifyExceptionXStateScrub: stops the VM if the stale header position for an exception at
   // this instruction holds a compacted XSAVE header that leaves out a component that can be lost.
   // Keeps every register and the flags; writes three words below the stack pointer.

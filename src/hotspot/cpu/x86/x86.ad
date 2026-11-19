@@ -2697,8 +2697,14 @@ bool Matcher::trap_scrub_verify() {
   return VerifyExceptionXStateScrub;
 }
 
-void Matcher::emit_trap_scrub(C2_MacroAssembler* masm) {
-  masm->scrub_exception_xstate_header();
+void Matcher::emit_trap_scrub(C2_MacroAssembler* masm, bool after_call) {
+  if (after_call) {
+    // r10 and the flags hold nothing right after a call: they are not preserved across it, and
+    // the call returns nothing in them.
+    masm->scrub_exception_xstate_header(r10);
+  } else {
+    masm->scrub_exception_xstate_header();
+  }
 }
 
 uint Matcher::trap_scrub_size() {

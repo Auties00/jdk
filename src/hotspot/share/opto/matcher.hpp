@@ -468,8 +468,9 @@ public:
   static bool trap_scrub_at_traps();
   // Whether to check, right before each such trap site, that the place is clear.
   static bool trap_scrub_verify();
-  // Emit the scrub (no register used, condition codes kept) and the check.
-  static void emit_trap_scrub(C2_MacroAssembler* masm);
+  // Emit the scrub (no register used, condition codes kept, unless after_call: then right after
+  // a call, where the registers the call does not preserve hold nothing) and the check.
+  static void emit_trap_scrub(C2_MacroAssembler* masm, bool after_call);
   static uint trap_scrub_size();
   static void emit_trap_scrub_check(C2_MacroAssembler* masm);
 

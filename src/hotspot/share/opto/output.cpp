@@ -796,13 +796,15 @@ void PhaseOutput::insert_trap_scrubs() {
           continue;
         }
         scrubbed_at_start.set(succ->_pre_order);
-        MachTrapScrubNode* scrub = new MachTrapScrubNode();
+        // Only the call reaches a block with no other predecessor.
+        bool after_call = writer->is_MachCall() && succ->num_preds() == 2;
+        MachTrapScrubNode* scrub = new MachTrapScrubNode(false /* check */, after_call);
         succ->insert_node(scrub, start);
         cfg->map_node_to_block(scrub, succ);
       }
       continue;
     }
-    MachTrapScrubNode* scrub = new MachTrapScrubNode();
+    MachTrapScrubNode* scrub = new MachTrapScrubNode(false /* check */, writer->is_MachCall());
     block->insert_node(scrub, k);
     cfg->map_node_to_block(scrub, block);
   }

@@ -3049,7 +3049,7 @@ bool Matcher::trap_loses_register(OptoReg::Name reg, uint ideal) { return false;
 bool Matcher::trap_scrub_writer(const MachNode* n)               { return false; }
 bool Matcher::trap_scrub_at_traps()                              { return false; }
 bool Matcher::trap_scrub_verify()                                { return false; }
-void Matcher::emit_trap_scrub(C2_MacroAssembler* masm)           { ShouldNotCallThis(); }
+void Matcher::emit_trap_scrub(C2_MacroAssembler* masm, bool after_call) { ShouldNotCallThis(); }
 uint Matcher::trap_scrub_size()                                  { ShouldNotCallThis(); return 0; }
 void Matcher::emit_trap_scrub_check(C2_MacroAssembler* masm)     { ShouldNotCallThis(); }
 #endif
