@@ -1,0 +1,147 @@
+name: 'JDK-8365196 review5: scrub in an empty return block'
+
+# Review-only (review5). R5Conn: calls whose return block is empty (a connector block after
+# PhaseCFG::remove_empty_blocks), then a loop with vector state live across trapping polls.
+# Windows Server 2025: release fix vs unpatched base (wrong results), and the fastdebug fix with
+# VerifyExceptionXStateScrub at the natural length. Linux: fastdebug fix with the length forced
+# and the check on.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-review5-conn*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  NEW_RUN: 44470674699
+  OLD_RUN: 44416410474
+  KERNELS: 'both one sw inloop'
+
+jobs:
+  windows:
+    name: windows (${{ matrix.os }}, ${{ matrix.slot }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2025, slot: 1 }
+          - { os: windows-2025, slot: 2 }
+          - { os: windows-2025, slot: 3 }
+          - { os: windows-2025, slot: 4 }
+          - { os: windows-2025, slot: 5 }
+          - { os: windows-2025, slot: 6 }
+          - { os: windows-2022, slot: 1 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            review5
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-new
+          run-id: ${{ env.NEW_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-debug
+          path: b-dbg
+          run-id: ${{ env.NEW_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-base
+          path: b-base
+          run-id: ${{ env.OLD_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'Run'
+        run: |
+          set +e
+          mkdir -p out new dbg base
+          unzip -q b-new/jdk-windows-x64.zip -d new; unzip -q b-base/jdk-windows-x64.zip -d base
+          unzip -q "$(ls b-dbg/jdk-windows-x64*debug*.zip | grep -v symbols | head -1)" -d dbg
+          home() { cd "$(dirname "$(find $1 -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W; }
+          NEW=$(home new); BASE=$(home base); DBG=$(home dbg)
+          echo "new=$NEW base=$BASE dbg=$DBG" > out/jdks.txt
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" > out/cpu.txt
+          cd review5/java
+          cmd //c "$(pwd -W)\\..\\probe\\build.cmd" > ../../out/build-probe.txt 2>&1
+          cat > jbuild.cmd <<EOF
+          @echo off
+          set "VSWHERE=C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          for /f "usebackq tokens=*" %%i in (\`call "%%VSWHERE%%" -latest -products * -property installationPath\`) do set "VSDIR=%%i"
+          call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" >nul
+          cl /nologo /O2 /LD /I"$NEW\include" /I"$NEW\include\win32" r5jni.c /link /OUT:r5jni.dll
+          EOF
+          cmd //c "$(pwd -W)\\jbuild.cmd" > ../../out/build-jni.txt 2>&1
+          JNI="$(pwd -W)/r5jni.dll"
+          cd ../..
+          review5/probe/xprobe.exe | grep -E '^(cpu|xcr0|A L=)' > out/probe.txt
+          common="--add-modules jdk.incubator.vector -Dr5.jni=$JNI -XX:-TieredCompilation -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1"
+          for k in $KERNELS; do
+            for tag in NEW BASE; do
+              j=${!tag}
+              "$j/bin/java" $common review5/java/R5Conn.java $k 10000 > out/$k-$tag.txt 2>&1
+              echo "[$k $tag exit=$?] $(grep R5CONN out/$k-$tag.txt)" >> out/summary.txt
+            done
+            "$DBG/bin/java" $common -XX:+VerifyExceptionXStateScrub -XX:-CreateCoredumpOnCrash review5/java/R5Conn.java $k 10000 > out/$k-DBG.txt 2>&1
+            echo "[$k DBG-verify exit=$?] $(grep R5CONN out/$k-DBG.txt) $(grep -o 'stale XSAVE header[^:]*' out/$k-DBG.txt | head -1)" >> out/summary.txt
+            "$DBG/bin/java" $common -XX:CompileCommand=quiet -XX:CompileCommand=option,R5Conn::$( [ $k = inloop ] && echo inLoop || echo $k ),PrintOptoAssembly review5/java/R5Conn.java $k 3000 > out/$k-opto.txt 2>&1
+          done
+          { echo "### ${{ matrix.os }} slot ${{ matrix.slot }}: $(cat out/cpu.txt)"; echo '```'; cat out/probe.txt out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: conn-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
+
+  linux:
+    name: linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            review5
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64-debug
+          path: b-dbg
+          run-id: ${{ env.NEW_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'Run'
+        run: |
+          set +e
+          mkdir -p out dbg
+          tar -xzf "$(ls b-dbg/jdk-linux-x64*debug*.tar.gz | grep -v symbols | head -1)" -C dbg
+          DBG=$(cd "$(dirname "$(find dbg -name java -path '*/bin/*' -type f | head -1)")/.." && pwd)
+          gcc -O2 -shared -fPIC -I"$DBG/include" -I"$DBG/include/linux" -o review5/java/libr5jni.so review5/java/r5jni.c 2> out/build-jni.txt
+          grep -m1 'model name' /proc/cpuinfo > out/cpu.txt
+          common="--add-modules jdk.incubator.vector -Dr5.jni=$(pwd)/review5/java/libr5jni.so -XX:-TieredCompilation -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920 -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1"
+          for k in $KERNELS; do
+            "$DBG/bin/java" $common -XX:+VerifyExceptionXStateScrub -XX:-CreateCoredumpOnCrash review5/java/R5Conn.java $k 8000 > out/$k-verify.txt 2>&1
+            echo "[$k verify exit=$?] $(grep R5CONN out/$k-verify.txt) $(grep -o 'stale XSAVE header[^:]*' out/$k-verify.txt | head -1)" >> out/summary.txt
+            "$DBG/bin/java" $common -XX:CompileCommand=quiet -XX:CompileCommand=option,R5Conn::$( [ $k = inloop ] && echo inLoop || echo $k ),PrintOptoAssembly review5/java/R5Conn.java $k 3000 > out/$k-opto.txt 2>&1
+          done
+          { echo "### linux: $(cat out/cpu.txt)"; echo '```'; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: conn-linux
+          path: out
+          retention-days: 30

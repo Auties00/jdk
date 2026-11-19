@@ -29,6 +29,7 @@ on:
   push:
     branches-ignore:
       - pr/*
+      - JDK-8365196-review5-*
   workflow_dispatch:
     inputs:
       platforms:
