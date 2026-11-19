@@ -25,10 +25,13 @@
 #include "libadt/vectset.hpp"
 #include "memory/resourceArea.hpp"
 #include "opto/block.hpp"
+#include "opto/cfgnode.hpp"
 #include "opto/compile.hpp"
 #include "opto/machnode.hpp"
+#include "opto/opcodes.hpp"
 #include "opto/regalloc.hpp"
 #include "opto/trapScrub.hpp"
+#include "opto/type.hpp"
 
 // Keeps the place where a resumed exception would find a stale header clear wherever a trap site
 // at which a value holding losable state is live (a hot trap) can be reached.
@@ -90,9 +93,11 @@ static bool is_writer(const TrapScrubPlatform* platform, const Node* n) {
          platform->is_writer(mach);
 }
 
+#ifdef ASSERT
 static bool is_scrub(const Node* n) {
   return n->is_Mach() && n->as_Mach()->is_trap_scrub() && !((const MachTrapScrubNode*)n)->is_check();
 }
+#endif
 
 // The unit of losable state the value defined by n occupies, or -1.
 static int unit_of(const TrapScrubPlatform* platform, PhaseRegAlloc* ra, const Node* n) {
