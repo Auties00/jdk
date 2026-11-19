@@ -35,10 +35,10 @@
 #include "opto/subnode.hpp"
 #include "runtime/vm_version.hpp"
 
-class C2_MacroAssembler;
 class Compile;
 class Node;
 class MachNode;
+class TrapScrubPlatform;
 class MachOper;
 
 //---------------------------Matcher-------------------------------------------
@@ -446,33 +446,6 @@ public:
   // Java-Native vector calling convention
   static bool supports_vector_calling_convention();
   static OptoRegPair vector_return_value(uint ideal_reg);
-
-  // On some systems resuming from a hardware exception can reset processor state that the
-  // context of the exception left out (on x86, under some Windows builds: the upper halves of
-  // the vector registers, the registers only AVX-512 or APX adds, the opmask registers), when
-  // a stale header lies where the system builds the context. C2 code keeps that place clear
-  // wherever a trap site at which such state is live can be reached (MachTrapScrubNode,
-  // PhaseOutput::insert_trap_scrubs()). Only x86 implements these; the shared defaults
-  // (matcher.cpp) say that no scrub is needed.
-  //
-  // Whether trap sites need the scrub.
-  static bool trap_scrub_needed();
-  // Whether a value of ideal register class ideal_reg in register reg is lost when it is live
-  // at a trap and the place is not clear. A MachTemp passes 0 for ideal_reg: its width is
-  // unknown.
-  static bool trap_loses_register(OptoReg::Name reg, uint ideal_reg);
-  // Whether n, besides calls and the method and exception entries, may write deep below the
-  // stack pointer and then let the frame's code continue.
-  static bool trap_scrub_writer(const MachNode* n);
-  // Whether the scrub goes right before each such trap site instead of after each writer.
-  static bool trap_scrub_at_traps();
-  // Whether to check, right before each such trap site, that the place is clear.
-  static bool trap_scrub_verify();
-  // Emit the scrub (no register used, condition codes kept, unless after_call: then right after
-  // a call, where the registers the call does not preserve hold nothing) and the check.
-  static void emit_trap_scrub(C2_MacroAssembler* masm, bool after_call);
-  static uint trap_scrub_size();
-  static void emit_trap_scrub_check(C2_MacroAssembler* masm);
 
   // Is this branch offset small enough to be addressed by a short branch?
   bool is_short_branch_offset(int rule, int br_size, int offset);

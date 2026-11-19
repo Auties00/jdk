@@ -240,4 +240,8 @@
            (byte_origin & 3) != 0;
   }
 
+  // The trap scrub where resuming from an exception can lose state (see TrapScrubPlatform and
+  // VM_Version::exception_resume_loses_xstate()), or null.
+  static const TrapScrubPlatform* trap_scrub();
+
 #endif // CPU_X86_MATCHER_X86_HPP

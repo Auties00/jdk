@@ -200,4 +200,7 @@
     return false;
   }
 
+  // No trap scrub is needed (see TrapScrubPlatform).
+  static const TrapScrubPlatform* trap_scrub() { return nullptr; }
+
 #endif // CPU_S390_MATCHER_S390_HPP

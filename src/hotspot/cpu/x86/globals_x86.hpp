@@ -108,20 +108,22 @@ define_pd_global(bool, ValueTypeReturnedAsFields, true);
   product(bool, UseAPX, false,                                              \
           "Use Intel Advanced Performance Extensions")                      \
                                                                             \
-  product(bool, UseUpperXMMRegistersInC1, true, DIAGNOSTIC,                 \
-          "C1 allocates xmm16-xmm31 when AVX-512 is enabled. Off by "       \
-          "default where resuming from an exception can lose AVX state "    \
-          "(see ScrubExceptionXStateHeader)")                               \
-                                                                            \
   product(bool, ScrubExceptionXStateHeader, true, DIAGNOSTIC,               \
           "Where resuming from an exception can lose AVX state (some "      \
           "Windows builds read a stale XSAVE header from the stack), C2 "   \
           "code keeps that stack location clear wherever a trap site at "   \
           "which such state is live can be reached. Without it, such "      \
-          "systems run with UseAVX at most 2, MaxVectorSize at most 16 "    \
-          "and without APX")                                                \
+          "systems run with UseAVX at most 2 and MaxVectorSize at most 16") \
                                                                             \
-  product(bool, ScrubExceptionXStateHeaderAtTraps, false, DIAGNOSTIC,       \
+  product(int, ExceptionXStateLength, 0, DIAGNOSTIC,                        \
+          "Length in bytes of the extended processor state the OS saves "   \
+          "below the stack pointer of an exception, used by "               \
+          "ScrubExceptionXStateHeader. 0: measured at startup where "       \
+          "needed. Any other value enables the scrub on every system, "     \
+          "for testing")                                                    \
+          range(0, 16384)                                                   \
+                                                                            \
+  develop(bool, ScrubExceptionXStateHeaderAtTraps, false,                   \
           "Clear the stale XSAVE header right before each trap site at "    \
           "which state that can be lost is live, instead of after each "    \
           "call or other instruction that may write below the stack "       \
@@ -133,13 +135,9 @@ define_pd_global(bool, ValueTypeReturnedAsFields, true);
           "below the stack pointer. Use with ExceptionXStateLength on "     \
           "systems that do not need the scrub")                             \
                                                                             \
-  product(int, ExceptionXStateLength, 0, DIAGNOSTIC,                        \
-          "Length in bytes of the extended processor state the OS saves "   \
-          "below the stack pointer of an exception, used by "               \
-          "ScrubExceptionXStateHeader. 0: measured at startup where "       \
-          "needed. Any other value enables the scrub on every system, "     \
-          "for testing")                                                    \
-          range(0, 16384)                                                   \
+  develop(bool, TrapScrubOmitAfterCalls, false,                             \
+          "Testing: do not clear the stale XSAVE header after calls, so "   \
+          "that VerifyExceptionXStateScrub can be seen to fail")            \
                                                                             \
   product(bool, UseKNLSetting, false, DIAGNOSTIC,                           \
           "Control whether Knights platform setting should be used")        \

@@ -545,7 +545,7 @@ public:
   /* Where resuming from an exception can lose AVX state, C1 code avoids xmm16-xmm31 and C2 code */ \
   /* clears the stale XSAVE header L bytes below rsp: a cache made where either differs (another */ \
   /* OS build, or other CPU features and so another L) is rejected. */ \
-  do_var(bool,  UseUpperXMMRegistersInC1)               /* C1 nmethods */ \
+  do_fun(bool,  VM_exception_resume_loses_xstate, VM_Version::exception_resume_loses_xstate()) /* C1 nmethods */ \
   do_fun(int,   VM_exception_xstate_scrub_length, VM_Version::exception_xstate_scrub_length()) /* C2 nmethods */ \
   do_fun(bool,  VM_exception_xstate_capped, VM_Version::exception_xstate_capped()) /* stubs and nmethods */ \
   do_var(bool,  UseLibmIntrinsic) \

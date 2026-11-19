@@ -1467,6 +1467,7 @@ reg_class xmm0_reg(XMM0, XMM0b, XMM0c, XMM0d);
 
 source_hpp %{
 
+#include "opto/trapScrub.hpp"
 #include "peephole_x86_64.hpp"
 
 bool castLL_is_imm32(const Node* n);
@@ -2646,73 +2647,79 @@ void MachUEPNode::emit(C2_MacroAssembler* masm, PhaseRegAlloc* ra_) const
 
 //=============================================================================
 
-// See VM_Version::exception_resume_loses_xstate().
-bool Matcher::trap_scrub_needed() {
-  return VM_Version::exception_xstate_scrub_length() > 0;
-}
-
-// A short exception context keeps the legacy SSE state, the low 128 bits of xmm0-xmm15, and
-// the general purpose registers rax-r15; it can lose everything else.
-bool Matcher::trap_loses_register(OptoReg::Name reg, uint ideal_reg) {
-  if (!OptoReg::is_reg(reg)) {
-    return false;
-  }
-  VMReg r = OptoReg::as_VMReg(reg);
-  if (!r->is_valid()) {
-    return false;
-  }
-  if (r->is_KRegister()) {
-    return true;
-  }
-  if (r->is_XMMRegister()) {
-    if (r->as_XMMRegister()->encoding() >= 16) {
-      return true;
+// The trap scrub of x86 (see TrapScrubPlatform and VM_Version::exception_resume_loses_xstate()).
+// APX is off wherever the scrub is on, so the extended general purpose registers never hold
+// state that can be lost.
+class X86TrapScrub : public TrapScrubPlatform {
+ public:
+  // A short exception context keeps the legacy SSE state, the low 128 bits of xmm0-xmm15, and
+  // the general purpose registers; it loses the upper halves of the vector registers, xmm16-xmm31
+  // and the opmask registers. Units 0-31 are xmm0-xmm31, 32-39 the opmask registers.
+  virtual int losable_unit(OptoReg::Name reg, uint ideal_reg) const {
+    VMReg r = OptoReg::as_VMReg(reg);
+    if (!r->is_valid()) {
+      return -1;
     }
-    // A MachTemp (ideal_reg 0) can be used at any width by its instruction.
-    return ideal_reg == 0 || ideal_reg == Op_VecY || ideal_reg == Op_VecZ;
+    if (r->is_KRegister()) {
+      return 32 + r->as_KRegister()->encoding();
+    }
+    if (r->is_XMMRegister()) {
+      int encoding = r->as_XMMRegister()->encoding();
+      // A MachTemp (ideal_reg 0) can be used at any width by its instruction.
+      if (encoding >= 16 || ideal_reg == 0 || ideal_reg == Op_VecY || ideal_reg == Op_VecZ) {
+        return encoding;
+      }
+    }
+    return -1;
   }
-  if (r->is_Register()) {
-    return r->as_Register()->encoding() >= 16; // APX extended registers
+
+  // The instructions, other than calls, that can write deep below the stack pointer and let the
+  // frame's code continue: the secondary supers lookup, which may call a stub (and the stub its
+  // slow path). Everything else writes at most a few words below the stack pointer: stack-to-stack
+  // spill copies ([rsp - 64] at most), pushf in the floating point compare fixups, the string
+  // intrinsics that copy a short string to the stack, and the f2i/d2l fixup stubs that conversions
+  // and Math.round call (four pushes). The stale header position is at least L - 15 >= 305 bytes
+  // below. The out of line slow paths that call the runtime clear the header before they return
+  // (SaveLiveRegisters, the safepoint handler blobs).
+  virtual bool is_writer(const MachNode* n) const {
+    return n->ideal_Opcode() == Op_PartialSubtypeCheck;
   }
-  return false;
-}
 
-// The instructions, other than calls, that can write deep below the stack pointer and let the
-// frame's code continue: the secondary supers lookup, which may call a stub (and the stub its
-// slow path). Everything else writes at most a few words below the stack pointer: stack-to-stack
-// spill copies ([rsp - 64] at most), pushf in the floating point compare fixups, the string
-// intrinsics that copy a short string to the stack, and the f2i/d2l fixup stubs that conversions
-// and Math.round call (four pushes). The stale header position is at least L - 15 >= 305 bytes
-// below. The out of line slow paths that call the runtime clear the header before they return
-// (SaveLiveRegisters, the safepoint handler blobs). VerifyExceptionXStateScrub checks all this.
-bool Matcher::trap_scrub_writer(const MachNode* n) {
-  return n->ideal_Opcode() == Op_PartialSubtypeCheck;
-}
-
-bool Matcher::trap_scrub_at_traps() {
-  return ScrubExceptionXStateHeaderAtTraps || VerifyOops; // VerifyOops calls out from instructions
-}
-
-bool Matcher::trap_scrub_verify() {
-  return VerifyExceptionXStateScrub;
-}
-
-void Matcher::emit_trap_scrub(C2_MacroAssembler* masm, bool after_call) {
-  if (after_call) {
-    // r10 and the flags hold nothing right after a call: they are not preserved across it, and
-    // the call returns nothing in them.
-    masm->scrub_exception_xstate_header(r10);
-  } else {
-    masm->scrub_exception_xstate_header();
+  virtual bool at_traps() const {
+    return ScrubExceptionXStateHeaderAtTraps || VerifyOops; // VerifyOops calls out from instructions
   }
-}
 
-uint Matcher::trap_scrub_size() {
-  return (uint)MacroAssembler::scrub_exception_xstate_header_size();
-}
+  virtual bool omit_after_calls() const {
+    return TrapScrubOmitAfterCalls;
+  }
 
-void Matcher::emit_trap_scrub_check(C2_MacroAssembler* masm) {
-  masm->verify_exception_xstate_header();
+  virtual bool verify() const {
+    return VerifyExceptionXStateScrub;
+  }
+
+  virtual void emit_scrub(C2_MacroAssembler* masm, bool after_call) const {
+    if (after_call) {
+      // r10 and the flags hold nothing right after a call: they are not preserved across it, and
+      // the call returns nothing in them.
+      masm->scrub_exception_xstate_header(r10);
+    } else {
+      masm->scrub_exception_xstate_header();
+    }
+  }
+
+  virtual uint scrub_size() const {
+    return (uint)MacroAssembler::scrub_exception_xstate_header_size();
+  }
+
+  virtual void emit_check(C2_MacroAssembler* masm) const {
+    masm->verify_exception_xstate_header();
+  }
+};
+
+static const X86TrapScrub x86_trap_scrub;
+
+const TrapScrubPlatform* Matcher::trap_scrub() {
+  return VM_Version::exception_xstate_scrub_length() > 0 ? &x86_trap_scrub : nullptr;
 }
 
 bool Matcher::supports_vector_calling_convention(void) {

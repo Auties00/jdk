@@ -161,11 +161,6 @@
   develop(bool, OptoBreakpoint, false,                                      \
           "insert breakpoint at method entry")                              \
                                                                             \
-  develop(bool, TrapScrubOmitAfterCalls, false,                             \
-          "Testing: do not clear the stale exception context header "       \
-          "after calls (see Matcher::trap_scrub_needed()), so that the "     \
-          "platform's check of the header position can be seen to fail")    \
-                                                                            \
   develop(bool, OptoBreakpointOSR, false,                                   \
           "insert breakpoint at osr method entry")                          \
                                                                             \

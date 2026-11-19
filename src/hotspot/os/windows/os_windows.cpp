@@ -2735,6 +2735,33 @@ static void record_exception_xstate(PCONTEXT context) {
 }
 #endif
 
+struct NativeThreadCall {
+  void (*fn)(void*);
+  void* arg;
+};
+
+static unsigned __stdcall native_thread_call_entry(void* call) {
+  NativeThreadCall* c = (NativeThreadCall*)call;
+  __try {
+    c->fn(c->arg);
+  } __except(topLevelExceptionFilter((_EXCEPTION_POINTERS*)_exception_info())) {
+    // Nothing to do.
+  }
+  return 0;
+}
+
+bool os::win32::run_on_native_thread(void (*fn)(void*), void* arg, size_t stack_size) {
+  NativeThreadCall call = { fn, arg };
+  HANDLE thread = (HANDLE)_beginthreadex(nullptr, (unsigned)stack_size, native_thread_call_entry, &call,
+                                         STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+  if (thread == nullptr) {
+    return false;
+  }
+  WaitForSingleObject(thread, INFINITE);
+  CloseHandle(thread);
+  return true;
+}
+
 JNIEXPORT
 LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
   PreserveLastError ple;

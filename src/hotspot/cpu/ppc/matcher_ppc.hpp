@@ -206,4 +206,7 @@
     return false;
   }
 
+  // No trap scrub is needed (see TrapScrubPlatform).
+  static const TrapScrubPlatform* trap_scrub() { return nullptr; }
+
 #endif // CPU_PPC_MATCHER_PPC_HPP

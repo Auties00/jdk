@@ -797,6 +797,9 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
     address start = __ pc();
 #ifdef _WINDOWS
     Label fill, clear;
+    // As for the other stubs of this generator: the assembler asserts AVX for the ymm moves. Only
+    // this thread runs during feature detection, and both are restored before any other code
+    // reads them.
     bool set_features = !VM_Version::supports_avx();
     int saved_useavx = UseAVX;
     if (set_features) {
@@ -2316,43 +2319,67 @@ int VM_Version::exception_xstate_check_fill_size() {
   return checked_cast<int>(align_up((size_t)xsave_size + 4 * K, 4 * K));
 }
 
-// Takes one exception with a stale XSAVE header below a stack pointer that is sp_adjust bytes
-// below a multiple of 64, after clearing the header with the scrub when scrub_length > 0. Returns
-// whether ymm0 lost its value. The exception handler records the trap's stack pointer and the
-// extended state of its context (record_exception_xstate()).
-bool VM_Version::run_exception_xstate_check(int scrub_length, int sp_adjust) {
-  static exception_xstate_check_stub_t scrub_stub = nullptr;
-  static int scrub_stub_length = 0;
-  exception_xstate_check_stub_t stub = exception_xstate_check_stub;
-  if (scrub_length > 0) {
-    if (scrub_stub == nullptr || scrub_stub_length != scrub_length) {
-      // Generated once the length is known; the blob is kept, it is small.
-      BufferBlob* blob = BufferBlob::create("VM_Version exception XSTATE scrub check", 512);
-      if (blob == nullptr) {
-        return true;
+// The traps of the exception XSTATE check, one for each value of sp modulo 64. They run on a
+// native thread of their own (os::win32::run_on_native_thread()), with a stack of known size, so
+// that the result does not depend on the stack of the thread that creates the VM.
+struct ExceptionXStateProbe {
+  exception_xstate_check_stub_t stub; // the check stub, with or without the scrub
+  int scrub_length;                   // the scrub's length, or 0
+  bool ran;                           // whether the thread had the stack to run the traps
+  bool lost[4];                       // whether ymm0 lost its value
+  address trap_sp[4];                 // the trap's stack pointer
+  address chunk[4];                   // the XSTATE part of the trap's context
+  int chunk_length[4];
+};
+
+static const size_t exception_xstate_probe_stack_size = 1 * M;
+
+void VM_Version::probe_exception_xstate(void* arg) {
+  ExceptionXStateProbe* probe = (ExceptionXStateProbe*)arg;
+  // The stub fills its stack and must not reach the end of it.
+  size_t fill = (size_t)exception_xstate_check_fill_size();
+  address sp = os::current_stack_pointer();
+  address stack_base;
+  size_t stack_size;
+  os::current_stack_base_and_size(&stack_base, &stack_size);
+  address stack_end = stack_base - stack_size;
+  probe->ran = sp >= stack_end && (size_t)(sp - stack_end) >= fill + 64 * K;
+  if (!probe->ran) {
+    return;
+  }
+  for (int i = 0; i < 4; i++) {
+    ExceptionXStateCheck check;
+    check.fill_qwords = (jint)(fill / wordSize);
+    check.sp_adjust = i * 16;
+    for (int j = 0; j < 8; j++) {
+      check.ymm[j] = 0;
+    }
+    record_exception_xstate(nullptr, nullptr, 0);
+    probe->stub(&check);
+    // ymm0 is a witness for every component: the planted header names none, and the kernel
+    // leaves out exactly the components the stale mask omits.
+    bool lost = false;
+    for (int j = 0; j < 8; j++) {
+      if (check.ymm[j] != ymm_test_value()) {
+        lost = true;
       }
-      CodeBuffer c(blob);
-      VM_Version_StubGenerator g(&c);
-      scrub_stub = CAST_TO_FN_PTR(exception_xstate_check_stub_t, g.generate_exception_xstate_check(scrub_length));
-      scrub_stub_length = scrub_length;
     }
-    stub = scrub_stub;
+    probe->lost[i] = lost;
+    probe->trap_sp[i] = _exception_xstate_trap_sp;
+    probe->chunk[i] = _exception_xstate_chunk;
+    probe->chunk_length[i] = _exception_xstate_chunk_length;
   }
-  ExceptionXStateCheck check;
-  check.fill_qwords = exception_xstate_check_fill_size() / wordSize;
-  check.sp_adjust = sp_adjust;
-  for (int i = 0; i < 8; i++) {
-    check.ymm[i] = 0;
-  }
-  record_exception_xstate(nullptr, nullptr, 0);
-  stub(&check);
-  bool lost = false;
-  for (int i = 0; i < 8; i++) {
-    if (check.ymm[i] != ymm_test_value()) {
-      lost = true;
-    }
-  }
-  return lost;
+}
+
+static void probe_exception_xstate_entry(void* arg) {
+  VM_Version::probe_exception_xstate(arg);
+}
+
+// Runs the traps on their own thread. Returns false if they could not run.
+static bool run_exception_xstate_probe(ExceptionXStateProbe* probe) {
+  probe->ran = false;
+  return os::win32::run_on_native_thread(probe_exception_xstate_entry, probe, exception_xstate_probe_stack_size) &&
+         probe->ran;
 }
 
 // Distance from the stack pointer of a check's trap down to the XSTATE part of its context, or
@@ -2365,24 +2392,20 @@ static int exception_xstate_distance(address trap_sp, address area, int area_len
   return checked_cast<int>(trap_sp - area);
 }
 
-// Sets _exception_resume_loses_xstate and, when the contexts of four traps (one for each value
-// of sp modulo 64) put their XSTATE chunk at (sp - L) & -64 for a single L, sets
-// _exception_xstate_measured_length to the largest such L (they all place it alike), else to 0.
+// Sets _exception_resume_loses_xstate and, when the contexts of the four traps put their XSTATE
+// chunk at (sp - L) & -64 for a single L, sets _exception_xstate_measured_length to the largest
+// such L (they all place it alike), else to 0. If the traps cannot run, assumes the state can be
+// lost and leaves the length 0, so that the JVM uses no such state (see
+// set_exception_xstate_mitigation()).
 void VM_Version::check_exception_xstate() {
-  // The stub fills its stack and must not reach the guard zones.
-  size_t fill = (size_t)exception_xstate_check_fill_size();
-  address sp = os::current_stack_pointer();
-  address stack_base;
-  size_t stack_size;
-  os::current_stack_base_and_size(&stack_base, &stack_size);
-  address stack_end = stack_base - stack_size;
   _exception_xstate_measured_length = 0;
-  if (sp < stack_end || (size_t)(sp - stack_end) < fill + 64 * K) {
-    // Only an embedder that creates the VM on a small stack gets here. Assume the system is not
-    // affected rather than restrict every system the check cannot run on.
-    log_warning(os, cpu)("Not enough stack to check whether resuming from an exception keeps AVX "
-                         "state; assuming it does");
-    _exception_resume_loses_xstate = false;
+  ExceptionXStateProbe probe;
+  probe.stub = exception_xstate_check_stub;
+  probe.scrub_length = 0;
+  if (!run_exception_xstate_probe(&probe)) {
+    log_warning(os, cpu)("Could not check whether resuming from an exception keeps AVX state; "
+                         "assuming it does not");
+    _exception_resume_loses_xstate = true;
     return;
   }
   int distance[4];
@@ -2390,15 +2413,13 @@ void VM_Version::check_exception_xstate() {
   int lost = 0;
   bool layout = true;
   for (int i = 0; i < 4; i++) {
-    bool lost_here = run_exception_xstate_check(0, i * 16);
-    if (lost_here) {
+    if (probe.lost[i]) {
       lost++;
     }
-    distance[i] = exception_xstate_distance(_exception_xstate_trap_sp, _exception_xstate_chunk,
-                                            _exception_xstate_chunk_length);
-    sp_mod[i] = (int)((uintptr_t)_exception_xstate_trap_sp & 63);
+    distance[i] = exception_xstate_distance(probe.trap_sp[i], probe.chunk[i], probe.chunk_length[i]);
+    sp_mod[i] = (int)((uintptr_t)probe.trap_sp[i] & 63);
     log_debug(os, cpu)("Exception XSTATE check: sp %% 64 = %d, XSTATE at sp - %d, length %d, %s",
-                       sp_mod[i], distance[i], _exception_xstate_chunk_length, lost_here ? "lost" : "kept");
+                       sp_mod[i], distance[i], probe.chunk_length[i], probe.lost[i] ? "lost" : "kept");
     if (distance[i] < 0) {
       layout = false;
     }
@@ -2433,14 +2454,29 @@ void VM_Version::check_exception_xstate() {
 // Whether, for each value of sp modulo 64, the scrub at length keeps the AVX state, and the
 // context of that trap still has its XSTATE part where the scrub assumed.
 bool VM_Version::verify_exception_xstate_scrub(int length) {
+  // The stub with the scrub at this length, generated here because the probe's thread has no
+  // Thread and cannot allocate in the code cache; freed when done.
+  BufferBlob* blob = BufferBlob::create("VM_Version exception XSTATE scrub check", 512);
+  if (blob == nullptr) {
+    return false;
+  }
+  CodeBuffer c(blob);
+  VM_Version_StubGenerator g(&c);
+  ExceptionXStateProbe probe;
+  probe.stub = CAST_TO_FN_PTR(exception_xstate_check_stub_t, g.generate_exception_xstate_check(length));
+  probe.scrub_length = length;
+  bool ran = run_exception_xstate_probe(&probe);
+  BufferBlob::free(blob);
+  if (!ran) {
+    return false;
+  }
   for (int i = 0; i < 4; i++) {
-    if (run_exception_xstate_check(length, i * 16)) {
+    if (probe.lost[i]) {
       return false;
     }
-    if (_exception_xstate_trap_sp == nullptr ||
-        _exception_xstate_chunk != align_down(_exception_xstate_trap_sp - length, 64)) {
+    if (probe.trap_sp[i] == nullptr || probe.chunk[i] != align_down(probe.trap_sp[i] - length, 64)) {
       log_info(os, cpu)("Exception context XSTATE moved: sp " PTR_FORMAT ", XSTATE " PTR_FORMAT,
-                        p2i(_exception_xstate_trap_sp), p2i(_exception_xstate_chunk));
+                        p2i(probe.trap_sp[i]), p2i(probe.chunk[i]));
       return false;
     }
   }
@@ -2449,20 +2485,23 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
 #endif // _WINDOWS
 
 // The components a short context can leave out and the JVM may use: AVX (the upper halves of
-// ymm0-15), the opmask registers, ZMM_Hi256, Hi16_ZMM and APX.
+// ymm0-15), the opmask registers, ZMM_Hi256 and Hi16_ZMM. APX is off wherever the state can be
+// lost (set_exception_xstate_mitigation()).
 uint64_t VM_Version::exception_xstate_losable_components() {
-  const uint64_t components = (uint64_t)0xE4 | (UseAPX ? (uint64_t)1 << 19 : 0);
-  return components & (uint64_t)_cpuid_info.xem_xcr0_eax.value;
+  return (uint64_t)0xE4 & (uint64_t)_cpuid_info.xem_xcr0_eax.value;
 }
 
 // Chooses how the JVM protects the state a resumed exception can lose (see
 // exception_resume_loses_xstate()): C2 code keeps the stale header position clear where a trap
 // site with such state live can be reached, or, where that cannot be verified, the JVM uses no
-// such state at all (UseAVX <= 2, MaxVectorSize <= 16, no APX). C1 keeps its implicit
-// exceptions: with xmm0-xmm15 only it has nothing to lose.
+// such state at all (UseAVX <= 2, MaxVectorSize <= 16). C1 keeps its implicit exceptions: it
+// allocates xmm0-xmm15 only on such systems. APX is turned off on such systems in either case:
+// a C call keeps r30 and r31 on Windows, so a value there can be live at a resumable fault in the
+// callee (an unsafe access in a copy stub), where no scrub of the caller can help.
 void VM_Version::set_exception_xstate_mitigation() {
 #ifdef _WINDOWS
-  if (UseAVX > 0 || supports_apx_f()) {
+  // Only AVX state is at risk: without AVX there is no AVX-512 and no APX (both need UseAVX 3).
+  if (UseAVX > 0) {
     check_exception_xstate();
   }
 #endif
@@ -2490,23 +2529,28 @@ void VM_Version::set_exception_xstate_mitigation() {
     log_info(os, cpu)("Compiled code clears the stale XSAVE header %d bytes below the stack "
                       "pointer where a trap site with AVX state live can be reached", scrub);
   }
-  if (_exception_resume_loses_xstate) {
-    if (scrub == 0) {
-      // Use no state that a short context leaves out: the low 128 bits of xmm0-xmm15 and the
-      // legacy general purpose registers are in every context. MaxVectorSize is capped where it
-      // is set (C2 intrinsics keep wider temporaries only within one instruction, which has no
-      // trap site).
-      _exception_xstate_capped = true;
-      if (UseAVX > 2) {
-        FLAG_SET_ERGO(UseAVX, 2);
+  if (_exception_resume_loses_xstate || forced) {
+    if (UseAPX && !FLAG_IS_DEFAULT(UseAPX)) {
+      warning("UseAPX turned off: resuming from an exception can lose the APX registers on this system");
+    }
+    FLAG_SET_ERGO(UseAPX, false);
+    clear_feature(CPU_APX_F);
+  }
+  if (_exception_resume_loses_xstate && scrub == 0) {
+    // Use no state that a short context leaves out: the low 128 bits of xmm0-xmm15 and the
+    // legacy general purpose registers are in every context. MaxVectorSize is capped where it is
+    // set (C2 intrinsics keep wider temporaries only within one instruction, which has no trap
+    // site).
+    _exception_xstate_capped = true;
+    if (UseAVX > 2) {
+      if (!FLAG_IS_DEFAULT(UseAVX)) {
+        warning("UseAVX=%d reduced to 2: resuming from an exception can lose AVX-512 state on this "
+                "system, and the stale header cannot be cleared", UseAVX);
       }
-      clear_feature(CPU_APX_F);
-      log_info(os, cpu)("Resuming from an exception can lose AVX state and the stale header cannot "
-                        "be cleared: UseAVX at most 2, MaxVectorSize at most 16, no APX");
+      FLAG_SET_ERGO(UseAVX, 2);
     }
-    if (FLAG_IS_DEFAULT(UseUpperXMMRegistersInC1)) {
-      FLAG_SET_DEFAULT(UseUpperXMMRegistersInC1, false);
-    }
+    log_info(os, cpu)("Resuming from an exception can lose AVX state and the stale header cannot "
+                      "be cleared: UseAVX at most 2, MaxVectorSize at most 16");
   }
 }
 

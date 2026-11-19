@@ -641,10 +641,10 @@ public:
 
 //------------------------------MachTrapScrubNode------------------------------
 // Clears the place where the system may read a stale header when it saves the processor state
-// of an exception (see Matcher::trap_scrub_needed()), or, as a check, verifies that it is clear.
-// Placed by PhaseOutput::insert_trap_scrubs() after register allocation: after a writer below the
-// stack pointer, or right before a trap site. Its code uses no register and keeps the condition
-// codes, and it must not be moved (Scheduling leaves its block alone).
+// of an exception (see TrapScrubPlatform), or, as a check, verifies that it is clear. Placed by
+// TrapScrubs::insert() after register allocation: after a writer below the stack pointer, or
+// right before a trap site. Its code uses no register and keeps the condition codes (except right
+// after a call), and nothing moves it: scheduling is off where scrubs are placed.
 class MachTrapScrubNode : public MachIdealNode {
   const bool _check;
   const bool _after_call; // right after a call: may use the registers the call does not preserve

@@ -97,7 +97,7 @@ private:
   // List of not inlined Java callees
   GrowableArray<ciMethod*>* _java_callees;
 
-  // The trap sites insert_trap_scrubs() protected, for verify_trap_scrubs().
+  // The trap sites TrapScrubs::insert() protected, for TrapScrubs::verify().
   DEBUG_ONLY(GrowableArray<Node*>* _trap_scrub_hot_traps;)
 
   BufferSizingData       _buf_sizes;
@@ -137,11 +137,6 @@ public:
   // The architecture description provides short branch variants for some long
   // branch instructions. Replace eligible long branches with short branches.
   void shorten_branches(uint* blk_starts);
-
-  // Keeps the stale exception context header position clear where needed (see
-  // Matcher::trap_scrub_needed()), and checks the result after scheduling.
-  void insert_trap_scrubs();
-  DEBUG_ONLY(void verify_trap_scrubs();)
   // If "objs" contains an ObjectValue whose id is "id", returns it, else null.
   static ObjectValue* sv_for_node_id(GrowableArray<ScopeValue*> *objs, int id);
   static void set_sv_for_object_node(GrowableArray<ScopeValue*> *objs, ObjectValue* sv);

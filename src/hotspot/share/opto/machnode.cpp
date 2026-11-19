@@ -34,6 +34,7 @@
 #include "opto/opcodes.hpp"
 #include "opto/output.hpp"
 #include "opto/regalloc.hpp"
+#include "opto/trapScrub.hpp"
 #include "opto/type.hpp"
 #include "utilities/vmError.hpp"
 
@@ -733,14 +734,14 @@ void MachTrapScrubNode::format(PhaseRegAlloc*, outputStream* st) const {
 
 void MachTrapScrubNode::emit(C2_MacroAssembler* masm, PhaseRegAlloc* ra_) const {
   if (_check) {
-    Matcher::emit_trap_scrub_check(masm);
+    Matcher::trap_scrub()->emit_check(masm);
   } else {
-    Matcher::emit_trap_scrub(masm, _after_call);
+    Matcher::trap_scrub()->emit_scrub(masm, _after_call);
   }
 }
 
 uint MachTrapScrubNode::size(PhaseRegAlloc* ra_) const {
-  return (_check || _after_call) ? MachNode::size(ra_) : Matcher::trap_scrub_size();
+  return (_check || _after_call) ? MachNode::size(ra_) : Matcher::trap_scrub()->scrub_size();
 }
 
 const Pipeline* MachTrapScrubNode::pipeline() const {

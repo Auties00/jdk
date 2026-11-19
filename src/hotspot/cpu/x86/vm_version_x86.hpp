@@ -780,7 +780,6 @@ private:
   static bool os_supports_apx_egprs();
 #ifdef _WINDOWS
   static int  exception_xstate_check_fill_size();
-  static bool run_exception_xstate_check(int scrub_length, int sp_adjust);
   static void check_exception_xstate();
   static bool verify_exception_xstate_scrub(int length);
 #endif
@@ -838,6 +837,11 @@ public:
   static bool  is_exception_xstate_segv_addr(address pc) { return _exception_xstate_segv_addr == pc; }
   static void set_exception_xstate_cont_addr(address pc) { _exception_xstate_cont_addr = pc; }
   static address  exception_xstate_cont_addr()           { return _exception_xstate_cont_addr; }
+#ifdef _WINDOWS
+  // Takes the traps of the exception XSTATE check (an ExceptionXStateProbe in vm_version_x86.cpp),
+  // on a native thread of its own.
+  static void probe_exception_xstate(void* probe);
+#endif
   // Called by the exception handler for the fault of the exception XSTATE check.
   static void record_exception_xstate(address trap_sp, address xstate_chunk, int xstate_chunk_length) {
     _exception_xstate_trap_sp = trap_sp;
@@ -850,19 +854,20 @@ public:
   // sp of the fault, which is stale stack memory. A stale header that looks like a compacted one
   // leaves out of the context the state components it does not name, and resuming from that
   // context resets them: the upper halves of ymm/zmm, xmm16-xmm31, the opmask registers, the APX
-  // registers. The check at startup takes such exceptions with a header-like value on the stack
-  // and tells whether the state survives. It runs on the thread that creates the VM only: L is
-  // the length of the context's extended state, which depends on the enabled features, not on the
-  // thread. Code outside the VM that writes below a thread's stack pointer asynchronously (a
-  // special user APC) can still leave a stale header between a scrub and a trap.
+  // registers. The check at startup takes such exceptions with a header-like value on the stack,
+  // on a native thread of its own, and tells whether the state survives; if it cannot run, the
+  // state is assumed lost. One thread suffices: L is the length of the context's extended state,
+  // which depends on the enabled features, not on the thread. APX is off on such systems. Code
+  // outside the VM that writes below a thread's stack pointer asynchronously (a special user APC)
+  // can still leave a stale header between a scrub and a trap.
   //
   // Whether resuming from an exception can lose extended processor state.
   static bool exception_resume_loses_xstate() { return _exception_resume_loses_xstate; }
   // The length L of the extended state of an exception context when compiled code keeps the
   // stale header position clear (see MacroAssembler::scrub_exception_xstate_header()), else 0.
   static int exception_xstate_scrub_length() { return _exception_xstate_scrub_length; }
-  // Whether the state can be lost and the scrub is not used: then UseAVX is at most 2,
-  // MaxVectorSize at most 16 and APX off, so that no code keeps such state in registers.
+  // Whether the state can be lost and the scrub is not used: then UseAVX is at most 2 and
+  // MaxVectorSize at most 16, so that no code keeps such state in registers.
   static bool exception_xstate_capped() { return _exception_xstate_capped; }
   // The XSAVE state components a short context can leave out that the JVM may use: the ones
   // VerifyExceptionXStateScrub requires in a compacted header.
