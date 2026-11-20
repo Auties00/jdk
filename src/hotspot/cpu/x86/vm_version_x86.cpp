@@ -76,7 +76,7 @@ int VM_Version::_exception_xstate_scrub_length = 0;
 bool VM_Version::_exception_xstate_capped = false;
 
 static BufferBlob* stub_blob;
-static const int stub_size = 2800;
+static const int stub_size = 3300;
 
 #ifdef _WINDOWS
 // Argument of the exception XSTATE check stub.
@@ -2382,6 +2382,9 @@ static bool run_exception_xstate_probe(ExceptionXStateProbe* probe) {
          probe->ran;
 }
 
+// The generator of the VM_Version stubs, while VM_Version::initialize() runs.
+static VM_Version_StubGenerator* stub_generator = nullptr;
+
 // Distance from the stack pointer of a check's trap down to the XSTATE part of its context, or
 // -1 if the context had none where expected.
 static int exception_xstate_distance(address trap_sp, address area, int area_length) {
@@ -2454,19 +2457,13 @@ void VM_Version::check_exception_xstate() {
 // Whether, for each value of sp modulo 64, the scrub at length keeps the AVX state, and the
 // context of that trap still has its XSTATE part where the scrub assumed.
 bool VM_Version::verify_exception_xstate_scrub(int length) {
-  // The stub with the scrub at this length, generated here because the probe's thread has no
-  // Thread and cannot allocate in the code cache; freed when done.
-  BufferBlob* blob = BufferBlob::create("VM_Version exception XSTATE scrub check", 512);
-  if (blob == nullptr) {
-    return false;
-  }
-  CodeBuffer c(blob);
-  VM_Version_StubGenerator g(&c);
+  // The stub with the scrub at this length, generated here (the probe's thread has no Thread) into
+  // the VM_Version stub blob, whose size leaves room for it.
+  assert(stub_generator != nullptr, "only during VM_Version::initialize()");
   ExceptionXStateProbe probe;
-  probe.stub = CAST_TO_FN_PTR(exception_xstate_check_stub_t, g.generate_exception_xstate_check(length));
+  probe.stub = CAST_TO_FN_PTR(exception_xstate_check_stub_t, stub_generator->generate_exception_xstate_check(length));
   probe.scrub_length = length;
   bool ran = run_exception_xstate_probe(&probe);
-  BufferBlob::free(blob);
   if (!ran) {
     return false;
   }
@@ -2583,7 +2580,9 @@ void VM_Version::initialize() {
                                      g.generate_getCPUIDBrandString());
   exception_xstate_check_stub = CAST_TO_FN_PTR(exception_xstate_check_stub_t,
                                      g.generate_exception_xstate_check(0));
+  WINDOWS_ONLY(stub_generator = &g;)
   get_processor_features();
+  WINDOWS_ONLY(stub_generator = nullptr;)
 
   Assembler::precompute_instructions();
 
