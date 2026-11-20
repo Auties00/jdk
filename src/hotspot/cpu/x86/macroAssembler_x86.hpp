@@ -781,8 +781,11 @@ public:
   // for each of the four values of sp modulo 64 one quadword store clears its XCOMP_BV, which
   // then no longer passes for a compacted header. Needs no register, keeps the flags.
   // sp_offset: the stores are placed for the stack pointer rsp + sp_offset (for code that runs
-  // with a return address or other words pushed).
-  void scrub_exception_xstate_header(int length = VM_Version::exception_xstate_scrub_length(), int sp_offset = 0);
+  // with a return address or other words pushed). check_alignment: in debug builds, stops the VM
+  // when rsp + sp_offset is not 16-byte aligned; false only where the alignment holds by
+  // construction and stop() cannot be used yet (code generated before the AOT code cache is set up).
+  void scrub_exception_xstate_header(int length = VM_Version::exception_xstate_scrub_length(), int sp_offset = 0,
+                                     bool check_alignment = true);
   // The scrub where it is in use (see VM_Version::exception_xstate_scrub_length()), else nothing:
   // for the slow paths that call out and then continue in a compiled frame.
   void scrub_exception_xstate_header_if_enabled(int sp_offset = 0);

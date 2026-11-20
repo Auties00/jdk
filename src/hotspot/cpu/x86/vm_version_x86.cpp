@@ -833,7 +833,8 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
     __ vinsertf128_high(xmm0, xmm0);
 
     if (scrub_length > 0) {
-      __ scrub_exception_xstate_header(scrub_length);
+      // rsp is 64-byte aligned less sp_adjust, a multiple of 16; stop() is not usable this early.
+      __ scrub_exception_xstate_header(scrub_length, 0, false);
     }
 
     __ xorl(rdx, rdx);
