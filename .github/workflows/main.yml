@@ -29,6 +29,13 @@ on:
   push:
     branches-ignore:
       - pr/*
+      - JDK-8365196-ci-scrub5*
+      - JDK-8365196-ci-scrub6*
+      - JDK-8365196-ci-scrub7*
+      - JDK-8365196-ci-scrub8*
+      - JDK-8365196-ci-scrub9*
+      - JDK-8365196-ci-scrub10*
+      - JDK-8365196-ci-xstate*
   workflow_dispatch:
     inputs:
       platforms:

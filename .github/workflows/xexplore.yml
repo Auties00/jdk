@@ -1,0 +1,81 @@
+name: 'JDK-8365196 xstate: kernel exploration'
+
+# Review-only. Disassembles KiDispatchException, RtlpCopyXStateChunk and RtlpCopyExtendedContext of
+# reference ntoskrnl.exe builds (Microsoft symbol server, public symbols) and of the kernels of the
+# Windows Server 2022 and 2025 runners, to design the classification of the full sweep.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-xstate-explore*'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  grab:
+    name: grab (${{ matrix.os }}, ${{ matrix.slot }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+        slot: [1, 2]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: 'Copy the running kernel'
+        run: |
+          mkdir -p out
+          cp /c/Windows/System32/ntoskrnl.exe out/
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR) \$(\$v.InstallationType)\"" > out/os.txt
+          powershell -NoProfile -Command "(Get-Item C:\Windows\System32\ntoskrnl.exe).VersionInfo.FileVersion" >> out/os.txt
+          sha256sum out/ntoskrnl.exe >> out/os.txt
+          cat out/os.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nt-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 2
+
+  explore:
+    name: explore
+    needs: [grab]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            xstate
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: nt-*
+          path: nt
+      - name: 'Tools'
+        run: |
+          sudo apt-get -qq update && sudo apt-get -qq install -y llvm > /dev/null
+          which llvm-pdbutil || sudo ln -s "$(ls /usr/bin/llvm-pdbutil-* | head -1)" /usr/local/bin/llvm-pdbutil
+          pip install --quiet pefile capstone
+      - name: 'Dump'
+        run: |
+          mkdir -p out work
+          python3 - <<'EOF'
+          import json, glob
+          refs = json.load(open('xstate/refs.json'))
+          for d in sorted(glob.glob('nt/nt-*')):
+              os_txt = open(d + '/os.txt').read().strip().splitlines()
+              refs.append({'path': d + '/ntoskrnl.exe', 'host': d.split('/')[-1], 'os': os_txt})
+          json.dump(refs, open('work/all.json', 'w'))
+          EOF
+          python3 xstate/kanalyze.py dump work/all.json work > out/dump.txt 2> out/err.txt
+          grep '^RESULT ' out/dump.txt > out/results.jsonl
+          cat out/results.jsonl | cut -c1-600
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: explore
+          path: out
+          retention-days: 30
