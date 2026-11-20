@@ -337,6 +337,24 @@ public class TestExceptionXStateScrubVerify {
         System.out.println("connector calls=" + calls);
     }
 
+    // A call to a compiled method, then vector state live across a loop with implicit null checks
+    // and a poll: with PlantExceptionXStateHeader, the callee's return leaves a header-like value
+    // that only the scrub after the call clears.
+    static long callThenLoop(double neg, Holder[] hs, double x) {
+        sinkD = callee(x);
+        DoubleVector v = DoubleVector.broadcast(S256, neg);
+        DoubleVector a0 = v, a1 = v, a2 = v, a3 = v;
+        int count = 0, m = hs.length - 1;
+        for (int i = 0; i < 4000; i++) {
+            count += hs[i & m].x;
+            a0 = a0.add(v); a1 = a1.add(v); a2 = a2.add(v); a3 = a3.add(v);
+        }
+        sink = count;
+        LongVector r = a0.reinterpretAsLongs().and(a1.reinterpretAsLongs())
+                         .and(a2.reinterpretAsLongs()).and(a3.reinterpretAsLongs());
+        return r.lane(0) == Long.MIN_VALUE ? 0 : 1;
+    }
+
     // Vector state live across a loop with a call in it (the scrub after the call).
     static double vectorCallKernel(double neg, double[] a) {
         DoubleVector acc = DoubleVector.broadcast(S256, neg);
@@ -409,6 +427,7 @@ public class TestExceptionXStateScrubVerify {
                 r += rawKernel(r * 1e-300, addr, 1000);
                 sink = joinBoth(-0.0, (calls & 1) == 0, holders);
                 sink = joinSwitch(-0.0, (int) calls, holders);
+                sink = callThenLoop(-0.0, holders, calls);
             }
             calls++;
         }
@@ -431,10 +450,15 @@ public class TestExceptionXStateScrubVerify {
             return;
         }
         if (args.length > 0 && args[0].equals("plant-child")) {
-            double[] data = new double[256];
+            Holder[] hs = new Holder[256];
+            for (int i = 0; i < hs.length; i++) {
+                hs[i] = new Holder();
+            }
             long end = System.nanoTime() + Long.parseLong(args[1]) * 1_000_000L;
+            double x = 0;
             while (System.nanoTime() < end) {
-                sinkD = vectorCallKernel(-0.0, data);
+                sink = callThenLoop(-0.0, hs, x);
+                x += 1;
             }
             return;
         }
