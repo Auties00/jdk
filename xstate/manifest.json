@@ -1,0 +1,8595 @@
+[
+{
+"sha256": "1bb29ea42923e145d74a74c802a46f5debcfcba218166e75503cf0f041760acb",
+"build": 17763,
+"ubr": 1,
+"version": "10.0.17763.1 (WinBuild.160101.0800)",
+"timestamp": 530862020,
+"virtualSize": 10424320,
+"windows": [
+"1809"
+],
+"kbs": [
+"BASE"
+]
+},
+{
+"sha256": "3d40c4d8bcc60d6c28e952d4443c6314da9da5b148893dffee8a23dbf04ac90f",
+"build": 17763,
+"ubr": 55,
+"version": "10.0.17763.55 (WinBuild.160101.0800)",
+"timestamp": 2947826495,
+"virtualSize": 10424320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4464330"
+]
+},
+{
+"sha256": "79fcd9ef2646be98bc12b8b745f832b82fd49ca0a849912e9110c743c246896c",
+"build": 17763,
+"ubr": 107,
+"version": "10.0.17763.107 (WinBuild.160101.0800)",
+"timestamp": 2343917342,
+"virtualSize": 10424320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4464455"
+]
+},
+{
+"sha256": "f7db939c2dcf6fdbaf9ef93f80a39a92ad5d088dcd0b9db1f812c12cace4bf84",
+"build": 17763,
+"ubr": 134,
+"version": "10.0.17763.134 (WinBuild.160101.0800)",
+"timestamp": 1055567017,
+"virtualSize": 10424320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4467708"
+]
+},
+{
+"sha256": "3935e753a151f4e7618891dc58de6d284b7a37418117f2218a4fad1b27927a05",
+"build": 17763,
+"ubr": 168,
+"version": "10.0.17763.168 (WinBuild.160101.0800)",
+"timestamp": 3929320968,
+"virtualSize": 10944512,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4469342"
+]
+},
+{
+"sha256": "0d737f853fdb6f78c24224216b05a88468eb349eca2b88315387934a6512db30",
+"build": 17763,
+"ubr": 194,
+"version": "10.0.17763.194 (WinBuild.160101.0800)",
+"timestamp": 288405402,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4471332"
+]
+},
+{
+"sha256": "6553d0984202d9146c609cf25aba976f5211f5badf1e5147a8bee1d6f13e7d2a",
+"build": 17763,
+"ubr": 195,
+"version": "10.0.17763.195 (WinBuild.160101.0800)",
+"timestamp": 2709557080,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4483235"
+]
+},
+{
+"sha256": "8396814c875f40fefacd91654ef6b031171f3c55713f2a08d9da2464354803cb",
+"build": 17763,
+"ubr": 253,
+"version": "10.0.17763.253 (WinBuild.160101.0800)",
+"timestamp": 2183770347,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4480116"
+]
+},
+{
+"sha256": "15e2ac5967294bc45dafddc1103dbd2c7aad9e1fdf4f83f26d247940fb642590",
+"build": 17763,
+"ubr": 292,
+"version": "10.0.17763.292 (WinBuild.160101.0800)",
+"timestamp": 3159034905,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4476976"
+]
+},
+{
+"sha256": "2c731f2a2257aeaa00444ff8268d75d552d3afddf8a9c8336e0ebb6c3cf8230f",
+"build": 17763,
+"ubr": 316,
+"version": "10.0.17763.316 (WinBuild.160101.0800)",
+"timestamp": 2757488650,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4487044"
+]
+},
+{
+"sha256": "f73833b2a138b2d9dff3af97f4d3871fb0969200b63e3f70537303eff60ad68b",
+"build": 17763,
+"ubr": 348,
+"version": "10.0.17763.348 (WinBuild.160101.0800)",
+"timestamp": 3735860170,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4482887"
+]
+},
+{
+"sha256": "0a6a97ce1b5463bc7e3e039bc33137ff2391ef9fdbecbe5508ac82585cc9ca2b",
+"build": 17763,
+"ubr": 379,
+"version": "10.0.17763.379 (WinBuild.160101.0800)",
+"timestamp": 2866190690,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4489899"
+]
+},
+{
+"sha256": "dc3e3ad9cb1bc768323e27752738f77bbbad2aa6b1277f56059dc41c611df0b5",
+"build": 17763,
+"ubr": 404,
+"version": "10.0.17763.404 (WinBuild.160101.0800)",
+"timestamp": 1652434183,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4490481"
+]
+},
+{
+"sha256": "f7d80de3feacd6a97d2644714965a8ec4e0f79788e0868c85b3ad8806ad061e8",
+"build": 17763,
+"ubr": 437,
+"version": "10.0.17763.437 (WinBuild.160101.0800)",
+"timestamp": 1133510339,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4493509"
+]
+},
+{
+"sha256": "122bcef1935be7ce75910545e92bb5de49963a96c40f2164daebfe5750f3570e",
+"build": 17763,
+"ubr": 439,
+"version": "10.0.17763.439 (WinBuild.160101.0800)",
+"timestamp": 2453830469,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4501835"
+]
+},
+{
+"sha256": "4a6c3cc9b076e100cb2c329b44ca6ae8060542689ce77f142bae7d026d1d59fb",
+"build": 17763,
+"ubr": 475,
+"version": "10.0.17763.475 (WinBuild.160101.0800)",
+"timestamp": 2391578385,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4495667"
+]
+},
+{
+"sha256": "6d93f48654870abfd0624f7f4b4a02037369fe8e32cab0619a58bc156780c793",
+"build": 17763,
+"ubr": 503,
+"version": "10.0.17763.503 (WinBuild.160101.0800)",
+"timestamp": 1627746335,
+"virtualSize": 10948608,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4494441"
+]
+},
+{
+"sha256": "3e1a8f3aa9f6e437c3e514485de13a5cb36e45071bba1bfbdee597a608116e60",
+"build": 17763,
+"ubr": 504,
+"version": "10.0.17763.504 (WinBuild.160101.0800)",
+"timestamp": 2579499131,
+"virtualSize": 10948608,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4505056"
+]
+},
+{
+"sha256": "33a80c7269b60ea89ab5fe51f931ddfb12b422071a430b2adfdd9f0f42449d22",
+"build": 17763,
+"ubr": 529,
+"version": "10.0.17763.529 (WinBuild.160101.0800)",
+"timestamp": 2144385730,
+"virtualSize": 10948608,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4497934"
+]
+},
+{
+"sha256": "cd564ccdb1d920cbbb4715e85386fad6f9d670a31f5a78694be5ffb27f108d35",
+"build": 17763,
+"ubr": 557,
+"version": "10.0.17763.557 (WinBuild.160101.0800)",
+"timestamp": 866567164,
+"virtualSize": 10948608,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4503327"
+]
+},
+{
+"sha256": "e1762cef319c423575865fd7847a31a8d3d93814341df732ece0ef7faceff587",
+"build": 17763,
+"ubr": 592,
+"version": "10.0.17763.592 (WinBuild.160101.0800)",
+"timestamp": 1636297122,
+"virtualSize": 10948608,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4501371"
+]
+},
+{
+"sha256": "2d293de6fa934952e4efefe60eb857c7a0df6bb314c743efc8d13187b2d8f09f",
+"build": 17763,
+"ubr": 593,
+"version": "10.0.17763.593 (WinBuild.160101.0800)",
+"timestamp": 4029066632,
+"virtualSize": 10948608,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4509479"
+]
+},
+{
+"sha256": "2c5423ae810e58d725a98cb83193cb9180fecb7509367eaaa08f2fc2d89f551d",
+"build": 17763,
+"ubr": 615,
+"version": "10.0.17763.615 (WinBuild.160101.0800)",
+"timestamp": 1589559215,
+"virtualSize": 10948608,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4507469"
+]
+},
+{
+"sha256": "3efb409953ab312aaa72b8be1d21c19ff73101c969dc82b8c6d7c97d4362b704",
+"build": 17763,
+"ubr": 652,
+"version": "10.0.17763.652 (WinBuild.160101.0800)",
+"timestamp": 2689858020,
+"virtualSize": 10948608,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4505658"
+]
+},
+{
+"sha256": "db94f8fe7f01297284e4f4417889c215991da69315ad3874bc581b11cf243508",
+"build": 17763,
+"ubr": 678,
+"version": "10.0.17763.678 (WinBuild.160101.0800)",
+"timestamp": 3847594697,
+"virtualSize": 10948608,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4511553"
+]
+},
+{
+"sha256": "af4242878d6d3ca96752aca9b75f1419271382a64bc49999f55689f4718280ce",
+"build": 17763,
+"ubr": 719,
+"version": "10.0.17763.719 (WinBuild.160101.0800)",
+"timestamp": 3256528739,
+"virtualSize": 10944512,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4512534"
+]
+},
+{
+"sha256": "53acadfdf4ec1bc0621fbf16f3a717c3423af3f5fe277bf52babb4fc91696e41",
+"build": 17763,
+"ubr": 737,
+"version": "10.0.17763.737 (WinBuild.160101.0800)",
+"timestamp": 780884505,
+"virtualSize": 10944512,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4512578",
+"KB4522015"
+]
+},
+{
+"sha256": "5457613b8eb7763048e4b06065527236ca0412b8e14d1b50e93b4299a88119cc",
+"build": 17763,
+"ubr": 771,
+"version": "10.0.17763.771 (WinBuild.160101.0800)",
+"timestamp": 22557664,
+"virtualSize": 10944512,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4516077",
+"KB4524148"
+]
+},
+{
+"sha256": "7b05e74446d3be3dcf99dc2c1cce07cf54ddce3c1e2b217dcd75549be009c66a",
+"build": 17763,
+"ubr": 802,
+"version": "10.0.17763.802 (WinBuild.160101.0800)",
+"timestamp": 839344310,
+"virtualSize": 10944512,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4519338"
+]
+},
+{
+"sha256": "045b8a5073b8d3e201c2b7b373116a1bebe8f8a34309a6e9fc1765dff9662117",
+"build": 17763,
+"ubr": 831,
+"version": "10.0.17763.831 (WinBuild.160101.0800)",
+"timestamp": 3852104152,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4520062"
+]
+},
+{
+"sha256": "18c893161281e9e516597b3567913b5df9a5b4bb9e646b7ea359d057217b915a",
+"build": 17763,
+"ubr": 864,
+"version": "10.0.17763.864 (WinBuild.160101.0800)",
+"timestamp": 3583927426,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4523205"
+]
+},
+{
+"sha256": "2a18f232990a56a1482c91c6f31930fd911f85afcad5428d176a4c84aeb0a301",
+"build": 17763,
+"ubr": 914,
+"version": "10.0.17763.914 (WinBuild.160101.0800)",
+"timestamp": 3749308363,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4530715"
+]
+},
+{
+"sha256": "c36a8fac48690632731d56747cbbdce2453d3e5303a73896505d495f7678dff0",
+"build": 17763,
+"ubr": 973,
+"version": "10.0.17763.973 (WinBuild.160101.0800)",
+"timestamp": 296967038,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4534273"
+]
+},
+{
+"sha256": "2f52fd0d97276c0e5f3ea3ec8b04397aced579537c4942baf81c29212dad6ced",
+"build": 17763,
+"ubr": 1007,
+"version": "10.0.17763.1007 (WinBuild.160101.0800)",
+"timestamp": 3998382888,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4534321"
+]
+},
+{
+"sha256": "3e9b2530465a99c54b94d490d159a9cc5d594b68c1f9cceb16193bd7879950a2",
+"build": 17763,
+"ubr": 1039,
+"version": "10.0.17763.1039 (WinBuild.160101.0800)",
+"timestamp": 1605823938,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4532691"
+]
+},
+{
+"sha256": "1aa7263f714cc0af3dcdde4f6d020edda1aee6884a7972c7bb89d604fb5744e3",
+"build": 17763,
+"ubr": 1075,
+"version": "10.0.17763.1075 (WinBuild.160101.0800)",
+"timestamp": 2017095642,
+"virtualSize": 10944512,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4537818"
+]
+},
+{
+"sha256": "2690a8500d412290b7a1e4c2d7196afd2286998ac778cc6f14d1f3afc12a6160",
+"build": 17763,
+"ubr": 1098,
+"version": "10.0.17763.1098 (WinBuild.160101.0800)",
+"timestamp": 1920220185,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4538461"
+]
+},
+{
+"sha256": "0bc59cb3470418fc4b5c23984efab96da211ab6eccc3de215bba0b5a72a3496f",
+"build": 17763,
+"ubr": 1131,
+"version": "10.0.17763.1131 (WinBuild.160101.0800)",
+"timestamp": 3625272155,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4541331"
+]
+},
+{
+"sha256": "4e49d272dd93658c73fc9cb6a5f23f47959b7910ab5217f4380e52b6895f0f5d",
+"build": 17763,
+"ubr": 1158,
+"version": "10.0.17763.1158 (WinBuild.160101.0800)",
+"timestamp": 4088664592,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4549949"
+]
+},
+{
+"sha256": "cbaef69876f0405d06a9584b3355fc3b48161c96e6bb8836279427a53d38f908",
+"build": 17763,
+"ubr": 1192,
+"version": "10.0.17763.1192 (WinBuild.160101.0800)",
+"timestamp": 2277021363,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4550969"
+]
+},
+{
+"sha256": "afe37a783586e5983a9b7bfd13a4512725f7522b540c821aab290ff30a566ade",
+"build": 17763,
+"ubr": 1217,
+"version": "10.0.17763.1217 (WinBuild.160101.0800)",
+"timestamp": 3181575743,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4551853"
+]
+},
+{
+"sha256": "0d72b46a5b1bc55bb7fbe916f3eb2db5b0e9d75e07f1b8fc3774976695d93327",
+"build": 17763,
+"ubr": 1282,
+"version": "10.0.17763.1282 (WinBuild.160101.0800)",
+"timestamp": 4250293944,
+"virtualSize": 10944512,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4561608"
+]
+},
+{
+"sha256": "7d3f4daa73c5c56fd303f9d82a2c97b16ba8b7c2ddc6689e3f5e9f78c92c80b9",
+"build": 17763,
+"ubr": 1294,
+"version": "10.0.17763.1294 (WinBuild.160101.0800)",
+"timestamp": 3655226277,
+"virtualSize": 10944512,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4567513"
+]
+},
+{
+"sha256": "388a84c81ccbd2a5d708e6e9d9aca974d07ce8bcea7375c05054201141629a29",
+"build": 17763,
+"ubr": 1339,
+"version": "10.0.17763.1339 (WinBuild.160101.0800)",
+"timestamp": 2140126858,
+"virtualSize": 10944512,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4558998"
+]
+},
+{
+"sha256": "2e0c0e7c3741b99354742ab11e7879ba8a51be9a59f071e46b8c149b61f5d1ac",
+"build": 17763,
+"ubr": 1369,
+"version": "10.0.17763.1369 (WinBuild.160101.0800)",
+"timestamp": 1379794828,
+"virtualSize": 10944512,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4559003"
+]
+},
+{
+"sha256": "fbebb420fce2056e992e97b396dbfd11d856c61003619a8b68cfdc330f94012b",
+"build": 17763,
+"ubr": 1397,
+"version": "10.0.17763.1397 (WinBuild.160101.0800)",
+"timestamp": 2380429275,
+"virtualSize": 10944512,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4565349"
+]
+},
+{
+"sha256": "4dd05bc3c68aa760cf99a7d432d079e69875b8d39b65aba732426498f006115d",
+"build": 17763,
+"ubr": 1432,
+"version": "10.0.17763.1432 (WinBuild.160101.0800)",
+"timestamp": 1743263118,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4571748"
+]
+},
+{
+"sha256": "a1cd4bc88718bee6c288341463c12e457cf319aa23b91c7d3b5069996cfd6f67",
+"build": 17763,
+"ubr": 1457,
+"version": "10.0.17763.1457 (WinBuild.160101.0800)",
+"timestamp": 2907942962,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4570333"
+]
+},
+{
+"sha256": "e314cac88e0360f539904134d055b170d45102a7a582f30eb8d835c47271b77d",
+"build": 17763,
+"ubr": 1490,
+"version": "10.0.17763.1490 (WinBuild.160101.0800)",
+"timestamp": 77628870,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4577069"
+]
+},
+{
+"sha256": "0e039c3bbd86d31ceb8f3fd2046134d067ee41ebd974597e59f6518b4d9b60b7",
+"build": 17763,
+"ubr": 1518,
+"version": "10.0.17763.1518 (WinBuild.160101.0800)",
+"timestamp": 1666730968,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4577668"
+]
+},
+{
+"sha256": "8db2060a38810355d69f724a0664bc9dbf804867db17bafa18d9818c616a0150",
+"build": 17763,
+"ubr": 1554,
+"version": "10.0.17763.1554 (WinBuild.160101.0800)",
+"timestamp": 4000061482,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4580390"
+]
+},
+{
+"sha256": "e75a7a8e32a2ba8bb718c39ab5ed38288c6aa9e900ef6f6c93071e8be6afe13a",
+"build": 17763,
+"ubr": 1577,
+"version": "10.0.17763.1577 (WinBuild.160101.0800)",
+"timestamp": 1691410778,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4586793"
+]
+},
+{
+"sha256": "4636fbd0d14be6f99248748f2efc6ca1ce159fb8a867ac2644399fd7d5a1cf83",
+"build": 17763,
+"ubr": 1613,
+"version": "10.0.17763.1613 (WinBuild.160101.0800)",
+"timestamp": 437571932,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4586839"
+]
+},
+{
+"sha256": "fb8a84c1d37f14db4d8e8ba17461b38bd51e57c06fe70a225356310ad1d03eb5",
+"build": 17763,
+"ubr": 1637,
+"version": "10.0.17763.1637 (WinBuild.160101.0800)",
+"timestamp": 1970162255,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4592440"
+]
+},
+{
+"sha256": "462f55dc08df450d62a25224ce5e76e857e60d30e17d4972ed8b0cc6adf65e1a",
+"build": 17763,
+"ubr": 1697,
+"version": "10.0.17763.1697 (WinBuild.160101.0800)",
+"timestamp": 1290415566,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4598230"
+]
+},
+{
+"sha256": "94718578d564f74e9322a034c461b7b54ba5bdc855073a7f0479c81876ea452b",
+"build": 17763,
+"ubr": 1728,
+"version": "10.0.17763.1728 (WinBuild.160101.0800)",
+"timestamp": 724569889,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4598296"
+]
+},
+{
+"sha256": "54c10ea5e7675d3cee8966798b7e69e6e44783c8f28f3a42d838d1cdcd16066f",
+"build": 17763,
+"ubr": 1757,
+"version": "10.0.17763.1757 (WinBuild.160101.0800)",
+"timestamp": 2274778632,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4601345"
+]
+},
+{
+"sha256": "5e16f9c5146dbab4a6bd0c250e9095ae215d986742f193963c71c9eb640e2e16",
+"build": 17763,
+"ubr": 1790,
+"version": "10.0.17763.1790 (WinBuild.160101.0800)",
+"timestamp": 1565853457,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB4601383"
+]
+},
+{
+"sha256": "48ad0a9846f406f3252657c8778cfc5fa2e049bd23bf5ec82187600929e27fdf",
+"build": 17763,
+"ubr": 1817,
+"version": "10.0.17763.1817 (WinBuild.160101.0800)",
+"timestamp": 1755296001,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5000822"
+]
+},
+{
+"sha256": "c0c04057d288872c12097e1abe9c4ad32ceeb2d7445fd8ec0ec53e3fbf20e3c1",
+"build": 17763,
+"ubr": 1821,
+"version": "10.0.17763.1821 (WinBuild.160101.0800)",
+"timestamp": 1904150928,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5001568"
+]
+},
+{
+"sha256": "a2953426fb1ad82c8827ebe90c688bc2406a9332b56aff5d766492dd181a18ba",
+"build": 17763,
+"ubr": 1823,
+"version": "10.0.17763.1823 (WinBuild.160101.0800)",
+"timestamp": 1842280209,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5001638"
+]
+},
+{
+"sha256": "eb5060daf7879b50ded8b3a24b54c0d4edf965b7652f57f13688710ab97dbec9",
+"build": 17763,
+"ubr": 1852,
+"version": "10.0.17763.1852 (WinBuild.160101.0800)",
+"timestamp": 803045690,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5000854"
+]
+},
+{
+"sha256": "e2f1857de3560a5237ca7ea661fc3688715bbbf6baa483511d49baac4ce1acf9",
+"build": 17763,
+"ubr": 1879,
+"version": "10.0.17763.1879 (WinBuild.160101.0800)",
+"timestamp": 1145985854,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5001342"
+]
+},
+{
+"sha256": "8a077ac2937baa9882a003b435fa2574a630e9aff0d9a32d89ebdae3d4930ece",
+"build": 17763,
+"ubr": 1911,
+"version": "10.0.17763.1911 (WinBuild.160101.0800)",
+"timestamp": 4063885184,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5001384"
+]
+},
+{
+"sha256": "b638f4ce0737945459bf1522eaef0962807605d82095e8721e4fc58233170800",
+"build": 17763,
+"ubr": 1935,
+"version": "10.0.17763.1935 (WinBuild.160101.0800)",
+"timestamp": 4125799225,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5003171"
+]
+},
+{
+"sha256": "749945259e6273d2a2e934da009057f5d988f619a1aed0ea1b5f8aa0bc0bab17",
+"build": 17763,
+"ubr": 1971,
+"version": "10.0.17763.1971 (WinBuild.160101.0800)",
+"timestamp": 1801640374,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5003217"
+]
+},
+{
+"sha256": "0fcca24bc0e7aeaecf9121e1702363152d02918e1c5e7ab9addf2bb8569fa8b1",
+"build": 17763,
+"ubr": 1999,
+"version": "10.0.17763.1999 (WinBuild.160101.0800)",
+"timestamp": 3550489452,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5003646"
+]
+},
+{
+"sha256": "88cf4f2dcddacc42455c7aba95efdd3f686c23fa82127b4a105b0ba3aa2f8263",
+"build": 17763,
+"ubr": 2028,
+"version": "10.0.17763.2028 (WinBuild.160101.0800)",
+"timestamp": 970866740,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5003703"
+]
+},
+{
+"sha256": "d2aab7469c92ad2508afe5c6af056861504e8d2c9c56e8ee7e47cfde5c952493",
+"build": 17763,
+"ubr": 2029,
+"version": "10.0.17763.2029 (WinBuild.160101.0800)",
+"timestamp": 3622217794,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5004947"
+]
+},
+{
+"sha256": "5787739fc6cf124cb151aa0cd913d9b05caf7745e37d496458007f814fbc874e",
+"build": 17763,
+"ubr": 2061,
+"version": "10.0.17763.2061 (WinBuild.160101.0800)",
+"timestamp": 2585588332,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5004244"
+]
+},
+{
+"sha256": "1c8146c4001acde0194408822f16e64ef976faf28d080328f3b8ae3701f93e19",
+"build": 17763,
+"ubr": 2090,
+"version": "10.0.17763.2090 (WinBuild.160101.0800)",
+"timestamp": 2722777651,
+"virtualSize": 10919936,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5004308"
+]
+},
+{
+"sha256": "896dacc858e3eda772dcbb1d8c605c532837d6fb27c73e8e5ab8b0dac4b0c3a8",
+"build": 17763,
+"ubr": 2114,
+"version": "10.0.17763.2114 (WinBuild.160101.0800)",
+"timestamp": 800009556,
+"virtualSize": 10919936,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5005030"
+]
+},
+{
+"sha256": "4fd33cbcd593dd0ebe04ec10d24ad0ebdafa6823bcdb0aa8632a86bf7f26c48d",
+"build": 17763,
+"ubr": 2145,
+"version": "10.0.17763.2145 (WinBuild.160101.0800)",
+"timestamp": 1570696835,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5005102"
+]
+},
+{
+"sha256": "e060fb528f2c5532f5b0c182620b68ff540f5196a5b2775656c2120a198dd0aa",
+"build": 17763,
+"ubr": 2183,
+"version": "10.0.17763.2183 (WinBuild.160101.0800)",
+"timestamp": 1277977026,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5005568"
+]
+},
+{
+"sha256": "4fc01f8b79576d681b5df57aa4b15162acd43aac9a987f0f9a0e428f2956716d",
+"build": 17763,
+"ubr": 2213,
+"version": "10.0.17763.2213 (WinBuild.160101.0800)",
+"timestamp": 3820695931,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5005625"
+]
+},
+{
+"sha256": "4a5753c4446606293269e183dc2682afd22f043fd91b74565cb56e3e4f8e88f2",
+"build": 17763,
+"ubr": 2237,
+"version": "10.0.17763.2237 (WinBuild.160101.0800)",
+"timestamp": 2944617841,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5006672"
+]
+},
+{
+"sha256": "ec1976b976bc6bd30a66e378e9aa0cdf6bae07344bb5e90dc2b8cac0507ecc63",
+"build": 17763,
+"ubr": 2268,
+"version": "10.0.17763.2268 (WinBuild.160101.0800)",
+"timestamp": 814014591,
+"virtualSize": 10919936,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5006744"
+]
+},
+{
+"sha256": "819e4c3bb269d62de9fee00194b9414b39f336577880adf05ee3ae335375b4b7",
+"build": 17763,
+"ubr": 2300,
+"version": "10.0.17763.2300 (WinBuild.160101.0800)",
+"timestamp": 1396335150,
+"virtualSize": 10919936,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5007206"
+]
+},
+{
+"sha256": "6615f4ae39ae25423ade4e1ec01546a6daef2f9139fafbb1321d374cf3554413",
+"build": 17763,
+"ubr": 2305,
+"version": "10.0.17763.2305 (WinBuild.160101.0800)",
+"timestamp": 1712343518,
+"virtualSize": 10919936,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5008602"
+]
+},
+{
+"sha256": "999b11da71e3d7973dcaeaf8961791ad0b82ea0da894753fcb97d858eb29744d",
+"build": 17763,
+"ubr": 2330,
+"version": "10.0.17763.2330 (WinBuild.160101.0800)",
+"timestamp": 3529744484,
+"virtualSize": 10919936,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5007266"
+]
+},
+{
+"sha256": "f0f9ae95425ccfdf2f89059c9d894e4087a2fb5ed1aaa30dfb405b85935a0007",
+"build": 17763,
+"ubr": 2366,
+"version": "10.0.17763.2366 (WinBuild.160101.0800)",
+"timestamp": 3289014171,
+"virtualSize": 10919936,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5008218"
+]
+},
+{
+"sha256": "d11da5ba3d8ae4f52e9a5fbdf41b0ef85df247920c2bb522c4e34b5491642e53",
+"build": 17763,
+"ubr": 2369,
+"version": "10.0.17763.2369 (WinBuild.160101.0800)",
+"timestamp": 2882147155,
+"virtualSize": 10919936,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5010196"
+]
+},
+{
+"sha256": "f33ec0c2b089cffd03f11f25fee8db46cac54cac4f5dd3d9ae4bf657620746f1",
+"build": 17763,
+"ubr": 2452,
+"version": "10.0.17763.2452 (WinBuild.160101.0800)",
+"timestamp": 3749506168,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5009557"
+]
+},
+{
+"sha256": "d387bfdabeb9b2756beb1e374b158362183bb0ee3f1522d044185bb17d3a6e32",
+"build": 17763,
+"ubr": 2458,
+"version": "10.0.17763.2458 (WinBuild.160101.0800)",
+"timestamp": 2308584710,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5010791"
+]
+},
+{
+"sha256": "631e567903185c6ac045437f336838fb4d42d5ea2c599554577cef1d0571e97f",
+"build": 17763,
+"ubr": 2510,
+"version": "10.0.17763.2510 (WinBuild.160101.0800)",
+"timestamp": 2677786785,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5009616"
+]
+},
+{
+"sha256": "7ff3ab13d439a3874c8a75a95304966672a921be81018d65eb0b56307d879df3",
+"build": 17763,
+"ubr": 2565,
+"version": "10.0.17763.2565 (WinBuild.160101.0800)",
+"timestamp": 1147956446,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5010351"
+]
+},
+{
+"sha256": "6acdb597871f5917614a98501dae7adfdaddc44505e92e90ac09f7348632ba07",
+"build": 17763,
+"ubr": 2628,
+"version": "10.0.17763.2628 (WinBuild.160101.0800)",
+"timestamp": 1892924701,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5010427"
+]
+},
+{
+"sha256": "93ae48b840d77f0918b5f2f1898e4b39ba57a5f3a1e6ae877cf430aa3448dff0",
+"build": 17763,
+"ubr": 2686,
+"version": "10.0.17763.2686 (WinBuild.160101.0800)",
+"timestamp": 232853433,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5011503"
+]
+},
+{
+"sha256": "088fbdf5c1653479bad50de2e3c0bc7527a12a8e0db8c7ac4abe42d057767dfc",
+"build": 17763,
+"ubr": 2746,
+"version": "10.0.17763.2746 (WinBuild.160101.0800)",
+"timestamp": 1037395652,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5011551"
+]
+},
+{
+"sha256": "7880a73ca424fecfcdcae9d3587b7b4be2c164395e499a7328935393fca54466",
+"build": 17763,
+"ubr": 2803,
+"version": "10.0.17763.2803 (WinBuild.160101.0800)",
+"timestamp": 4023833880,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5012647"
+]
+},
+{
+"sha256": "49c71e10ade8b6c2442ef422ab544c3559a339c0f382354e2e1399a756c77a5b",
+"build": 17763,
+"ubr": 2867,
+"version": "10.0.17763.2867 (WinBuild.160101.0800)",
+"timestamp": 299828458,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5012636"
+]
+},
+{
+"sha256": "bb4b577e1d421ceb46815d284e7c17460e26707a5a56d913519c394a184434c6",
+"build": 17763,
+"ubr": 2928,
+"version": "10.0.17763.2928 (WinBuild.160101.0800)",
+"timestamp": 1006181982,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5013941"
+]
+},
+{
+"sha256": "48ffe97fbac8b13cbc0f8412e06feb93c162906cbd324938fe3b7a6a7fc08633",
+"build": 17763,
+"ubr": 2931,
+"version": "10.0.17763.2931 (WinBuild.160101.0800)",
+"timestamp": 2582767013,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5015018"
+]
+},
+{
+"sha256": "189bbab8021614109c76acf8582236fbf52d9530b0c49b643e82cb3bed65ca40",
+"build": 17763,
+"ubr": 2989,
+"version": "10.0.17763.2989 (WinBuild.160101.0800)",
+"timestamp": 1069717169,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5014022"
+]
+},
+{
+"sha256": "589ccbb1d24214df47b01eebf20ed944d2b5f03d1074c8a5694f9dc5c7a7b039",
+"build": 17763,
+"ubr": 3046,
+"version": "10.0.17763.3046 (WinBuild.160101.0800)",
+"timestamp": 1551896412,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5014692"
+]
+},
+{
+"sha256": "8adc4061faa4a3d7f9ba3fcef45b97fa7c2c7f570f2358daa4d7b5ef2167579d",
+"build": 17763,
+"ubr": 3165,
+"version": "10.0.17763.3165 (WinBuild.160101.0800)",
+"timestamp": 2916249164,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5015811"
+]
+},
+{
+"sha256": "2a063e3b227ae7d0d8891df985bf73400a80f9e3b57a84814f4af002eaff5bfb",
+"build": 17763,
+"ubr": 3232,
+"version": "10.0.17763.3232 (WinBuild.160101.0800)",
+"timestamp": 960078149,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5015880"
+]
+},
+{
+"sha256": "842f94031c0e4e2f4d568a13d22c82a238384195e9a294e7587ef2925f8d83ea",
+"build": 17763,
+"ubr": 3287,
+"version": "10.0.17763.3287 (WinBuild.160101.0800)",
+"timestamp": 1177938216,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5016623"
+]
+},
+{
+"sha256": "72092c8fdb3dba8134fd3bbb51a55b8f949d6292c88d1fb0de04870b1c99d967",
+"build": 17763,
+"ubr": 3346,
+"version": "10.0.17763.3346 (WinBuild.160101.0800)",
+"timestamp": 433438330,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5016690"
+]
+},
+{
+"sha256": "6bad21f62ca1a3f48376b959525c5b6814b28a33613fa436a02d8784ff4788a5",
+"build": 17763,
+"ubr": 3406,
+"version": "10.0.17763.3406 (WinBuild.160101.0800)",
+"timestamp": 2627424913,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5017315"
+]
+},
+{
+"sha256": "78a03a33faaa4c58a40db436fa1fab8815d2303bfc547e3dd3e8c0c9dbc04d16",
+"build": 17763,
+"ubr": 3469,
+"version": "10.0.17763.3469 (WinBuild.160101.0800)",
+"timestamp": 2008234627,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5017379"
+]
+},
+{
+"sha256": "0cdc74db15c370a53335c0331b49103358b8ea9613db2f29d544230ea2622a06",
+"build": 17763,
+"ubr": 3532,
+"version": "10.0.17763.3532 (WinBuild.160101.0800)",
+"timestamp": 3804463084,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5018419"
+]
+},
+{
+"sha256": "69819de0bfeac6a85b74b82570312c2a41dd43f15f46decf2e395510d9bd9ac6",
+"build": 17763,
+"ubr": 3534,
+"version": "10.0.17763.3534 (WinBuild.160101.0800)",
+"timestamp": 2983016483,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5020438"
+]
+},
+{
+"sha256": "944ec53f47a739e8bd9ebfd86124174b5c993604ff46c4ee612a8ec258b7938f",
+"build": 17763,
+"ubr": 3650,
+"version": "10.0.17763.3650 (WinBuild.160101.0800)",
+"timestamp": 3340596039,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5019966"
+]
+},
+{
+"sha256": "3f817ab90ea7edf2a50959de00383553e4828d93161ed3df1c472d195ff04e20",
+"build": 17763,
+"ubr": 3770,
+"version": "10.0.17763.3770 (WinBuild.160101.0800)",
+"timestamp": 45763673,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5021237"
+]
+},
+{
+"sha256": "b153885e03b98b1f50313bea0189e393f24d4b4516ceb1bad2a57db2daebd381",
+"build": 17763,
+"ubr": 3772,
+"version": "10.0.17763.3772 (WinBuild.160101.0800)",
+"timestamp": 811452609,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5022554"
+]
+},
+{
+"sha256": "d58678644dd4c5dcbef6f34befd76e04bb5d903f9f79eeaf3963d481f7786200",
+"build": 17763,
+"ubr": 3887,
+"version": "10.0.17763.3887 (WinBuild.160101.0800)",
+"timestamp": 4257866254,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5022286"
+]
+},
+{
+"sha256": "db60233b7a7c27e9f9cf414b8c18fb31102e2b33c35fd6a8f4d827d197231fc2",
+"build": 17763,
+"ubr": 4010,
+"version": "10.0.17763.4010 (WinBuild.160101.0800)",
+"timestamp": 3086543496,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5022840"
+]
+},
+{
+"sha256": "fb8cd14b1428f1977e5f3e02b21f08effe0264988aae12a984c2a8117c3a53ed",
+"build": 17763,
+"ubr": 4131,
+"version": "10.0.17763.4131 (WinBuild.160101.0800)",
+"timestamp": 2055154268,
+"virtualSize": 10924032,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5023702"
+]
+},
+{
+"sha256": "d396d792cca27187f2a35e1ddbda82e85cc506476635da8e96f79a68d9754fd1",
+"build": 17763,
+"ubr": 4252,
+"version": "10.0.17763.4252 (WinBuild.160101.0800)",
+"timestamp": 3527925210,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5025229"
+]
+},
+{
+"sha256": "cd35c74567de47437a1553065c7df1d39be319b82069740f3e4e4e079e8def0f",
+"build": 17763,
+"ubr": 4377,
+"version": "10.0.17763.4377 (WinBuild.160101.0800)",
+"timestamp": 985249290,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5026362"
+]
+},
+{
+"sha256": "442cb1b10a217d0bd5d2ff48e2026e2c31a179baf2e0dca8db56cc27d485448e",
+"build": 17763,
+"ubr": 4499,
+"version": "10.0.17763.4499 (WinBuild.160101.0800)",
+"timestamp": 915331384,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5027222"
+]
+},
+{
+"sha256": "eb10c2a1de5e6178e1d7e8eca8f42ecb6af7b4d0269514ec6c5bcdae228a8451",
+"build": 17763,
+"ubr": 4644,
+"version": "10.0.17763.4644 (WinBuild.160101.0800)",
+"timestamp": 187910687,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5028168"
+]
+},
+{
+"sha256": "9d2f75ec40da98def10f15b8fc75cd00733a095c4ce5630db461897690bb5d7b",
+"build": 17763,
+"ubr": 4737,
+"version": "10.0.17763.4737 (WinBuild.160101.0800)",
+"timestamp": 3085206444,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5029247"
+]
+},
+{
+"sha256": "64de0585c49e769249fdef8236364a2c0f49d5c93408cd78a4f6591cc50ec98b",
+"build": 17763,
+"ubr": 4851,
+"version": "10.0.17763.4851 (WinBuild.160101.0800)",
+"timestamp": 3350203434,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5030214"
+]
+},
+{
+"sha256": "324a350553ea5715880a269529fc904bc9369b87ca1ff543d16482d7d555d38a",
+"build": 17763,
+"ubr": 4974,
+"version": "10.0.17763.4974 (WinBuild.160101.0800)",
+"timestamp": 582935639,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5031361"
+]
+},
+{
+"sha256": "b5d725a882ba4f8d9b380700f460be22775b6969c842cefec90bf976c4747ab3",
+"build": 17763,
+"ubr": 5122,
+"version": "10.0.17763.5122 (WinBuild.160101.0800)",
+"timestamp": 2811714206,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5032196"
+]
+},
+{
+"sha256": "23245d870bff7f925ec6031ec72f4f83b0902c305e6e50b60263e65e58b57304",
+"build": 17763,
+"ubr": 5202,
+"version": "10.0.17763.5202 (WinBuild.160101.0800)",
+"timestamp": 405859177,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5033371"
+]
+},
+{
+"sha256": "45364bbd4b91cb18b406db65cccf28f19b9535982dc87a1adeffa184766ac410",
+"build": 17763,
+"ubr": 5328,
+"version": "10.0.17763.5328 (WinBuild.160101.0800)",
+"timestamp": 3997674300,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5034127"
+]
+},
+{
+"sha256": "f13b502bf09bdb6349bface6a6969fed94fd50d9eef620b8fc0d6a167d007141",
+"build": 17763,
+"ubr": 5458,
+"version": "10.0.17763.5458 (WinBuild.160101.0800)",
+"timestamp": 998885679,
+"virtualSize": 10928128,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5034768"
+]
+},
+{
+"sha256": "1814d912d2bc9dfa7dcdd9a6d094067462cac79090820046cc99cf9545b9ee1f",
+"build": 17763,
+"ubr": 5576,
+"version": "10.0.17763.5576 (WinBuild.160101.0800)",
+"timestamp": 542596099,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5035849",
+"KB5037425"
+]
+},
+{
+"sha256": "2aee999837064f8c72464c560f699b8fd8c7d8eaebc29f2e1d00ea2e73ae5fd1",
+"build": 17763,
+"ubr": 5696,
+"version": "10.0.17763.5696 (WinBuild.160101.0800)",
+"timestamp": 3634435414,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5036896"
+]
+},
+{
+"sha256": "2036e0435f777eeb44590def15124bf4d238160ba5683faad73bdf866955b860",
+"build": 17763,
+"ubr": 5820,
+"version": "10.0.17763.5820 (WinBuild.160101.0800)",
+"timestamp": 3301324592,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5037765"
+]
+},
+{
+"sha256": "bd6aa143f8d3b8d0e7196991ccecad886705f42175bdb3874c05838b1d8c5f2c",
+"build": 17763,
+"ubr": 5830,
+"version": "10.0.17763.5830 (WinBuild.160101.0800)",
+"timestamp": 3057028010,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5039705"
+]
+},
+{
+"sha256": "ade757ff23480d1b0dbeb16ea164a0f8834c52a76773aea14d8d3956d6925507",
+"build": 17763,
+"ubr": 5933,
+"version": "10.0.17763.5933 (WinBuild.160101.0800)",
+"timestamp": 3596305980,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5039217"
+]
+},
+{
+"sha256": "4315112605b3816e526beee8a9d682338363b06022f313c188f2441ab97f81d8",
+"build": 17763,
+"ubr": 6054,
+"version": "10.0.17763.6054 (WinBuild.160101.0800)",
+"timestamp": 3706299589,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5040430"
+]
+},
+{
+"sha256": "d8c7b2be1734d5def6c2abfb4f71c4f97b821c170e13d691063f8806ee860252",
+"build": 17763,
+"ubr": 6189,
+"version": "10.0.17763.6189 (WinBuild.160101.0800)",
+"timestamp": 2613290346,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5041578"
+]
+},
+{
+"sha256": "cd29fb18ad5406131780b32e1a81f967be48541bd161cc18737c9ebf34329eef",
+"build": 17763,
+"ubr": 6292,
+"version": "10.0.17763.6292 (WinBuild.160101.0800)",
+"timestamp": 3530125386,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5043050"
+]
+},
+{
+"sha256": "ba7f50595ea0c0150eecd2d8db32b49b1da2de3f1719b91e8a4c1fb7914baf87",
+"build": 17763,
+"ubr": 6414,
+"version": "10.0.17763.6414 (WinBuild.160101.0800)",
+"timestamp": 2427212794,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5044277"
+]
+},
+{
+"sha256": "d6de6c58ade2219bc19cbf6f9ac7f3d5e52875cd4db875b5c934cb0c93976e7e",
+"build": 17763,
+"ubr": 6530,
+"version": "10.0.17763.6530 (WinBuild.160101.0800)",
+"timestamp": 3604697518,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5046615"
+]
+},
+{
+"sha256": "b7da7ae1c4d7175036a34d0ae8580f637b8626588e0162ed72d161ecfeeae8e8",
+"build": 17763,
+"ubr": 6640,
+"version": "10.0.17763.6640 (WinBuild.160101.0800)",
+"timestamp": 1848125835,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5048661"
+]
+},
+{
+"sha256": "82d04a19ad3318d7e0629345cb8f1222de56539182a1eada800afba70240139c",
+"build": 17763,
+"ubr": 6766,
+"version": "10.0.17763.6766 (WinBuild.160101.0800)",
+"timestamp": 402604564,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5050008"
+]
+},
+{
+"sha256": "ab40631764282ca30d5dfacf660adb84a636bbccb27d6bb8486a5e8414d5ad48",
+"build": 17763,
+"ubr": 6893,
+"version": "10.0.17763.6893 (WinBuild.160101.0800)",
+"timestamp": 235377944,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5052000"
+]
+},
+{
+"sha256": "220ec50f81c0df96828e1ada00acfb95dc6c3fbfbecfae248c6f8b2d7ccece5a",
+"build": 17763,
+"ubr": 7009,
+"version": "10.0.17763.7009 (WinBuild.160101.0800)",
+"timestamp": 2528428422,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5053596"
+]
+},
+{
+"sha256": "ace88181798ee890a6917e00ef7999029656942f4f485292ed6f9d05cf2fb6a1",
+"build": 17763,
+"ubr": 7131,
+"version": "10.0.17763.7131 (WinBuild.160101.0800)",
+"timestamp": 4287311552,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5055519"
+]
+},
+{
+"sha256": "181e27838eb6f1a7224830a60a830ad9e9ad867825a4761e5b2c7f5da1456f59",
+"build": 17763,
+"ubr": 7249,
+"version": "10.0.17763.7249 (WinBuild.160101.0800)",
+"timestamp": 2841670906,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5059091"
+]
+},
+{
+"sha256": "7466ec0535ca534cfb21ae9b5f27486300e0470bd7719aecbd6f23abcaff78e0",
+"build": 17763,
+"ubr": 7309,
+"version": "10.0.17763.7309 (WinBuild.160101.0800)",
+"timestamp": 2228207099,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5058392",
+"KB5061978"
+]
+},
+{
+"sha256": "5377faf16b7b2d74cced4c415d8a8da16321e4a4a7e21777b994993365f95dc9",
+"build": 17763,
+"ubr": 7434,
+"version": "10.0.17763.7434 (WinBuild.160101.0800)",
+"timestamp": 2416016719,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5060531"
+]
+},
+{
+"sha256": "fe2f8da00dcbf2e8e5d9558a35961a875c5fcbe69c5d9ee2d28ea91e89e3c42d",
+"build": 17763,
+"ubr": 7558,
+"version": "10.0.17763.7558 (WinBuild.160101.0800)",
+"timestamp": 649001563,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5062557"
+]
+},
+{
+"sha256": "e6e05ec5f95e3c5c6720ef9e86e5da7afd048f8895d077b95c8abcbf4e00dcfc",
+"build": 17763,
+"ubr": 7671,
+"version": "10.0.17763.7671 (WinBuild.160101.0800)",
+"timestamp": 528245111,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5063877"
+]
+},
+{
+"sha256": "24b0b77571625270fd9f5a6100320e1636f5f0728f223eab11a0a78d9cbe299b",
+"build": 17763,
+"ubr": 7786,
+"version": "10.0.17763.7786 (WinBuild.160101.0800)",
+"timestamp": 2532158032,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5065428"
+]
+},
+{
+"sha256": "123841c9159ff36c235b46d7cc05a90965742a29b078c253e5b024804abafa48",
+"build": 17763,
+"ubr": 7919,
+"version": "10.0.17763.7919 (WinBuild.160101.0800)",
+"timestamp": 1887107490,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5066586"
+]
+},
+{
+"sha256": "ed0c66d50e7d29d67b8c2eccfeb5b207831c34d8725d857779f9ec0b9f5d4984",
+"build": 17763,
+"ubr": 8024,
+"version": "10.0.17763.8024 (WinBuild.160101.0800)",
+"timestamp": 2290720235,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5068791"
+]
+},
+{
+"sha256": "fcab247d1f919c9bb2fa2399c8a5c3ea76d92f1f23784b76d3ab7e1936c7187e",
+"build": 17763,
+"ubr": 8146,
+"version": "10.0.17763.8146 (WinBuild.160101.0800)",
+"timestamp": 375339406,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5071544"
+]
+},
+{
+"sha256": "f63605075c0ec69a39100f40892de05b517c5628b41a49e85c1737e81bf70e81",
+"build": 17763,
+"ubr": 8148,
+"version": "10.0.17763.8148 (WinBuild.160101.0800)",
+"timestamp": 1813392688,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5074975"
+]
+},
+{
+"sha256": "82e9ed7602d96946c29b8ee710ef7067475d7e1aea78b3e540b1282229367456",
+"build": 17763,
+"ubr": 8276,
+"version": "10.0.17763.8276 (WinBuild.160101.0800)",
+"timestamp": 1173100617,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5073723"
+]
+},
+{
+"sha256": "cacbcf9d55cf0e9dde6ef382d058503c420daa1fa3e7e7ed718a1b33bcfc2f7c",
+"build": 17763,
+"ubr": 8280,
+"version": "10.0.17763.8280 (WinBuild.160101.0800)",
+"timestamp": 1562167224,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5077795",
+"KB5078131"
+]
+},
+{
+"sha256": "3804de1efbdf9c961dc1785c8d3f6ea4684c427f2521a274f5ce34788076ebb6",
+"build": 17763,
+"ubr": 8385,
+"version": "10.0.17763.8385 (WinBuild.160101.0800)",
+"timestamp": 1280657573,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5075904"
+]
+},
+{
+"sha256": "8ba872a1f34da094925dd42b4a89f70028995558f3f89bd2c67fb5499006d0a0",
+"build": 17763,
+"ubr": 8510,
+"version": "10.0.17763.8510 (WinBuild.160101.0800)",
+"timestamp": 241196286,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5078752"
+]
+},
+{
+"sha256": "9fc12063789b179214e173581b722a9b8be1a5e390c5bcbe451eb1100b1b43a2",
+"build": 17763,
+"ubr": 8641,
+"version": "10.0.17763.8641 (WinBuild.160101.0800)",
+"timestamp": 2688137894,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5082123",
+"KB5091573"
+]
+},
+{
+"sha256": "d2a55dfc8763ef9121d0003ed3d49c0dc38e6bb2174ad4a73d67aef95019e3ff",
+"build": 17763,
+"ubr": 8755,
+"version": "10.0.17763.8755 (WinBuild.160101.0800)",
+"timestamp": 1221014694,
+"virtualSize": 10936320,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5087538"
+]
+},
+{
+"sha256": "36b37da57eeea1c5dd2ca41ff1e45cddd94dce297542b279a3bf51386cdb6950",
+"build": 17763,
+"ubr": 8880,
+"version": "10.0.17763.8880 (WinBuild.160101.0800)",
+"timestamp": 939549809,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5094123"
+]
+},
+{
+"sha256": "fb46f191442c3951e19dcf4e45d3b08c38962d549f7b50065dee79dd70208586",
+"build": 17763,
+"ubr": 9020,
+"version": "10.0.17763.9020 (WinBuild.160101.0800)",
+"timestamp": 817286076,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5099538"
+]
+},
+{
+"sha256": "09c60f5fab65c9abfdeab023410396dc3a4ab13ce0f4eff2ad4487b6e55a095f",
+"build": 17763,
+"ubr": 9121,
+"version": "10.0.17763.9121 (WinBuild.160101.0800)",
+"timestamp": 650376096,
+"virtualSize": 10940416,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5120238"
+]
+},
+{
+"sha256": "4299bbaed2ef8abcb4f757437bcfb0adcd8f199817db545d861399d3023dae3f",
+"build": 17763,
+"ubr": 9245,
+"version": "10.0.17763.9245 (WinBuild.160101.0800)",
+"timestamp": 4021460231,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5122876",
+"KB5129238"
+]
+},
+{
+"sha256": "15231cca3b38ca34942e2f4bf2201ce562d564318eabb185628b14d3543f256c",
+"build": 17763,
+"ubr": 9376,
+"version": "10.0.17763.9376 (WinBuild.160101.0800)",
+"timestamp": 3774169753,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5126651",
+"KB5134124"
+]
+},
+{
+"sha256": "371bb179ccc87e953ed0e897ddf0c73f21efcabf496188de6a87da99057ac745",
+"build": 17763,
+"ubr": 9479,
+"version": "10.0.17763.9479 (WinBuild.160101.0800)",
+"timestamp": 1307304322,
+"virtualSize": 10932224,
+"windows": [
+"1809"
+],
+"kbs": [
+"KB5131085"
+]
+},
+{
+"sha256": "3033be1f35f4bb17ea3049fc4132d30a3fbaa1bfd26b5444313641f1530b2326",
+"build": 18362,
+"ubr": 30,
+"version": "10.0.18362.30 (WinBuild.160101.0800)",
+"timestamp": 3807487275,
+"virtualSize": 11214848,
+"windows": [
+"1903"
+],
+"kbs": [
+"BASE"
+]
+},
+{
+"sha256": "dbcd8a80f53906780389970772c0b6c094d81c27d23cf934db564e7f3cb57055",
+"build": 18362,
+"ubr": 116,
+"version": "10.0.18362.116 (WinBuild.160101.0800)",
+"timestamp": 3713203977,
+"virtualSize": 11214848,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4505057"
+]
+},
+{
+"sha256": "c17b8e328205cef5c7dae5d23deb93f25e41476846ab58e37d10cffd1df1615b",
+"build": 18362,
+"ubr": 145,
+"version": "10.0.18362.145 (WinBuild.160101.0800)",
+"timestamp": 4275008695,
+"virtualSize": 11214848,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4497935"
+]
+},
+{
+"sha256": "ea2d17f5af47cc7c042c795e6ff0161bde6a4cc05087b4bf9303da2a1fb34160",
+"build": 18362,
+"ubr": 175,
+"version": "10.0.18362.175 (WinBuild.160101.0800)",
+"timestamp": 3940339755,
+"virtualSize": 11214848,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4503293"
+]
+},
+{
+"sha256": "9070003a325f389812a6df6a5ae9f99f9ab20a9bb7e04ac43699c6136709b531",
+"build": 18362,
+"ubr": 207,
+"version": "10.0.18362.207 (WinBuild.160101.0800)",
+"timestamp": 3565982053,
+"virtualSize": 11214848,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4501375"
+]
+},
+{
+"sha256": "89ac63f78215074b150eab559c179caf656751410ba2bd57e774d90c39d1ece7",
+"build": 18362,
+"ubr": 239,
+"version": "10.0.18362.239 (WinBuild.160101.0800)",
+"timestamp": 65867586,
+"virtualSize": 11214848,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4507453"
+]
+},
+{
+"sha256": "aa0bddbd4b1eef2b825c9eb603d6584e52d6aa73dbf473cf0765a1c63328be7b",
+"build": 18362,
+"ubr": 267,
+"version": "10.0.18362.267 (WinBuild.160101.0800)",
+"timestamp": 1960449370,
+"virtualSize": 11227136,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4505903"
+]
+},
+{
+"sha256": "3e4bb89d4dcf19cf6bb5c19e8dda22fc186c7c2b71cb2de1b4bcde587bbb3799",
+"build": 18362,
+"ubr": 295,
+"version": "10.0.18362.295 (WinBuild.160101.0800)",
+"timestamp": 896562777,
+"virtualSize": 11227136,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4512508"
+]
+},
+{
+"sha256": "a130f992521a45764695256659885dcb80cb53650897c4091fb0a9de909fa0c8",
+"build": 18362,
+"ubr": 329,
+"version": "10.0.18362.329 (WinBuild.160101.0800)",
+"timestamp": 1461337230,
+"virtualSize": 11227136,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4512941"
+]
+},
+{
+"sha256": "778cee105f540fb8492fa9cdbce66152352bbe56e44dcd302a87ff673322b0e0",
+"build": 18362,
+"ubr": 356,
+"version": "10.0.18362.356 (WinBuild.160101.0800)",
+"timestamp": 2776865869,
+"virtualSize": 11227136,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4515384"
+]
+},
+{
+"sha256": "321a4952cfec944561ea74d194dc7d9318e340d9c8306aecd57b2886106cff09",
+"build": 18362,
+"ubr": 357,
+"version": "10.0.18362.357 (WinBuild.160101.0800)",
+"timestamp": 45751475,
+"virtualSize": 11227136,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4522016"
+]
+},
+{
+"sha256": "e8cf4beea73f92b74b03dc9ae2ed30d4cc442015cb6da25e66a08936b0479248",
+"build": 18362,
+"ubr": 387,
+"version": "10.0.18362.387 (WinBuild.160101.0800)",
+"timestamp": 1947103749,
+"virtualSize": 11231232,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4517211"
+]
+},
+{
+"sha256": "6911ddf4f790fa9612beb297f7d28ece31ec28ebb7d88b8f3ada9b47ba8477be",
+"build": 18362,
+"ubr": 388,
+"version": "10.0.18362.388 (WinBuild.160101.0800)",
+"timestamp": 3574350374,
+"virtualSize": 11231232,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4524147"
+]
+},
+{
+"sha256": "bf8b1023243dd8764d2b71a9156b782b4b84c61509c8d7edceb062ff798715b5",
+"build": 18362,
+"ubr": 418,
+"version": "10.0.18362.418 (WinBuild.160101.0800)",
+"timestamp": 4237652210,
+"virtualSize": 11231232,
+"windows": [
+"1903",
+"1909"
+],
+"kbs": [
+"BASE",
+"KB4517389"
+]
+},
+{
+"sha256": "4d7e4580f44ff5b0268a7d62047c08f6911534bfeec5c6d2a9613eb1b8e10acf",
+"build": 18362,
+"ubr": 449,
+"version": "10.0.18362.449 (WinBuild.160101.0800)",
+"timestamp": 1294840539,
+"virtualSize": 11231232,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4522355"
+]
+},
+{
+"sha256": "a7785200f44317f54d1eadfa80de850bcab91ed4fba84b0fe511458e85b8ed8e",
+"build": 18362,
+"ubr": 476,
+"version": "10.0.18362.476 (WinBuild.160101.0800)",
+"timestamp": 1325201321,
+"virtualSize": 11231232,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4524570"
+]
+},
+{
+"sha256": "47e07ac729750d74342bc5d89e9747eea1dbd7e63f54cd6a16ae7e9c473cd14d",
+"build": 18362,
+"ubr": 535,
+"version": "10.0.18362.535 (WinBuild.160101.0800)",
+"timestamp": 316454000,
+"virtualSize": 11231232,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4530684"
+]
+},
+{
+"sha256": "2ea1e2a2945fc4808b9fef1701bcfb5430bd1d7ccc9b9321986b12f807b53c37",
+"build": 18362,
+"ubr": 592,
+"version": "10.0.18362.592 (WinBuild.160101.0800)",
+"timestamp": 83291040,
+"virtualSize": 11231232,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4528760"
+]
+},
+{
+"sha256": "2ce2012049c77c514643eadd328d0bb326d328c970e1699ff4e39e2e362c17f3",
+"build": 18362,
+"ubr": 628,
+"version": "10.0.18362.628 (WinBuild.160101.0800)",
+"timestamp": 691478499,
+"virtualSize": 11231232,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4532695"
+]
+},
+{
+"sha256": "c16e8e0df58046b44c5150f6fe1177e4d469155b32349b078adfa7df4c7e1ef6",
+"build": 18362,
+"ubr": 657,
+"version": "10.0.18362.657 (WinBuild.160101.0800)",
+"timestamp": 1114220432,
+"virtualSize": 11231232,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4532693"
+]
+},
+{
+"sha256": "9aa29a8443f614db45a5ac56ef20ae86dece59cb20ca911f9d6b1de4f409ca8e",
+"build": 18362,
+"ubr": 693,
+"version": "10.0.18362.693 (WinBuild.160101.0800)",
+"timestamp": 2295842486,
+"virtualSize": 11235328,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4535996"
+]
+},
+{
+"sha256": "83fe49d0e84a8383f5dd4255ce0d2678edce0bea2c9f49f3afe1f766800d52b4",
+"build": 18362,
+"ubr": 719,
+"version": "10.0.18362.719 (WinBuild.160101.0800)",
+"timestamp": 3547095091,
+"virtualSize": 11235328,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4540673"
+]
+},
+{
+"sha256": "cfee1796884a024a355000e44e50d9a84041b97db09a55620064bb14e6b24801",
+"build": 18362,
+"ubr": 720,
+"version": "10.0.18362.720 (WinBuild.160101.0800)",
+"timestamp": 3831422756,
+"virtualSize": 11235328,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4551762"
+]
+},
+{
+"sha256": "063da2583a7c24b35fbdeffc1fb2c5fda8163c237fb4d994b15f0b369ca2f863",
+"build": 18362,
+"ubr": 752,
+"version": "10.0.18362.752 (WinBuild.160101.0800)",
+"timestamp": 3406299908,
+"virtualSize": 11235328,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4541335"
+]
+},
+{
+"sha256": "0a5ba7c51080da58ec4f6f24978f6c59aacc741e8b16c26a5217cef83719e20d",
+"build": 18362,
+"ubr": 753,
+"version": "10.0.18362.753 (WinBuild.160101.0800)",
+"timestamp": 3686327673,
+"virtualSize": 11235328,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4554364"
+]
+},
+{
+"sha256": "f9b7b8e8d69159ee2c3aadc70e6bf3b7dfd5df024cff9c330da2ff6b8a7159cd",
+"build": 18362,
+"ubr": 778,
+"version": "10.0.18362.778 (WinBuild.160101.0800)",
+"timestamp": 1445582394,
+"virtualSize": 11235328,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4549951"
+]
+},
+{
+"sha256": "40c695e24769e1a64e6bbf752fcca85d72e8848cb4500bb04f6261137e3f4773",
+"build": 18362,
+"ubr": 815,
+"version": "10.0.18362.815 (WinBuild.160101.0800)",
+"timestamp": 2179202432,
+"virtualSize": 11235328,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4550945"
+]
+},
+{
+"sha256": "cccfda078a89d2adb3bd6e93f30a031b24fd37fbf2caf3d2a6bb39f2e790d13b",
+"build": 18362,
+"ubr": 836,
+"version": "10.0.18362.836 (WinBuild.160101.0800)",
+"timestamp": 3079005065,
+"virtualSize": 11235328,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4556799"
+]
+},
+{
+"sha256": "6d666f98ccf744c4a45b3847fdb67435661b8b785ee6d1f0c69ba90be09ec611",
+"build": 18362,
+"ubr": 900,
+"version": "10.0.18362.900 (WinBuild.160101.0800)",
+"timestamp": 1341609753,
+"virtualSize": 11235328,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4560960"
+]
+},
+{
+"sha256": "df5334c5a4f92994fd77fe735a89fa4113cb356aa2d7c56644a7eb170f5dcab9",
+"build": 18362,
+"ubr": 904,
+"version": "10.0.18362.904 (WinBuild.160101.0800)",
+"timestamp": 1957915826,
+"virtualSize": 11235328,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4567512"
+]
+},
+{
+"sha256": "cd90bf259fb2e592eba93be145535fd7fefd0b8658c1782667e0d904ca2af1e9",
+"build": 18362,
+"ubr": 959,
+"version": "10.0.18362.959 (WinBuild.160101.0800)",
+"timestamp": 3511233217,
+"virtualSize": 11235328,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4565483"
+]
+},
+{
+"sha256": "a8459259081e0fdf98345bdc2fe71dcef78e74b405878389e11b0cdd51411406",
+"build": 18362,
+"ubr": 997,
+"version": "10.0.18362.997 (WinBuild.160101.0800)",
+"timestamp": 3343407936,
+"virtualSize": 11235328,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4559004"
+]
+},
+{
+"sha256": "519c3b6c4db7d4d2f64744b8c81353d679835bc3d0f37bbdae3a7dd40882ad44",
+"build": 18362,
+"ubr": 1016,
+"version": "10.0.18362.1016 (WinBuild.160101.0800)",
+"timestamp": 1966130899,
+"virtualSize": 11235328,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4565351"
+]
+},
+{
+"sha256": "bc9611210344d4a56bd19fdf80dc5ebe0111ffcdc08b2a82c2547a6593fea3f0",
+"build": 18362,
+"ubr": 1049,
+"version": "10.0.18362.1049 (WinBuild.160101.0800)",
+"timestamp": 2482021888,
+"virtualSize": 11227136,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4566116"
+]
+},
+{
+"sha256": "8779dfed3042625a748dc6705edb8c4d65683cdeefbaaae89121d031cb231bf7",
+"build": 18362,
+"ubr": 1082,
+"version": "10.0.18362.1082 (WinBuild.160101.0800)",
+"timestamp": 2445205463,
+"virtualSize": 11227136,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4574727"
+]
+},
+{
+"sha256": "1683d43c4dbd089201d31074c18cece3bc3bd534bff8ddf64d64c24c1d246005",
+"build": 18362,
+"ubr": 1110,
+"version": "10.0.18362.1110 (WinBuild.160101.0800)",
+"timestamp": 2473102466,
+"virtualSize": 11227136,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4577062"
+]
+},
+{
+"sha256": "99895910cf67bd8a45e34ebabc05bf9f1cbdc4127541f7c68c320a21a7feefe4",
+"build": 18362,
+"ubr": 1139,
+"version": "10.0.18362.1139 (WinBuild.160101.0800)",
+"timestamp": 3599915929,
+"virtualSize": 11227136,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4577671"
+]
+},
+{
+"sha256": "d46a8ab22bb1267f46907fac4bc633681a52a023dfb7c82e37c53acab72d2160",
+"build": 18362,
+"ubr": 1171,
+"version": "10.0.18362.1171 (WinBuild.160101.0800)",
+"timestamp": 1569338082,
+"virtualSize": 11227136,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4580386"
+]
+},
+{
+"sha256": "22f08690a0e352557d1f073fc22bb9070e075c640b242f8007ae1a2098575d3f",
+"build": 18362,
+"ubr": 1198,
+"version": "10.0.18362.1198 (WinBuild.160101.0800)",
+"timestamp": 369014131,
+"virtualSize": 11227136,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4586786"
+]
+},
+{
+"sha256": "205f4d5b9a68c60f4dc18b80472b7299e2e727d5a52f40072e74f54c6e54bc81",
+"build": 18362,
+"ubr": 1237,
+"version": "10.0.18362.1237 (WinBuild.160101.0800)",
+"timestamp": 2929397048,
+"virtualSize": 11227136,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4586819"
+]
+},
+{
+"sha256": "e4acc215a3584deaed9bd5fa6e6a9a5adce56fe21efa149e736424c8e4f77c65",
+"build": 18362,
+"ubr": 1256,
+"version": "10.0.18362.1256 (WinBuild.160101.0800)",
+"timestamp": 2606697058,
+"virtualSize": 11227136,
+"windows": [
+"1903"
+],
+"kbs": [
+"KB4592449"
+]
+},
+{
+"sha256": "b80f408111c090c34be064b29cf00f839a7249eecb84a434b866a8b6d855965b",
+"build": 18362,
+"ubr": 1316,
+"version": "10.0.18362.1316 (WinBuild.160101.0800)",
+"timestamp": 3507338769,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB4598229"
+]
+},
+{
+"sha256": "e2f120ca0c36c8b7a5f5dbeda74a822a53de495e29485f8417378ae99e220720",
+"build": 18362,
+"ubr": 1350,
+"version": "10.0.18362.1350 (WinBuild.160101.0800)",
+"timestamp": 2291021553,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB4598298"
+]
+},
+{
+"sha256": "31238fc7235b76b0202e67560e7fc3b12db55d512af3da2f732785da24d85895",
+"build": 18362,
+"ubr": 1377,
+"version": "10.0.18362.1377 (WinBuild.160101.0800)",
+"timestamp": 3178542468,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB4601315"
+]
+},
+{
+"sha256": "cd1d217677273db6877f56188e9314999305266b248440ba7b14887dd1f30dff",
+"build": 18362,
+"ubr": 1379,
+"version": "10.0.18362.1379 (WinBuild.160101.0800)",
+"timestamp": 2430615086,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5001028"
+]
+},
+{
+"sha256": "4eaa39083c2d1fa4691932186d936f128398b47fdcc5363531476540d760fd07",
+"build": 18362,
+"ubr": 1411,
+"version": "10.0.18362.1411 (WinBuild.160101.0800)",
+"timestamp": 593179676,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB4601380"
+]
+},
+{
+"sha256": "224160cf9b03cf728cc6d129064313104215a7090feec24e3514acf0427e9059",
+"build": 18362,
+"ubr": 1440,
+"version": "10.0.18362.1440 (WinBuild.160101.0800)",
+"timestamp": 3047698018,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5000808"
+]
+},
+{
+"sha256": "0002faa2554ea030e52d775bf348a1776d383a0e7cd3a78aecd769f779668a71",
+"build": 18362,
+"ubr": 1441,
+"version": "10.0.18362.1441 (WinBuild.160101.0800)",
+"timestamp": 1046589873,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5001566"
+]
+},
+{
+"sha256": "ae91f8ae236e97cf0c4a54d6e8732e87b76041eecb6f54929ae77dc404a15058",
+"build": 18362,
+"ubr": 1443,
+"version": "10.0.18362.1443 (WinBuild.160101.0800)",
+"timestamp": 2261707081,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5001648"
+]
+},
+{
+"sha256": "ad852e73217adcdd8b9ae72e29887688a2b9923bc2b2b36a8ee3c2fc8593949d",
+"build": 18362,
+"ubr": 1474,
+"version": "10.0.18362.1474 (WinBuild.160101.0800)",
+"timestamp": 1943244584,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5000850"
+]
+},
+{
+"sha256": "c2a8f5cf7b94b6b8fa3e9dde1d765d053500ee7e774517974d661e90d61d03bc",
+"build": 18362,
+"ubr": 1500,
+"version": "10.0.18362.1500 (WinBuild.160101.0800)",
+"timestamp": 1704058382,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5001337"
+]
+},
+{
+"sha256": "6e1e3a390cdabe7fc46d6ddbdead7cf5861bf48a0a738f7ecd3ce864f7d37c02",
+"build": 18362,
+"ubr": 1533,
+"version": "10.0.18362.1533 (WinBuild.160101.0800)",
+"timestamp": 863690795,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5001396"
+]
+},
+{
+"sha256": "c19d63855583899b6e46f4d884c22398549a70da4df08ba33a9231a35397c0be",
+"build": 18362,
+"ubr": 1556,
+"version": "10.0.18362.1556 (WinBuild.160101.0800)",
+"timestamp": 3206746597,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5003169"
+]
+},
+{
+"sha256": "3b63198ebefd1730f6b13cb8ae0835f6d01af3b06cd5dc8317e79662fc287323",
+"build": 18362,
+"ubr": 1593,
+"version": "10.0.18362.1593 (WinBuild.160101.0800)",
+"timestamp": 1642340694,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5003212"
+]
+},
+{
+"sha256": "50980e5cafe3ea978d907d278e8d92d914905e5f12717bfd8591d73e733f3b5d",
+"build": 18362,
+"ubr": 1621,
+"version": "10.0.18362.1621 (WinBuild.160101.0800)",
+"timestamp": 567203703,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5003635"
+]
+},
+{
+"sha256": "3926432d68db7f8b426887471721cb0449615069b7b23142623721b6f9df97c7",
+"build": 18362,
+"ubr": 1646,
+"version": "10.0.18362.1646 (WinBuild.160101.0800)",
+"timestamp": 487557180,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5004946"
+]
+},
+{
+"sha256": "8d76c2696fa931f5defde393d4ce441f59bb28d0a59048e737906e3b24664f23",
+"build": 18362,
+"ubr": 1679,
+"version": "10.0.18362.1679 (WinBuild.160101.0800)",
+"timestamp": 332089501,
+"virtualSize": 11223040,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5004245"
+]
+},
+{
+"sha256": "70990afea2a55c3eb207c1356da5fe09d157ed623b401fbb53dc789855e21d85",
+"build": 18362,
+"ubr": 1734,
+"version": "10.0.18362.1734 (WinBuild.160101.0800)",
+"timestamp": 2242907673,
+"virtualSize": 11227136,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5005031"
+]
+},
+{
+"sha256": "92018427e9190890940a33f67354ce8a8d2f6f4f03191a7ca81f8bae34461eaa",
+"build": 18362,
+"ubr": 1801,
+"version": "10.0.18362.1801 (WinBuild.160101.0800)",
+"timestamp": 3767339174,
+"virtualSize": 11223040,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5005566"
+]
+},
+{
+"sha256": "8fb9651b51329d2a38510a0b092a6fd4a735fe22a958b305af910f0c5195a138",
+"build": 18362,
+"ubr": 1854,
+"version": "10.0.18362.1854 (WinBuild.160101.0800)",
+"timestamp": 2091473792,
+"virtualSize": 11223040,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5006667"
+]
+},
+{
+"sha256": "805ed5232a97dfdfc61a29e59fb8cbbedbe50b142f013e333f1e60da560dbd7b",
+"build": 18362,
+"ubr": 1916,
+"version": "10.0.18362.1916 (WinBuild.160101.0800)",
+"timestamp": 2947128628,
+"virtualSize": 11223040,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5007189"
+]
+},
+{
+"sha256": "fa9f3fd7b32f81f86677b457a0f1019a13d5f0d6de026c31d9d6fd5706b94097",
+"build": 18362,
+"ubr": 1977,
+"version": "10.0.18362.1977 (WinBuild.160101.0800)",
+"timestamp": 2949970928,
+"virtualSize": 11223040,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5008206"
+]
+},
+{
+"sha256": "59f2ff479b277f5abae48b0dadac7631468e646c8c1224dcaecef66cffac6d56",
+"build": 18362,
+"ubr": 2037,
+"version": "10.0.18362.2037 (WinBuild.160101.0800)",
+"timestamp": 4026388209,
+"virtualSize": 11223040,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5009545"
+]
+},
+{
+"sha256": "3cc4f692fccb6a5e95579168a91259ecec3e3d53cbf4b791553ce94888fc9728",
+"build": 18362,
+"ubr": 2039,
+"version": "10.0.18362.2039 (WinBuild.160101.0800)",
+"timestamp": 81529122,
+"virtualSize": 11223040,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5010792"
+]
+},
+{
+"sha256": "38d6d1ca3c4132d94b66a29c2e6467a3c75c96276e7a951d0f8660eb627a2727",
+"build": 18362,
+"ubr": 2094,
+"version": "10.0.18362.2094 (WinBuild.160101.0800)",
+"timestamp": 1216550807,
+"virtualSize": 11223040,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5010345"
+]
+},
+{
+"sha256": "b918e21e26da09662d8dd323f4cc082b7a9d69395d8d5438e350fd7e25a82a6e",
+"build": 18362,
+"ubr": 2158,
+"version": "10.0.18362.2158 (WinBuild.160101.0800)",
+"timestamp": 2708562211,
+"virtualSize": 11223040,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5011485"
+]
+},
+{
+"sha256": "ae0e6d2ad70cc4cf9e3c123ec0bfa0be4ffe8366aa3b4854ffe951c59e370176",
+"build": 18362,
+"ubr": 2212,
+"version": "10.0.18362.2212 (WinBuild.160101.0800)",
+"timestamp": 3615006465,
+"virtualSize": 11223040,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5012591"
+]
+},
+{
+"sha256": "96880d2301204dd76b315ab35ae17e962ac20a169870bcdc397a2465c06cfd90",
+"build": 18362,
+"ubr": 2274,
+"version": "10.0.18362.2274 (WinBuild.160101.0800)",
+"timestamp": 1114967520,
+"virtualSize": 11223040,
+"windows": [
+"1909"
+],
+"kbs": [
+"KB5013945"
+]
+},
+{
+"sha256": "c95935ab90796a0707027d87ab3beb018a366df653d340f29283cb7066d9124e",
+"build": 19041,
+"ubr": 264,
+"version": "10.0.19041.264 (WinBuild.160101.0800)",
+"timestamp": 3143425644,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"BASE"
+]
+},
+{
+"sha256": "9923b54ed79b57e1fd609b8226bac634d5167a1afcd0eb06bc79d1f1c274d496",
+"build": 19041,
+"ubr": 329,
+"version": "10.0.19041.329 (WinBuild.160101.0800)",
+"timestamp": 2623798187,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4557957"
+]
+},
+{
+"sha256": "a4a3762c9ee0424eb79cca8c61e0978c16f437c158f9ae2f528b84a80ab51851",
+"build": 19041,
+"ubr": 331,
+"version": "10.0.19041.331 (WinBuild.160101.0800)",
+"timestamp": 3211647022,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4567523"
+]
+},
+{
+"sha256": "8c71d9df32fe8f63d4865e322eaaad6bf85ebd2b7e05fd3be4ec12b790fb6a85",
+"build": 19041,
+"ubr": 388,
+"version": "10.0.19041.388 (WinBuild.160101.0800)",
+"timestamp": 2708268099,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4565503"
+]
+},
+{
+"sha256": "f230a92e50b065e6d6307b805369dd275adeec59efaa850cd66e575a31e4fb3a",
+"build": 19041,
+"ubr": 423,
+"version": "10.0.19041.423 (WinBuild.160101.0800)",
+"timestamp": 3458826972,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4568831"
+]
+},
+{
+"sha256": "1878b3aef56db720fda0307fe88d4283849b08af6a7a97d42f3cc8b10081f61b",
+"build": 19041,
+"ubr": 450,
+"version": "10.0.19041.450 (WinBuild.160101.0800)",
+"timestamp": 122699321,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4566782"
+]
+},
+{
+"sha256": "652557b0a7d3f76e56a186fd0b6c864bc338c5c647c09be3f30cafcca4a96147",
+"build": 19041,
+"ubr": 488,
+"version": "10.0.19041.488 (WinBuild.160101.0800)",
+"timestamp": 224809430,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4571744"
+]
+},
+{
+"sha256": "a577850d67d1b4df94e64b3309169e20f3850d4bfa54c40dc9f4f09722e2f5ea",
+"build": 19041,
+"ubr": 508,
+"version": "10.0.19041.508 (WinBuild.160101.0800)",
+"timestamp": 2742133481,
+"virtualSize": 17063936,
+"windows": [
+"2004",
+"20H2"
+],
+"kbs": [
+"BASE",
+"KB4571756"
+]
+},
+{
+"sha256": "ba2f70baa3597095c7bb6e0c8792bed0d692095fad1a324d7b419a9bb73bb2c7",
+"build": 19041,
+"ubr": 546,
+"version": "10.0.19041.546 (WinBuild.160101.0800)",
+"timestamp": 778964702,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4577063"
+]
+},
+{
+"sha256": "6ffeab8fc8855ac18a2f0dcc142fe164cfcd98660577432d6bcc7ec961811256",
+"build": 19041,
+"ubr": 572,
+"version": "10.0.19041.572 (WinBuild.160101.0800)",
+"timestamp": 2431527179,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4579311"
+]
+},
+{
+"sha256": "adba735e87f72021a87d10e67710f15b44486a0720711a324e03849da528834b",
+"build": 19041,
+"ubr": 610,
+"version": "10.0.19041.610 (WinBuild.160101.0800)",
+"timestamp": 3696282854,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4580364"
+]
+},
+{
+"sha256": "f83844e18605fea95ca284161845319fe5aeaaac368362442bdb4b599ca016ec",
+"build": 19041,
+"ubr": 630,
+"version": "10.0.19041.630 (WinBuild.160101.0800)",
+"timestamp": 1693174871,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4586781"
+]
+},
+{
+"sha256": "ce707a4009b1d65b8d3f51e572fee8939150afb8fde557d0e5ba66db90f1e4ac",
+"build": 19041,
+"ubr": 631,
+"version": "10.0.19041.631 (WinBuild.160101.0800)",
+"timestamp": 3986539294,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4594440"
+]
+},
+{
+"sha256": "9a2db492037f6512821b5ba141aa9e7b294f9f9d1d85aa71e231608a4eef91da",
+"build": 19041,
+"ubr": 662,
+"version": "10.0.19041.662 (WinBuild.160101.0800)",
+"timestamp": 3669350427,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4586853"
+]
+},
+{
+"sha256": "acec36b1c1a3665ca16349a928b36f2f90335e4d1d385f7239af2474d7ac25b9",
+"build": 19041,
+"ubr": 685,
+"version": "10.0.19041.685 (WinBuild.160101.0800)",
+"timestamp": 3240736776,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4592438"
+]
+},
+{
+"sha256": "c42d99a42dc1f6ce00f7c6d1283bb5ce7e901621c9987fc6bba42f797e5e1f23",
+"build": 19041,
+"ubr": 746,
+"version": "10.0.19041.746 (WinBuild.160101.0800)",
+"timestamp": 4111912310,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4598242"
+]
+},
+{
+"sha256": "49e79b90fb6e85e1454c3c2a229c6f0ce1bf0ccc39837ce3f678928995d267ff",
+"build": 19041,
+"ubr": 789,
+"version": "10.0.19041.789 (WinBuild.160101.0800)",
+"timestamp": 3942425291,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4598291"
+]
+},
+{
+"sha256": "d0051bfdd4c3622d135b754a9df8b4f7a458e3072be8ac94e798b649758593bb",
+"build": 19041,
+"ubr": 804,
+"version": "10.0.19041.804 (WinBuild.160101.0800)",
+"timestamp": 226702310,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4601319"
+]
+},
+{
+"sha256": "213f1b487e7a638d0a5f58675b899439149ab8ce5cd9f8dedf26dc16203efd0a",
+"build": 19041,
+"ubr": 844,
+"version": "10.0.19041.844 (WinBuild.160101.0800)",
+"timestamp": 916836418,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB4601382"
+]
+},
+{
+"sha256": "a1d919ea067bc879e51745e777eb1ed8d9be44d623f50976b59e79cb4d8bf1a3",
+"build": 19041,
+"ubr": 867,
+"version": "10.0.19041.867 (WinBuild.160101.0800)",
+"timestamp": 3556132503,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5000802"
+]
+},
+{
+"sha256": "22b84000410143adcdb7062d1cd22c1e0d09c92e0b8d24f084b698f56cd59465",
+"build": 19041,
+"ubr": 868,
+"version": "10.0.19041.868 (WinBuild.160101.0800)",
+"timestamp": 3679338755,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5001567"
+]
+},
+{
+"sha256": "bac55981be595c6d170ffeb2a033e9e2883bb4b2ff6dc22dbcd540f6b3a2ced0",
+"build": 19041,
+"ubr": 870,
+"version": "10.0.19041.870 (WinBuild.160101.0800)",
+"timestamp": 3552741791,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5001649"
+]
+},
+{
+"sha256": "1ecf6655ae5a8d8d309a5b6f0b95f74907df03cab846d88114ca43fa3f7c0c44",
+"build": 19041,
+"ubr": 906,
+"version": "10.0.19041.906 (WinBuild.160101.0800)",
+"timestamp": 3843584660,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5000842"
+]
+},
+{
+"sha256": "fd167e59573a944b4170e9e167861484a74d79d84c39202bc7d87890a85f175b",
+"build": 19041,
+"ubr": 928,
+"version": "10.0.19041.928 (WinBuild.160101.0800)",
+"timestamp": 245401466,
+"virtualSize": 17063936,
+"windows": [
+"2004",
+"21H1"
+],
+"kbs": [
+"BASE",
+"KB5001330"
+]
+},
+{
+"sha256": "604c6ebd45c71c6ceae0edb918c435362c1828a0d2665f250512b70d9681f21a",
+"build": 19041,
+"ubr": 964,
+"version": "10.0.19041.964 (WinBuild.160101.0800)",
+"timestamp": 503210246,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5001391"
+]
+},
+{
+"sha256": "c9abc778e392e3c7568fed0efb0460b10732c7f290c09c6a8a96fd3e885720e9",
+"build": 19041,
+"ubr": 985,
+"version": "10.0.19041.985 (WinBuild.160101.0800)",
+"timestamp": 1092591194,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5003173"
+]
+},
+{
+"sha256": "16ab962cc9ee80ead31680b6d23be231469893636d69076d0dbcaaa7737bc985",
+"build": 19041,
+"ubr": 1023,
+"version": "10.0.19041.1023 (WinBuild.160101.0800)",
+"timestamp": 3808750189,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5003214"
+]
+},
+{
+"sha256": "5961b49dfbf2898f8fd1ea9b0f2ccc167a320671599809f748c6bb3ff700dd3e",
+"build": 19041,
+"ubr": 1052,
+"version": "10.0.19041.1052 (WinBuild.160101.0800)",
+"timestamp": 96527328,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5003637"
+]
+},
+{
+"sha256": "e4fb7faf39fec89f84c22bc68d35b5fbfa4a8fa2d367905a1cb3ce6ffd8fdab9",
+"build": 19041,
+"ubr": 1055,
+"version": "10.0.19041.1055 (WinBuild.160101.0800)",
+"timestamp": 3887680924,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5004476"
+]
+},
+{
+"sha256": "601033c74a9e1ca2fc16a6d43eacd395760d166a7d2523145752952f4796cd6b",
+"build": 19041,
+"ubr": 1081,
+"version": "10.0.19041.1081 (WinBuild.160101.0800)",
+"timestamp": 2877408272,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5003690"
+]
+},
+{
+"sha256": "71a1454a1c75c5f3b691a5ef25ee9136fec8852049c1fd27a09e998e92b3d9a4",
+"build": 19041,
+"ubr": 1082,
+"version": "10.0.19041.1082 (WinBuild.160101.0800)",
+"timestamp": 3924961914,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5004760"
+]
+},
+{
+"sha256": "b28e07c258cdd72678488909604950b88814e123d61f693e78831b6a59ad3b81",
+"build": 19041,
+"ubr": 1083,
+"version": "10.0.19041.1083 (WinBuild.160101.0800)",
+"timestamp": 353244218,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5004945"
+]
+},
+{
+"sha256": "8453f9dcb8f86c04fc0ce1cf357018973939b4d7027bc87dc5d9c37c8601ad18",
+"build": 19041,
+"ubr": 1110,
+"version": "10.0.19041.1110 (WinBuild.160101.0800)",
+"timestamp": 1430124876,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5004237"
+]
+},
+{
+"sha256": "f5d3c66efb00f7c086220a862fc64d14b9950a7c6742b38e263984ebf2e431e8",
+"build": 19041,
+"ubr": 1151,
+"version": "10.0.19041.1151 (WinBuild.160101.0800)",
+"timestamp": 4099644575,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5004296"
+]
+},
+{
+"sha256": "4ffa3d9c8a12bf45c4de8540f42d460bc2f55320e63caac4fdfabbb384720b40",
+"build": 19041,
+"ubr": 1165,
+"version": "10.0.19041.1165 (WinBuild.160101.0800)",
+"timestamp": 3101025857,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5005033"
+]
+},
+{
+"sha256": "9ac67c83d7c5bf7d6a9d56adb65739f7fc3f03b15f963c5d6e636132e3756115",
+"build": 19041,
+"ubr": 1202,
+"version": "10.0.19041.1202 (WinBuild.160101.0800)",
+"timestamp": 2320606960,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5005101"
+]
+},
+{
+"sha256": "74c8ed223688bd121d4718b9919352695a3775657289b1715bd89a5e70364535",
+"build": 19041,
+"ubr": 1237,
+"version": "10.0.19041.1237 (WinBuild.160101.0800)",
+"timestamp": 2047131570,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5005565"
+]
+},
+{
+"sha256": "ed402a1ba78cb8a91eb5f2330be4d80ea34770c27809e2b86c96ad353e47ee48",
+"build": 19041,
+"ubr": 1266,
+"version": "10.0.19041.1266 (WinBuild.160101.0800)",
+"timestamp": 1851161255,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5005611"
+]
+},
+{
+"sha256": "11dce42a13a49f025856414748b03e62db7c955d6894a3c36cb3776aa45be857",
+"build": 19041,
+"ubr": 1288,
+"version": "10.0.19041.1288 (WinBuild.160101.0800)",
+"timestamp": 789193631,
+"virtualSize": 17063936,
+"windows": [
+"2004",
+"21H2"
+],
+"kbs": [
+"BASE",
+"KB5006670"
+]
+},
+{
+"sha256": "7dd334edd7db7fc6f8c170f3338c92e2cf30a621cdf5b50727d210d8434974ee",
+"build": 19041,
+"ubr": 1320,
+"version": "10.0.19041.1320 (WinBuild.160101.0800)",
+"timestamp": 3381243648,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5006738"
+]
+},
+{
+"sha256": "8a5e0683ea17f4c571356849692638e5fd45aaf8567efd72bca7a55892529b9f",
+"build": 19041,
+"ubr": 1348,
+"version": "10.0.19041.1348 (WinBuild.160101.0800)",
+"timestamp": 4032242498,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5007186"
+]
+},
+{
+"sha256": "9aaff7ba5751dc696d765791f126459725d2b16ad5ee950ccdec6c73184d9e78",
+"build": 19041,
+"ubr": 1387,
+"version": "10.0.19041.1387 (WinBuild.160101.0800)",
+"timestamp": 2381447946,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5007253"
+]
+},
+{
+"sha256": "919599fa3c8e350791eb5cd79df4dfbe18fb9bb4c658acad740198efd498c476",
+"build": 19041,
+"ubr": 1415,
+"version": "10.0.19041.1415 (WinBuild.160101.0800)",
+"timestamp": 4198890017,
+"virtualSize": 17063936,
+"windows": [
+"2004"
+],
+"kbs": [
+"KB5008212"
+]
+},
+{
+"sha256": "7eb83c81b9c6b54785087eaab5201ac7863d48f2974378c12bd2b9af55efb54f",
+"build": 19041,
+"ubr": 1466,
+"version": "10.0.19041.1466 (WinBuild.160101.0800)",
+"timestamp": 656610728,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5009543"
+]
+},
+{
+"sha256": "a233ac9de36d60fe3d6bb4ff1c8444f81fcd26b26980f2cead7556651d8da84e",
+"build": 19041,
+"ubr": 1469,
+"version": "10.0.19041.1469 (WinBuild.160101.0800)",
+"timestamp": 1317592412,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5010793"
+]
+},
+{
+"sha256": "9e97e8170d44eeddd490c5121808d39b4de823d2013b0a2c445542b6bf4f9ba2",
+"build": 19041,
+"ubr": 1503,
+"version": "10.0.19041.1503 (WinBuild.160101.0800)",
+"timestamp": 3533056854,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5009596"
+]
+},
+{
+"sha256": "979bee0df7c8d0a902f9f69cb358d56cee542c7240962f723a9461c43bc8edc2",
+"build": 19041,
+"ubr": 1526,
+"version": "10.0.19041.1526 (WinBuild.160101.0800)",
+"timestamp": 1784194584,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5010342"
+]
+},
+{
+"sha256": "a779978161299ccbb2df1616f7bb5f74d7aec2070e22d76825a03341be10676a",
+"build": 19041,
+"ubr": 1566,
+"version": "10.0.19041.1566 (WinBuild.160101.0800)",
+"timestamp": 198456144,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5010415"
+]
+},
+{
+"sha256": "4d5b2985d212084004a46672f992fd08fa44062cd31571c280aab2681b8e386b",
+"build": 19041,
+"ubr": 1586,
+"version": "10.0.19041.1586 (WinBuild.160101.0800)",
+"timestamp": 2092977403,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5011487"
+]
+},
+{
+"sha256": "011f8f6ae707ec32da9cde7695ad698df0ad656a6c2f26e08c3125240a4ef668",
+"build": 19041,
+"ubr": 1620,
+"version": "10.0.19041.1620 (WinBuild.160101.0800)",
+"timestamp": 498828994,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5011543"
+]
+},
+{
+"sha256": "346502c5443f161a564a3b718be980c4a8bf139ebb84821e8f61dbedc3e83d0b",
+"build": 19041,
+"ubr": 1645,
+"version": "10.0.19041.1645 (WinBuild.160101.0800)",
+"timestamp": 115561107,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5012599"
+]
+},
+{
+"sha256": "cae6d772ba15e89e3e8307cb775b2488a64a0460e2e081d388886162612a1fb2",
+"build": 19041,
+"ubr": 1682,
+"version": "10.0.19041.1682 (WinBuild.160101.0800)",
+"timestamp": 1245771652,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5011831"
+]
+},
+{
+"sha256": "efbc7f3eb3cd767a1bd9fd82329461b66e98ffe4fa67d3937f59887ac1e8bf2d",
+"build": 19041,
+"ubr": 1706,
+"version": "10.0.19041.1706 (WinBuild.160101.0800)",
+"timestamp": 31230099,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5013942"
+]
+},
+{
+"sha256": "fb7c21547e82e9e930ca42b4cf1163fe0170dfded5bb898cfa22029c6bd18819",
+"build": 19041,
+"ubr": 1708,
+"version": "10.0.19041.1708 (WinBuild.160101.0800)",
+"timestamp": 2374914958,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5015020"
+]
+},
+{
+"sha256": "511a3c5c227a9460989a391f1da5e8704e0d2d3a6eaa7555ac6c1831f5390720",
+"build": 19041,
+"ubr": 1741,
+"version": "10.0.19041.1741 (WinBuild.160101.0800)",
+"timestamp": 123721548,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5014023"
+]
+},
+{
+"sha256": "8d8556f35e8003ea0beac15250d810071ec8ea01d38a18e763027a4aa53749a8",
+"build": 19041,
+"ubr": 1766,
+"version": "10.0.19041.1766 (WinBuild.160101.0800)",
+"timestamp": 2042709832,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5014699"
+]
+},
+{
+"sha256": "6b24f3f5a13934418e879dbaf3a9ab5a8bd989cbd4509577499e3c7704af3f1b",
+"build": 19041,
+"ubr": 1806,
+"version": "10.0.19041.1806 (WinBuild.160101.0800)",
+"timestamp": 3744982670,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5014666"
+]
+},
+{
+"sha256": "2c9299efa63e9ea31c8c3815f7e521046f1a69ec9623c11dd03fc9e154a65d83",
+"build": 19041,
+"ubr": 1826,
+"version": "10.0.19041.1826 (WinBuild.160101.0800)",
+"timestamp": 1945223364,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5015807"
+]
+},
+{
+"sha256": "f801aee0d8e2bd0d2fbdb0f812d045771bd1e60f54cedd25ac85a881030ccbae",
+"build": 19041,
+"ubr": 1865,
+"version": "10.0.19041.1865 (WinBuild.160101.0800)",
+"timestamp": 2586197284,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5015878"
+]
+},
+{
+"sha256": "9392666e693572f12bc560cbdd4a6ca1ce5e95faeea1bd750a96e9ac7b944494",
+"build": 19041,
+"ubr": 1889,
+"version": "10.0.19041.1889 (WinBuild.160101.0800)",
+"timestamp": 3793897177,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5016616"
+]
+},
+{
+"sha256": "dfd78bdbcf5507d24c2602d0200b8f76356f8e98333f7d1f10bdf6f5ee691df1",
+"build": 19041,
+"ubr": 1949,
+"version": "10.0.19041.1949 (WinBuild.160101.0800)",
+"timestamp": 3585660818,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5016688"
+]
+},
+{
+"sha256": "cc9b3a6c057ca31d0886c8efb7965a4c47e2d80fd0185d9b9fa55c5dc1d0dc55",
+"build": 19041,
+"ubr": 2006,
+"version": "10.0.19041.2006 (WinBuild.160101.0800)",
+"timestamp": 804312866,
+"virtualSize": 17063936,
+"windows": [
+"20H2",
+"22H2"
+],
+"kbs": [
+"BASE",
+"KB5017308"
+]
+},
+{
+"sha256": "4927b4528c1f18abf8fbfc364617845adc2e709d0a712f25c10c109564bb2f96",
+"build": 19041,
+"ubr": 2075,
+"version": "10.0.19041.2075 (WinBuild.160101.0800)",
+"timestamp": 2814834490,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5017380"
+]
+},
+{
+"sha256": "fc4864065d84ccb4c855f4c47afa318113c1ba81e105c2ca0a8a33b51fe72299",
+"build": 19041,
+"ubr": 2130,
+"version": "10.0.19041.2130 (WinBuild.160101.0800)",
+"timestamp": 3238256858,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5018410",
+"KB5020435"
+]
+},
+{
+"sha256": "79e2a676786e5fdee9181c2ba7a71978e03a3639a302633279755fe2758ceb8c",
+"build": 19041,
+"ubr": 2193,
+"version": "10.0.19041.2193 (WinBuild.160101.0800)",
+"timestamp": 3210976707,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5018482"
+]
+},
+{
+"sha256": "54813e3be3d823aed202db6e68be8741f5bb55c39e83cf4452538ef7c94301f9",
+"build": 19041,
+"ubr": 2194,
+"version": "10.0.19041.2194 (WinBuild.160101.0800)",
+"timestamp": 1573643655,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5020953"
+]
+},
+{
+"sha256": "7e4a848626c99c715bd2c8686061420b8895e12ab8dfa0cce091f9df25750c13",
+"build": 19041,
+"ubr": 2251,
+"version": "10.0.19041.2251 (WinBuild.160101.0800)",
+"timestamp": 2112793461,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5019959"
+]
+},
+{
+"sha256": "3a9c2aab568d8f944d034a9c8981ad647855fd0a2f4bd596dccfa4295b2b854c",
+"build": 19041,
+"ubr": 2311,
+"version": "10.0.19041.2311 (WinBuild.160101.0800)",
+"timestamp": 4284950586,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5020030"
+]
+},
+{
+"sha256": "bc4b64553cd9b81e2fd5e382fd4024d4eacc04417682c02b468900ea79883238",
+"build": 19041,
+"ubr": 2364,
+"version": "10.0.19041.2364 (WinBuild.160101.0800)",
+"timestamp": 235057093,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5021233"
+]
+},
+{
+"sha256": "15b43062b002432b89fa7f799cf2b3021a485e5e48fc38db62bda270b598f671",
+"build": 19041,
+"ubr": 2486,
+"version": "10.0.19041.2486 (WinBuild.160101.0800)",
+"timestamp": 868606996,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5022282"
+]
+},
+{
+"sha256": "ea520ed6590f042d9a12b29e9fba921683c15b1a8f73a7e865582619f4095893",
+"build": 19041,
+"ubr": 2546,
+"version": "10.0.19041.2546 (WinBuild.160101.0800)",
+"timestamp": 1995308034,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5019275"
+]
+},
+{
+"sha256": "223af7d155e647b4d1f357b6f68373e34f22c359f883a20f4b433de20a025f68",
+"build": 19041,
+"ubr": 2604,
+"version": "10.0.19041.2604 (WinBuild.160101.0800)",
+"timestamp": 3287429790,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5022834"
+]
+},
+{
+"sha256": "e3a3fd9b9de67c744dc29a5c27e57a25b87511a6b5c602eee2ea5ecd9cb4baf5",
+"build": 19041,
+"ubr": 2673,
+"version": "10.0.19041.2673 (WinBuild.160101.0800)",
+"timestamp": 528030759,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5022906"
+]
+},
+{
+"sha256": "cfbd58c465439c25065cc153ebf99980eb03dc6edb731b444efb090e01d64da7",
+"build": 19041,
+"ubr": 2728,
+"version": "10.0.19041.2728 (WinBuild.160101.0800)",
+"timestamp": 3184098300,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5023696"
+]
+},
+{
+"sha256": "9e026adf332650e4ba60db04a242683b0373d3a7751e49b8a1d0867315877484",
+"build": 19041,
+"ubr": 2788,
+"version": "10.0.19041.2788 (WinBuild.160101.0800)",
+"timestamp": 3449998228,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5023773"
+]
+},
+{
+"sha256": "147901e279255564c99d1e1ce845794a7b175aee8a60027df77fbc8e667759b6",
+"build": 19041,
+"ubr": 2846,
+"version": "10.0.19041.2846 (WinBuild.160101.0800)",
+"timestamp": 3899083782,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5025221"
+]
+},
+{
+"sha256": "6f43398f2e8c7ef3a1bce8115405a662c10fdcfea9c2bbc63a1ab25b9b9ac942",
+"build": 19041,
+"ubr": 2913,
+"version": "10.0.19041.2913 (WinBuild.160101.0800)",
+"timestamp": 1989492374,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5025297"
+]
+},
+{
+"sha256": "eace65a06bab6b67461ed29783cde9367c3ddd2a31b2594c59d22d77460d4f4b",
+"build": 19041,
+"ubr": 2965,
+"version": "10.0.19041.2965 (WinBuild.160101.0800)",
+"timestamp": 4146020682,
+"virtualSize": 17063936,
+"windows": [
+"20H2"
+],
+"kbs": [
+"KB5026361"
+]
+},
+{
+"sha256": "2e39d967fb7ae1d727a091ba19bf27240ac969d74875342668eb0fa9ad1b58d2",
+"build": 19041,
+"ubr": 3031,
+"version": "10.0.19041.3031 (WinBuild.160101.0800)",
+"timestamp": 2547847481,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5026435"
+]
+},
+{
+"sha256": "9c4a699872215f77484bd037724599bbd0f00d38b7750433edd3b591576050ec",
+"build": 19041,
+"ubr": 3086,
+"version": "10.0.19041.3086 (WinBuild.160101.0800)",
+"timestamp": 600308817,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5027215"
+]
+},
+{
+"sha256": "2a704063c806068c3ab89158c860f802e61e884083557d3a639d4dd677823381",
+"build": 19041,
+"ubr": 3155,
+"version": "10.0.19041.3155 (WinBuild.160101.0800)",
+"timestamp": 934954125,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5027293"
+]
+},
+{
+"sha256": "e8e6040640c9dddc8feeb0a9310bab92e7e422ef469beabdd8b5bb63b7a9dad0",
+"build": 19041,
+"ubr": 3208,
+"version": "10.0.19041.3208 (WinBuild.160101.0800)",
+"timestamp": 2787777124,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5028166"
+]
+},
+{
+"sha256": "fa2158e0f4b1d9b29f294b10f3bcdba2083a65707bb2ac252525dbfcd05a79d0",
+"build": 19041,
+"ubr": 3271,
+"version": "10.0.19041.3271 (WinBuild.160101.0800)",
+"timestamp": 2382373089,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5028244"
+]
+},
+{
+"sha256": "3a7bbe1c5fe0cd115ede21a01341f9e2be30b4bdf81feb89e982de5630ce883f",
+"build": 19041,
+"ubr": 3324,
+"version": "10.0.19041.3324 (WinBuild.160101.0800)",
+"timestamp": 3941287369,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5029244"
+]
+},
+{
+"sha256": "4b6086304a7cb47e305e59c69eda946aa509f5b91bfa9f50582e25239942be21",
+"build": 19041,
+"ubr": 3393,
+"version": "10.0.19041.3393 (WinBuild.160101.0800)",
+"timestamp": 2767926565,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5029331"
+]
+},
+{
+"sha256": "d436d6bbf5b73a7fbade752d9d548326dc8ab464f27bf3dfda70f7fbe2d519a9",
+"build": 19041,
+"ubr": 3448,
+"version": "10.0.19041.3448 (WinBuild.160101.0800)",
+"timestamp": 3488508079,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5030211"
+]
+},
+{
+"sha256": "2ee30082fbb10398d94e826327891c55cadf5d464625f360419d21383bf80510",
+"build": 19041,
+"ubr": 3516,
+"version": "10.0.19041.3516 (WinBuild.160101.0800)",
+"timestamp": 307119541,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5030300"
+]
+},
+{
+"sha256": "9525de34802380a2d101e788c0b1d0b7fbb4fdf146e915253d64d931b858fe2b",
+"build": 19041,
+"ubr": 3570,
+"version": "10.0.19041.3570 (WinBuild.160101.0800)",
+"timestamp": 3845560386,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5031356"
+]
+},
+{
+"sha256": "1f248ab742164df3ef8b0d6114f0b5ae8f77fa1ffd7322e3da843692106d1438",
+"build": 19041,
+"ubr": 3636,
+"version": "10.0.19041.3636 (WinBuild.160101.0800)",
+"timestamp": 55937971,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5031445"
+]
+},
+{
+"sha256": "1ad490cc37aff28f00ace39f99d27bab11b1d9d36095409888d09db2b143571e",
+"build": 19041,
+"ubr": 3693,
+"version": "10.0.19041.3693 (WinBuild.160101.0800)",
+"timestamp": 2912165497,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5032189"
+]
+},
+{
+"sha256": "3d2a9b05fd8de5c1c86e2ff48e25d5678017fcb09b8f47266bbb6d72bec8fd47",
+"build": 19041,
+"ubr": 3758,
+"version": "10.0.19041.3758 (WinBuild.160101.0800)",
+"timestamp": 72551049,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5032278"
+]
+},
+{
+"sha256": "5788ef18e2cdbc8bdddf1ddfaf2975652df18c469e11db0d51c98970e6c4636e",
+"build": 19041,
+"ubr": 3803,
+"version": "10.0.19041.3803 (WinBuild.160101.0800)",
+"timestamp": 1575889671,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5033372"
+]
+},
+{
+"sha256": "8a318674092f5ecdccc9818521946bb1f1df95849df898df1494b79c8241971d",
+"build": 19041,
+"ubr": 3930,
+"version": "10.0.19041.3930 (WinBuild.160101.0800)",
+"timestamp": 1179604008,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5034122"
+]
+},
+{
+"sha256": "1b2d6e491df661a37dce2850696cfb8bc02c98d73f8fcd3db27c380c0d75f829",
+"build": 19041,
+"ubr": 3996,
+"version": "10.0.19041.3996 (WinBuild.160101.0800)",
+"timestamp": 2466046318,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5034203"
+]
+},
+{
+"sha256": "4efcd51661325335ad88ff1b71f0477f868bb81f8bb6eb22e683ea12780b2cea",
+"build": 19041,
+"ubr": 4046,
+"version": "10.0.19041.4046 (WinBuild.160101.0800)",
+"timestamp": 3630195932,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5034763"
+]
+},
+{
+"sha256": "3a52f07b7ca0a5e09e6ca59b05372b10bfb9c9a89b6f4c6686bfe04d4cff0110",
+"build": 19041,
+"ubr": 4123,
+"version": "10.0.19041.4123 (WinBuild.160101.0800)",
+"timestamp": 3864539089,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5034843"
+]
+},
+{
+"sha256": "e747dfcef5af0356153c3c57902293919bacab7ae501afd75c937163dd58a6f0",
+"build": 19041,
+"ubr": 4170,
+"version": "10.0.19041.4170 (WinBuild.160101.0800)",
+"timestamp": 1045361108,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5035845"
+]
+},
+{
+"sha256": "5e26e6bf584d5c52a1d5844a9c8004797c00814a3c4d06289cda19593b3c2c12",
+"build": 19041,
+"ubr": 4239,
+"version": "10.0.19041.4239 (WinBuild.160101.0800)",
+"timestamp": 2579091921,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5035941"
+]
+},
+{
+"sha256": "d2d44a847fa61ad52982e5694db1376695fd60bc9698060eedd17fc646422f49",
+"build": 19041,
+"ubr": 4291,
+"version": "10.0.19041.4291 (WinBuild.160101.0800)",
+"timestamp": 2888948265,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5036892"
+]
+},
+{
+"sha256": "c9a859e48a6cf903b62444c79c7a73b83bba057d1148b5d709f732c7bb92629a",
+"build": 19041,
+"ubr": 4355,
+"version": "10.0.19041.4355 (WinBuild.160101.0800)",
+"timestamp": 1188203692,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5036979"
+]
+},
+{
+"sha256": "f9e2d1f0b0d47ba24979a283d435a4e9f9f4194b07669a33d0904c64e812dc1c",
+"build": 19041,
+"ubr": 4412,
+"version": "10.0.19041.4412 (WinBuild.160101.0800)",
+"timestamp": 2691746069,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5037768"
+]
+},
+{
+"sha256": "0d14f42d655509dc9078bc32bcebcd1fd75d79da8b3c97119876d437468dff87",
+"build": 19041,
+"ubr": 4474,
+"version": "10.0.19041.4474 (WinBuild.160101.0800)",
+"timestamp": 3073885214,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5037849"
+]
+},
+{
+"sha256": "f729521924dc164f7855ee16b218e86cbc767057c7bcb512e1137673c8021353",
+"build": 19041,
+"ubr": 4522,
+"version": "10.0.19041.4522 (WinBuild.160101.0800)",
+"timestamp": 2688361622,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5039211"
+]
+},
+{
+"sha256": "94ede189505daaf5f003aa4c6ed8829172d219da3d373513db3e7cbc4e9e5b9d",
+"build": 19041,
+"ubr": 4597,
+"version": "10.0.19041.4597 (WinBuild.160101.0800)",
+"timestamp": 516129339,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5039299"
+]
+},
+{
+"sha256": "5b5072b0524c90e98d869a2b4c5c089998f3642f2dc2c5bf82989caccb0a58a4",
+"build": 19041,
+"ubr": 4648,
+"version": "10.0.19041.4648 (WinBuild.160101.0800)",
+"timestamp": 3378945683,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5040427"
+]
+},
+{
+"sha256": "a9c28c70a1921e01f8208e7a609cc0847479dda62ae3ed01ae4be920dd08593a",
+"build": 19041,
+"ubr": 4717,
+"version": "10.0.19041.4717 (WinBuild.160101.0800)",
+"timestamp": 4165954378,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5040525"
+]
+},
+{
+"sha256": "5f7d1f531ab2c6de6c55a16d129e72c798cde9c702f12dbf633ba3466cebd517",
+"build": 19041,
+"ubr": 4780,
+"version": "10.0.19041.4780 (WinBuild.160101.0800)",
+"timestamp": 1219037564,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5041580"
+]
+},
+{
+"sha256": "d96cb1916f17e98d5fe757b471888a48c8e777e8e015a42688f5cb28dc4c5105",
+"build": 19041,
+"ubr": 4842,
+"version": "10.0.19041.4842 (WinBuild.160101.0800)",
+"timestamp": 1567670185,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5041582"
+]
+},
+{
+"sha256": "6e69b12ba30d241b8f61464a34b2a9d056e80fde73f04a342b90b7c99d46044c",
+"build": 19041,
+"ubr": 4894,
+"version": "10.0.19041.4894 (WinBuild.160101.0800)",
+"timestamp": 1072470428,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5043064"
+]
+},
+{
+"sha256": "6ca61bc3b100391f86046050b6c881b8b94a7423128b1f499db8adf3a70e772b",
+"build": 19041,
+"ubr": 4957,
+"version": "10.0.19041.4957 (WinBuild.160101.0800)",
+"timestamp": 1790522525,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5043131"
+]
+},
+{
+"sha256": "b657b601085117768430ac44b95bd6d81a0779d06dcac3ae4e45cd95923857ca",
+"build": 19041,
+"ubr": 5007,
+"version": "10.0.19041.5007 (WinBuild.160101.0800)",
+"timestamp": 3138099062,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5044273"
+]
+},
+{
+"sha256": "077e25aa2378b48b6c7c1530767ced99626693b21492018f376ebfbb50fcc247",
+"build": 19041,
+"ubr": 5072,
+"version": "10.0.19041.5072 (WinBuild.160101.0800)",
+"timestamp": 4098123979,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5045594"
+]
+},
+{
+"sha256": "a7a11a6f277b30bb7029d33e20ea4746155c321739eabe94ca60d7cef7883249",
+"build": 19041,
+"ubr": 5129,
+"version": "10.0.19041.5129 (WinBuild.160101.0800)",
+"timestamp": 4125597636,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5046613"
+]
+},
+{
+"sha256": "458b6b991746bec2121794ab779ba3e3f85ca3f6ea32faacf587bf9b60112d05",
+"build": 19041,
+"ubr": 5198,
+"version": "10.0.19041.5198 (WinBuild.160101.0800)",
+"timestamp": 1848599085,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5046714"
+]
+},
+{
+"sha256": "dabe030ba16354b048e41913245aca1c59c675c03bc2a2a631deb92076e3bf27",
+"build": 19041,
+"ubr": 5247,
+"version": "10.0.19041.5247 (WinBuild.160101.0800)",
+"timestamp": 447176499,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5048652"
+]
+},
+{
+"sha256": "0b98c3730b7d8f0736c81a58fad15071696eb879946b3e330107ac6934ad7f7c",
+"build": 19041,
+"ubr": 5369,
+"version": "10.0.19041.5369 (WinBuild.160101.0800)",
+"timestamp": 3651766441,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5049981"
+]
+},
+{
+"sha256": "95069a820e7656da9521bd024ae368e03150c9b0dc774f69c2520be767ce2c5f",
+"build": 19041,
+"ubr": 5440,
+"version": "10.0.19041.5440 (WinBuild.160101.0800)",
+"timestamp": 283406837,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5050081"
+]
+},
+{
+"sha256": "00bddcb825d2bbc566c6ffd80b5d41db1c49dba3f6dae68b3dc66676040a5bd3",
+"build": 19041,
+"ubr": 5486,
+"version": "10.0.19041.5486 (WinBuild.160101.0800)",
+"timestamp": 1695711213,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5051974"
+]
+},
+{
+"sha256": "00056cddf6f25d7fdd783f3079e0f39503c105361b61bd3bea42780262316015",
+"build": 19041,
+"ubr": 5553,
+"version": "10.0.19041.5553 (WinBuild.160101.0800)",
+"timestamp": 1766359457,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5052077"
+]
+},
+{
+"sha256": "f25c0bff5eedfce2e90842dd72597ee6dc468ff3ad711e233c4926529d24b7bc",
+"build": 19041,
+"ubr": 5607,
+"version": "10.0.19041.5607 (WinBuild.160101.0800)",
+"timestamp": 2303808144,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5053606"
+]
+},
+{
+"sha256": "34e39619b1316232b4786dce7825bc7e524a963a802a6ab08c4ade78fbfb3c8c",
+"build": 19041,
+"ubr": 5678,
+"version": "10.0.19041.5678 (WinBuild.160101.0800)",
+"timestamp": 2018358268,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5053643"
+]
+},
+{
+"sha256": "23b2d4d6e35c31f93e0bfedd6cf9c958deac1c7ea39d78eaa2c35937b5d907b5",
+"build": 19041,
+"ubr": 5737,
+"version": "10.0.19041.5737 (WinBuild.160101.0800)",
+"timestamp": 2120820864,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5055518"
+]
+},
+{
+"sha256": "f394a43b4aad1936af9a4fc6954904c22b9193a105b26cb9113a18652068eed4",
+"build": 19041,
+"ubr": 5794,
+"version": "10.0.19041.5794 (WinBuild.160101.0800)",
+"timestamp": 1532938360,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5055612"
+]
+},
+{
+"sha256": "a46fe2afcf1dd7cfafebe2946217b1fc866f7881a322f69f24898225c1828145",
+"build": 19041,
+"ubr": 5848,
+"version": "10.0.19041.5848 (WinBuild.160101.0800)",
+"timestamp": 1475600797,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5058379"
+]
+},
+{
+"sha256": "020a37bc0a8dbf3d1a040afbb15eac0ffa6df6ccbd2b6a9eba421b7d31bcddfa",
+"build": 19041,
+"ubr": 5856,
+"version": "10.0.19041.5856 (WinBuild.160101.0800)",
+"timestamp": 256249301,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5061768",
+"KB5061979"
+]
+},
+{
+"sha256": "22c4119a6e37ec77cc520068a22faab1a59f5ab17f25dbd5971844832709ce2d",
+"build": 19041,
+"ubr": 5915,
+"version": "10.0.19041.5915 (WinBuild.160101.0800)",
+"timestamp": 1946672429,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5058481"
+]
+},
+{
+"sha256": "9af901fe53bc6b0a5ee97ab65e2709baf74f4ed407d3003f93f44425ac744c7d",
+"build": 19041,
+"ubr": 5965,
+"version": "10.0.19041.5965 (WinBuild.160101.0800)",
+"timestamp": 1880368423,
+"virtualSize": 17063936,
+"windows": [
+"21H2",
+"22H2"
+],
+"kbs": [
+"KB5060533",
+"KB5063159"
+]
+},
+{
+"sha256": "68a62b2da2623e86e8e35d2c9295c5570f60d9d6e4352637177daaf3e3101f14",
+"build": 19041,
+"ubr": 6033,
+"version": "10.0.19041.6033 (WinBuild.160101.0800)",
+"timestamp": 2561542798,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5061087"
+]
+},
+{
+"sha256": "a3c9b171416ecd281b9891051d128948ce3a7bcba2a8d60b920ed832637e66a8",
+"build": 19041,
+"ubr": 6093,
+"version": "10.0.19041.6093 (WinBuild.160101.0800)",
+"timestamp": 2146351224,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5062554"
+]
+},
+{
+"sha256": "590d503925506a4388c503d894363b1f0eaf7ee67cda0c77cca9e34de7a4aa40",
+"build": 19041,
+"ubr": 6157,
+"version": "10.0.19041.6157 (WinBuild.160101.0800)",
+"timestamp": 290305082,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5062649"
+]
+},
+{
+"sha256": "13dbc938fb3997d7189121b350f0c40c4b6ae5c457d89d08f142951bba310a30",
+"build": 19041,
+"ubr": 6216,
+"version": "10.0.19041.6216 (WinBuild.160101.0800)",
+"timestamp": 3164973277,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5063709"
+]
+},
+{
+"sha256": "5b4f3a5ef1141fdd2fd0e53bf3b9da26588018d2036ae74433c80503d9a9e873",
+"build": 19041,
+"ubr": 6218,
+"version": "10.0.19041.6218 (WinBuild.160101.0800)",
+"timestamp": 3295508522,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5066188"
+]
+},
+{
+"sha256": "d270401cfd07e0625a9e87fc94818f75a7865dc2f93fa451d32c9ca0b26380bd",
+"build": 19041,
+"ubr": 6280,
+"version": "10.0.19041.6280 (WinBuild.160101.0800)",
+"timestamp": 4204544627,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5063842"
+]
+},
+{
+"sha256": "331bc90db64b52e18231f17a75f563e93936d4ed59d896ad89fc8775c5cff268",
+"build": 19041,
+"ubr": 6328,
+"version": "10.0.19041.6328 (WinBuild.160101.0800)",
+"timestamp": 968254823,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5065429"
+]
+},
+{
+"sha256": "1c53302f17112b1a2cfd589e96439b0e69027a83cee3b6474c2ffcb67de5d92b",
+"build": 19041,
+"ubr": 6392,
+"version": "10.0.19041.6392 (WinBuild.160101.0800)",
+"timestamp": 1654610440,
+"virtualSize": 17063936,
+"windows": [
+"22H2"
+],
+"kbs": [
+"KB5066198"
+]
+},
+{
+"sha256": "563f486f45853248e54b3ee800d6b19289101c6cca15e0e3fa11a70452b5ce91",
+"build": 19041,
+"ubr": 6456,
+"version": "10.0.19041.6456 (WinBuild.160101.0800)",
+"timestamp": 476233443,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5066791"
+]
+},
+{
+"sha256": "432155c8f34cdcf0407308305d59200288b4c3b86e7f6afe6f5f862b201b8a2b",
+"build": 19041,
+"ubr": 6575,
+"version": "10.0.19041.6575 (WinBuild.160101.0800)",
+"timestamp": 3787429115,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5068781"
+]
+},
+{
+"sha256": "0e44d8c90fbec261066898cd41a24d15b6cea5581ed4b7b1c67dd05b4c12e4bb",
+"build": 19041,
+"ubr": 6691,
+"version": "10.0.19041.6691 (WinBuild.160101.0800)",
+"timestamp": 2564036761,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5071546"
+]
+},
+{
+"sha256": "58f62f8d4582b033712b3d144e47e27076ef87a7bab80729518050ac2851d15b",
+"build": 19041,
+"ubr": 6693,
+"version": "10.0.19041.6693 (WinBuild.160101.0800)",
+"timestamp": 278747321,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5074976"
+]
+},
+{
+"sha256": "fb3347be01f878bd2a8d769020193a2d0cc1c45b265fe3f513a2784f096c0235",
+"build": 19041,
+"ubr": 6807,
+"version": "10.0.19041.6807 (WinBuild.160101.0800)",
+"timestamp": 801019510,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5073724"
+]
+},
+{
+"sha256": "aa71170f5ec1b9521b7b180e1c140be32b1cb33fdc305ca9265be4e4043c1f02",
+"build": 19041,
+"ubr": 6811,
+"version": "10.0.19041.6811 (WinBuild.160101.0800)",
+"timestamp": 1357862221,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5077796",
+"KB5078129"
+]
+},
+{
+"sha256": "9a853a15243b934416f16e0f3ae3a928c0066d83b8ab13fedc2ec976e2cf8310",
+"build": 19041,
+"ubr": 6926,
+"version": "10.0.19041.6926 (WinBuild.160101.0800)",
+"timestamp": 2141902856,
+"virtualSize": 17059840,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5075912"
+]
+},
+{
+"sha256": "b1735d629107b23ce1606fed839a9abf8528d1495bdce220695b272fc02cd8cc",
+"build": 19041,
+"ubr": 7058,
+"version": "10.0.19041.7058 (WinBuild.160101.0800)",
+"timestamp": 4028521412,
+"virtualSize": 17059840,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5078885"
+]
+},
+{
+"sha256": "9067d3ff424b32818727a0649bab1d679b51ef022e82dfaf0dc868e38df216a3",
+"build": 19041,
+"ubr": 7181,
+"version": "10.0.19041.7181 (WinBuild.160101.0800)",
+"timestamp": 3055472601,
+"virtualSize": 17059840,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5082200"
+]
+},
+{
+"sha256": "8ff08b0994e2ae92c7b2b5ee8bf082b4d60175cec1b61bb49e528d301e9aa9ed",
+"build": 19041,
+"ubr": 7291,
+"version": "10.0.19041.7291 (WinBuild.160101.0800)",
+"timestamp": 372302836,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5087544"
+]
+},
+{
+"sha256": "c3c0dc9599964633d8958558e79051e50278cbca998a4ce2b5b769134b762eda",
+"build": 19041,
+"ubr": 7417,
+"version": "10.0.19041.7417 (WinBuild.160101.0800)",
+"timestamp": 3739168333,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5094127"
+]
+},
+{
+"sha256": "f49de8c67d482acf97c63d2875b28fd6b47a590c81ada99304533b6bbc0542a3",
+"build": 19041,
+"ubr": 7548,
+"version": "10.0.19041.7548 (WinBuild.160101.0800)",
+"timestamp": 4263127907,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5099539"
+]
+},
+{
+"sha256": "4bcee9c02577d4ebfd91231658c114110caa70822c13855511a5c8b77748719c",
+"build": 19041,
+"ubr": 7663,
+"version": "10.0.19041.7663 (WinBuild.160101.0800)",
+"timestamp": 2080576849,
+"virtualSize": 17063936,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5120249"
+]
+},
+{
+"sha256": "b3de5c162d582e0e3cbb27977fd82c2d8212d18fbc3f70bb8bf7e0c4a5925960",
+"build": 19041,
+"ubr": 7725,
+"version": "10.0.19041.7725 (WinBuild.160101.0800)",
+"timestamp": 3441994856,
+"virtualSize": 17059840,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5122878",
+"KB5129236"
+]
+},
+{
+"sha256": "01abce537185bf0f1654eac888b2a32bc0516ccb9b324d27a3fc92c1b868a6d5",
+"build": 19041,
+"ubr": 7802,
+"version": "10.0.19041.7802 (WinBuild.160101.0800)",
+"timestamp": 2934838159,
+"virtualSize": 17059840,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5126657"
+]
+},
+{
+"sha256": "0f31902fd772b802bbda4292460e533ad19dce2cbb105f7771c76f0378ed4f1a",
+"build": 19041,
+"ubr": 7844,
+"version": "10.0.19041.7844 (WinBuild.160101.0800)",
+"timestamp": 329465876,
+"virtualSize": 17059840,
+"windows": [
+"21H2"
+],
+"kbs": [
+"KB5131096"
+]
+},
+{
+"sha256": "66b99e6127876245e25e004ab66928934f0f18d3a2011f5f359686a60d1ca924",
+"build": 22000,
+"ubr": 194,
+"version": "10.0.22000.194 (WinBuild.160101.0800)",
+"timestamp": 3010239929,
+"virtualSize": 17072128,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"BASE"
+]
+},
+{
+"sha256": "e294e7a9a3c97a6baf468b91db9c974a1f16c7cbcd63ef8d9e65c9ed5f0c673f",
+"build": 22000,
+"ubr": 258,
+"version": "10.0.22000.258 (WinBuild.160101.0800)",
+"timestamp": 3514611616,
+"virtualSize": 17072128,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5006674"
+]
+},
+{
+"sha256": "77761ae0821caa94c42d5a4cf9d18126a729ef1acc6c1fd7a137e89b076d9f65",
+"build": 22000,
+"ubr": 282,
+"version": "10.0.22000.282 (WinBuild.160101.0800)",
+"timestamp": 2138740943,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5006746"
+]
+},
+{
+"sha256": "e1aa98d073b336d65cb1d8749700231e354b016beda3708593c6a256dce2387e",
+"build": 22000,
+"ubr": 318,
+"version": "10.0.22000.318 (WinBuild.160101.0800)",
+"timestamp": 3244298681,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5007215"
+]
+},
+{
+"sha256": "35d6497adc41f631ce34fd237900bfde69de0c92ebf8e727a27b934d4ee4c730",
+"build": 22000,
+"ubr": 348,
+"version": "10.0.22000.348 (WinBuild.160101.0800)",
+"timestamp": 2815218288,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5007262"
+]
+},
+{
+"sha256": "bf5eb744965fccf144fd1d6bd5de24e0230a6d439d135df85d4abdd944221a15",
+"build": 22000,
+"ubr": 376,
+"version": "10.0.22000.376 (WinBuild.160101.0800)",
+"timestamp": 411083479,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5008215"
+]
+},
+{
+"sha256": "6999347714248d872f0dda54a31454626a9f2149f165407b7445c0293ce68411",
+"build": 22000,
+"ubr": 434,
+"version": "10.0.22000.434 (WinBuild.160101.0800)",
+"timestamp": 3205697363,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5009566"
+]
+},
+{
+"sha256": "ba45169d655b60ba5df068dc76bf9f9753dd1d950a0326ba11ae9bcd61137df4",
+"build": 22000,
+"ubr": 438,
+"version": "10.0.22000.438 (WinBuild.160101.0800)",
+"timestamp": 2183569766,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5010795"
+]
+},
+{
+"sha256": "10fa51f72f7ae6a23e79eba30dc126007b2fcb06e963fa0bf1e988664cdb6c54",
+"build": 22000,
+"ubr": 469,
+"version": "10.0.22000.469 (WinBuild.160101.0800)",
+"timestamp": 3720768575,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5008353"
+]
+},
+{
+"sha256": "630fc0bab7d7a2adaff35879d72057fc8678fc1673e4b380bb602d11c11e2430",
+"build": 22000,
+"ubr": 493,
+"version": "10.0.22000.493 (WinBuild.160101.0800)",
+"timestamp": 3768373295,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5010386"
+]
+},
+{
+"sha256": "21e850f88c93ee105263d59ac082f0f32f99a02af11a81f6fbd2759001639d46",
+"build": 22000,
+"ubr": 527,
+"version": "10.0.22000.527 (WinBuild.160101.0800)",
+"timestamp": 85501011,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5010414"
+]
+},
+{
+"sha256": "b8b5725dfc472528f9c003328d2320da03ad7f0eb409d53a8bcec1ceca969aa8",
+"build": 22000,
+"ubr": 556,
+"version": "10.0.22000.556 (WinBuild.160101.0800)",
+"timestamp": 1355116453,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5011493"
+]
+},
+{
+"sha256": "4817467a924915967039dcfcad9637ca545fa5480aa785d3211cbf55bae020f9",
+"build": 22000,
+"ubr": 593,
+"version": "10.0.22000.593 (WinBuild.160101.0800)",
+"timestamp": 3383794022,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5011563"
+]
+},
+{
+"sha256": "abd61195df8b9d7a80881d54f0a1e8bfa0ef29acf1cdb5a293dd13ea3be25bb5",
+"build": 22000,
+"ubr": 613,
+"version": "10.0.22000.613 (WinBuild.160101.0800)",
+"timestamp": 135186442,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5012592"
+]
+},
+{
+"sha256": "3af36dd653f5152980f23979f4127f36aa400298d404eb675f1e59c75f62bf84",
+"build": 22000,
+"ubr": 652,
+"version": "10.0.22000.652 (WinBuild.160101.0800)",
+"timestamp": 4276113069,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5012643"
+]
+},
+{
+"sha256": "efdb03fea529d366c31065d7ac8a1a1f41f91de4ab7fe966788016e6c2dd5b9c",
+"build": 22000,
+"ubr": 675,
+"version": "10.0.22000.675 (WinBuild.160101.0800)",
+"timestamp": 1872167193,
+"virtualSize": 17072128,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5013943"
+]
+},
+{
+"sha256": "c97fa5d5341e3d51e07712abe013958aeae48c3c3c75402764a84a0da2fa2ceb",
+"build": 22000,
+"ubr": 708,
+"version": "10.0.22000.708 (WinBuild.160101.0800)",
+"timestamp": 3325313606,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5014019"
+]
+},
+{
+"sha256": "02b7dcd938a84dfa6163974650e17fe12752ec665f46b046cba7ac2c3d80b19d",
+"build": 22000,
+"ubr": 739,
+"version": "10.0.22000.739 (WinBuild.160101.0800)",
+"timestamp": 4010650218,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5014697"
+]
+},
+{
+"sha256": "26e2b69967bd85acf37360d6a307e8c3107c032a00df79cd54476df9454ff008",
+"build": 22000,
+"ubr": 778,
+"version": "10.0.22000.778 (WinBuild.160101.0800)",
+"timestamp": 3975795789,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5014668"
+]
+},
+{
+"sha256": "e67084679de1a56ed5cc7eb04fa0a4897cda6c35899890c9a2ded071fcccd428",
+"build": 22000,
+"ubr": 795,
+"version": "10.0.22000.795 (WinBuild.160101.0800)",
+"timestamp": 446011202,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5015814"
+]
+},
+{
+"sha256": "c36f61a0c5e27dabadd424e5420b68a0a32284ceba305d740e7714bf0441b096",
+"build": 22000,
+"ubr": 832,
+"version": "10.0.22000.832 (WinBuild.160101.0800)",
+"timestamp": 115456238,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5015882"
+]
+},
+{
+"sha256": "cd9c68338e86f1f6fdfa166ea9e8f5b3f37372dcd62bf0a4ddd46377dddbf31b",
+"build": 22000,
+"ubr": 856,
+"version": "10.0.22000.856 (WinBuild.160101.0800)",
+"timestamp": 1615332497,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5016629"
+]
+},
+{
+"sha256": "1176773ef3c51974e8a73cf0cb6062fd8ec1e02e8a345b5da61c89933370e89c",
+"build": 22000,
+"ubr": 918,
+"version": "10.0.22000.918 (WinBuild.160101.0800)",
+"timestamp": 2359148160,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5016691"
+]
+},
+{
+"sha256": "a5f7ffeb3cb0ef428ef0e49368763d864b60035b24088e13ad16d8c12e0d87b7",
+"build": 22000,
+"ubr": 978,
+"version": "10.0.22000.978 (WinBuild.160101.0800)",
+"timestamp": 2385883667,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5017328"
+]
+},
+{
+"sha256": "c39f7344f953f74eec3368d2c8fefdadf740c3c8f9bbd634b5c6f922380f9a9d",
+"build": 22000,
+"ubr": 1042,
+"version": "10.0.22000.1042 (WinBuild.160101.0800)",
+"timestamp": 3074791279,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5017383"
+]
+},
+{
+"sha256": "e132c6085be791c5ab306029e17dd5f19eb8b7b1714a993bdf72580bb0daea61",
+"build": 22000,
+"ubr": 1098,
+"version": "10.0.22000.1098 (WinBuild.160101.0800)",
+"timestamp": 2234566867,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5018418",
+"KB5020387"
+]
+},
+{
+"sha256": "3cfe8bdabc19d9a583551faaa622c2d95f7ffa02ff1c73ee03f6fc483d186bed",
+"build": 22000,
+"ubr": 1165,
+"version": "10.0.22000.1165 (WinBuild.160101.0800)",
+"timestamp": 2851842422,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5018483"
+]
+},
+{
+"sha256": "2db528ed2334328f9323c44a564ca13a7fc8a197b82b4546699b83d34c38a064",
+"build": 22000,
+"ubr": 1219,
+"version": "10.0.22000.1219 (WinBuild.160101.0800)",
+"timestamp": 2491166973,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5019961"
+]
+},
+{
+"sha256": "1624313da08dab9efd056740ed9c8dfdee35d086210225ee1cb953815f73ee4b",
+"build": 22000,
+"ubr": 1281,
+"version": "10.0.22000.1281 (WinBuild.160101.0800)",
+"timestamp": 1606813161,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5019157"
+]
+},
+{
+"sha256": "95abe0e67283164ab779e52f21109d1dc6194dcd420483b4b93a31d7f7b5ef49",
+"build": 22000,
+"ubr": 1335,
+"version": "10.0.22000.1335 (WinBuild.160101.0800)",
+"timestamp": 3605293945,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5021234"
+]
+},
+{
+"sha256": "db10f8f37d6cf91ef88921ec5a66377c59604c35687e122729f0a82360b562cc",
+"build": 22000,
+"ubr": 1455,
+"version": "10.0.22000.1455 (WinBuild.160101.0800)",
+"timestamp": 2889128685,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5022287"
+]
+},
+{
+"sha256": "2519d314ac36ef92e0e2b0ff75e6e528be8098f226eb222a49fa2d2edab91caa",
+"build": 22000,
+"ubr": 1516,
+"version": "10.0.22000.1516 (WinBuild.160101.0800)",
+"timestamp": 2794574799,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5019274"
+]
+},
+{
+"sha256": "5ef98625c968578012b8539ccfc896921a726b1c95480ccba84e5ee937ca190c",
+"build": 22000,
+"ubr": 1574,
+"version": "10.0.22000.1574 (WinBuild.160101.0800)",
+"timestamp": 2167634909,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5022836"
+]
+},
+{
+"sha256": "2ab00139679bb2181e54ae29198476e28eba43fe42b5fa593ac1a6e661b03e55",
+"build": 22000,
+"ubr": 1641,
+"version": "10.0.22000.1641 (WinBuild.160101.0800)",
+"timestamp": 1827961547,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5022905"
+]
+},
+{
+"sha256": "1587c08577a5e402d789ce8a88d11e33466d9ae0f6ab086f2beba1d2f2330f5b",
+"build": 22000,
+"ubr": 1696,
+"version": "10.0.22000.1696 (WinBuild.160101.0800)",
+"timestamp": 2799199279,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5023698"
+]
+},
+{
+"sha256": "7a0279cedfaeea39ff49b9e215cd82bb639fdde8288761a4d944b4191ad96486",
+"build": 22000,
+"ubr": 1761,
+"version": "10.0.22000.1761 (WinBuild.160101.0800)",
+"timestamp": 1844063526,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5023774"
+]
+},
+{
+"sha256": "c81a59ef67e0ba077f1df6ca871902ed419b83271cd6b5c73a9532815d9e6f48",
+"build": 22000,
+"ubr": 1817,
+"version": "10.0.22000.1817 (WinBuild.160101.0800)",
+"timestamp": 3598842687,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5025224"
+]
+},
+{
+"sha256": "db88a6412782d59e528cb00c543502a8067dcc9308b24e7d072414e993ce74f1",
+"build": 22000,
+"ubr": 1880,
+"version": "10.0.22000.1880 (WinBuild.160101.0800)",
+"timestamp": 3219989692,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5025298"
+]
+},
+{
+"sha256": "b1581f575657f9522fed4885ed39283707c7837e733e9c0194fe2ba4c4bce4ec",
+"build": 22000,
+"ubr": 1936,
+"version": "10.0.22000.1936 (WinBuild.160101.0800)",
+"timestamp": 3522475543,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5026368"
+]
+},
+{
+"sha256": "866a1fe9ce579eba75b9d3a4e8a6e5a73da859f9bb38a18d91119d16386a00c9",
+"build": 22000,
+"ubr": 2003,
+"version": "10.0.22000.2003 (WinBuild.160101.0800)",
+"timestamp": 4139988017,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5026436"
+]
+},
+{
+"sha256": "048dfdbad43558aab82d882522b1005e5a78f6a5c903570db7852e091207dc6f",
+"build": 22000,
+"ubr": 2057,
+"version": "10.0.22000.2057 (WinBuild.160101.0800)",
+"timestamp": 1513333093,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5027223"
+]
+},
+{
+"sha256": "7dbf9213b7b1803ef8437a6789e6034e4004dc88d6638cc7381a1649a57c308f",
+"build": 22000,
+"ubr": 2124,
+"version": "10.0.22000.2124 (WinBuild.160101.0800)",
+"timestamp": 1090312081,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5027292"
+]
+},
+{
+"sha256": "e13a878265e0be1b9f4d05c8d8b566ddd0db97df0c031f20ad0797a3ae9e192b",
+"build": 22000,
+"ubr": 2176,
+"version": "10.0.22000.2176 (WinBuild.160101.0800)",
+"timestamp": 3004021729,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5028182"
+]
+},
+{
+"sha256": "c0db64ca0f72f5c318b4db4e77d0ef7d3f9480a795aa11c8b40f769eff8f710f",
+"build": 22000,
+"ubr": 2245,
+"version": "10.0.22000.2245 (WinBuild.160101.0800)",
+"timestamp": 2208629191,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5028245"
+]
+},
+{
+"sha256": "3d9411b50da638b2107551c40abaffa69d48e18894f562fcb637077765e2c466",
+"build": 22000,
+"ubr": 2295,
+"version": "10.0.22000.2295 (WinBuild.160101.0800)",
+"timestamp": 3699254957,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5029253"
+]
+},
+{
+"sha256": "b951acbea60e5ec105fc3e9370eb829ccb038ca2796248b8b371abc786df8d9f",
+"build": 22000,
+"ubr": 2360,
+"version": "10.0.22000.2360 (WinBuild.160101.0800)",
+"timestamp": 2783480370,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5029332"
+]
+},
+{
+"sha256": "0a1ff47bdf13b42d2f4645495fcb525d35b02f6342ccfeb1238ee2b0a0172ebf",
+"build": 22000,
+"ubr": 2416,
+"version": "10.0.22000.2416 (WinBuild.160101.0800)",
+"timestamp": 3077374212,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5030217"
+]
+},
+{
+"sha256": "9e0a3ad48753a1e8fc6dbe20d983c8e50f608855b69f7f27b15a35b07b43cc8f",
+"build": 22000,
+"ubr": 2482,
+"version": "10.0.22000.2482 (WinBuild.160101.0800)",
+"timestamp": 1648400314,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5030301"
+]
+},
+{
+"sha256": "90965522df752ee47dbb16ab42f65b10f8f092a4d3c99df7f195db14f5d2041b",
+"build": 22000,
+"ubr": 2538,
+"version": "10.0.22000.2538 (WinBuild.160101.0800)",
+"timestamp": 3177061278,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5031358"
+]
+},
+{
+"sha256": "a2604c54600d8539139d985d0774ac667bcf9232594c6b7fad6b12fe314c23fa",
+"build": 22000,
+"ubr": 2600,
+"version": "10.0.22000.2600 (WinBuild.160101.0800)",
+"timestamp": 1368799456,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5032192"
+]
+},
+{
+"sha256": "5d691b1385b31b46195665300980076d004514a7d91ed51aba9989513b1bfb63",
+"build": 22000,
+"ubr": 2652,
+"version": "10.0.22000.2652 (WinBuild.160101.0800)",
+"timestamp": 2631549676,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5033369"
+]
+},
+{
+"sha256": "3538c46ecfae46cde5c0a98b908bca45c6bf9ba8d69f95007f26da6b6ebb6917",
+"build": 22000,
+"ubr": 2713,
+"version": "10.0.22000.2713 (WinBuild.160101.0800)",
+"timestamp": 1843820061,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5034121"
+]
+},
+{
+"sha256": "2b93af0a62c1b2c80c6e8c815cd4dd8d41af9391f71e9b1a8f01e40ce5cefa89",
+"build": 22000,
+"ubr": 2777,
+"version": "10.0.22000.2777 (WinBuild.160101.0800)",
+"timestamp": 3400446184,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5034766"
+]
+},
+{
+"sha256": "85e34f0d3eb8d1ff0dd74caa1d5060d60bdb9e3a9abc4b8c41265ae9fca040ba",
+"build": 22000,
+"ubr": 2836,
+"version": "10.0.22000.2836 (WinBuild.160101.0800)",
+"timestamp": 1643887367,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5035854"
+]
+},
+{
+"sha256": "34aedd543eebcb52cf0478219b4f2e945bf030dadadfe495cb3bcfd5b75dd8d7",
+"build": 22000,
+"ubr": 2899,
+"version": "10.0.22000.2899 (WinBuild.160101.0800)",
+"timestamp": 1345229604,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5036894"
+]
+},
+{
+"sha256": "6d045cd4663306e12b554c9803ede48adc339ce32ad08421493f1b395100b8a4",
+"build": 22000,
+"ubr": 2960,
+"version": "10.0.22000.2960 (WinBuild.160101.0800)",
+"timestamp": 1996302316,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5037770"
+]
+},
+{
+"sha256": "c4331eca3988c842dd5408a20915af63c2016a976f125170bffe1993b74f9ba2",
+"build": 22000,
+"ubr": 3019,
+"version": "10.0.22000.3019 (WinBuild.160101.0800)",
+"timestamp": 1318699083,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5039213"
+]
+},
+{
+"sha256": "7b97fdd9a465b41423e4e3c3cff478841ad1830b683904706afe282df145a9b6",
+"build": 22000,
+"ubr": 3079,
+"version": "10.0.22000.3079 (WinBuild.160101.0800)",
+"timestamp": 2032244735,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5040431"
+]
+},
+{
+"sha256": "b50ab6a4e0289d30b346dd7644304dfc07cdf63b32ebcb83c2995150c9158e43",
+"build": 22000,
+"ubr": 3147,
+"version": "10.0.22000.3147 (WinBuild.160101.0800)",
+"timestamp": 2990461451,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5041592"
+]
+},
+{
+"sha256": "4b6593143155e1a1314ab73bf9d0622180764268d54984541627b5041bb46de8",
+"build": 22000,
+"ubr": 3197,
+"version": "10.0.22000.3197 (WinBuild.160101.0800)",
+"timestamp": 709838515,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5043067"
+]
+},
+{
+"sha256": "913bc1ae4f89554145e75968e8de1084bca5682d00fcf77415097fe5f713f50a",
+"build": 22000,
+"ubr": 3260,
+"version": "10.0.22000.3260 (WinBuild.160101.0800)",
+"timestamp": 1488640494,
+"virtualSize": 17068032,
+"windows": [
+"11-21H2"
+],
+"kbs": [
+"KB5044280"
+]
+},
+{
+"sha256": "945b23dbe1c67bb89dd9ed1428d1779d31857c92803696642de5bb921c0cc9f8",
+"build": 22621,
+"ubr": 382,
+"version": "10.0.22621.382 (WinBuild.160101.0800)",
+"timestamp": 3372716246,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"BASE"
+]
+},
+{
+"sha256": "f70a89c1f806ed10ba1ffb64a8d0734c746ed33951557866c50b207b74899fca",
+"build": 22621,
+"ubr": 525,
+"version": "10.0.22621.525 (WinBuild.160101.0800)",
+"timestamp": 3375674088,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5019311"
+]
+},
+{
+"sha256": "87b093efcd5052320585b0f42c755ae9ccf7674b03494adcebb98bff110d9601",
+"build": 22621,
+"ubr": 608,
+"version": "10.0.22621.608 (WinBuild.160101.0800)",
+"timestamp": 244546748,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5017389"
+]
+},
+{
+"sha256": "0b80914bff91675f85551b009d0cc68fd6c89616914e4d4a0da9003a6d16fe62",
+"build": 22621,
+"ubr": 674,
+"version": "10.0.22621.674 (WinBuild.160101.0800)",
+"timestamp": 2791693722,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5018427"
+]
+},
+{
+"sha256": "478e44011b464f8aa5b37128d203fd44b12f43f155583647b9b72029c918d32e",
+"build": 22621,
+"ubr": 675,
+"version": "10.0.22621.675 (WinBuild.160101.0800)",
+"timestamp": 3853801148,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5019509"
+]
+},
+{
+"sha256": "35eb6f97a2cc007101e80a436fb11eb43803f813bbcf55e7d8ee91c8cac9169c",
+"build": 22621,
+"ubr": 755,
+"version": "10.0.22621.755 (WinBuild.160101.0800)",
+"timestamp": 3673496084,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5018496"
+]
+},
+{
+"sha256": "09ba0359ba3e8ec909295582833b625dcc9af201b637e870a88e062a4a742dd0",
+"build": 22621,
+"ubr": 819,
+"version": "10.0.22621.819 (WinBuild.160101.0800)",
+"timestamp": 1019189001,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5019980"
+]
+},
+{
+"sha256": "b1ea45275fb3c5f522add838584d718517e11cc05bf04b7ad4da063ac0805e48",
+"build": 22621,
+"ubr": 900,
+"version": "10.0.22621.900 (WinBuild.160101.0800)",
+"timestamp": 774980377,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5020044"
+]
+},
+{
+"sha256": "7c9792b097a33fcfc1ac21ce039a3f084482845ebd26c28d4f59e65aa8b99e60",
+"build": 22621,
+"ubr": 963,
+"version": "10.0.22621.963 (WinBuild.160101.0800)",
+"timestamp": 4118502035,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5021255"
+]
+},
+{
+"sha256": "2104395fbf7e239a881ae89cc39884424976772e0d389644a063f84e7e9d04d0",
+"build": 22621,
+"ubr": 1105,
+"version": "10.0.22621.1105 (WinBuild.160101.0800)",
+"timestamp": 2885844132,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5022303"
+]
+},
+{
+"sha256": "c246397fd3c0446e58b4be2e487b852e0f963c76d1453e00a4e1e8dabebc56ab",
+"build": 22621,
+"ubr": 1194,
+"version": "10.0.22621.1194 (WinBuild.160101.0800)",
+"timestamp": 1066798847,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5022360"
+]
+},
+{
+"sha256": "7d17ecac9aae8e222fd54741a1f17ff8809eaf67dab630094879adba002317ee",
+"build": 22621,
+"ubr": 1265,
+"version": "10.0.22621.1265 (WinBuild.160101.0800)",
+"timestamp": 2598137791,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5022845"
+]
+},
+{
+"sha256": "1b30d5f89790f8ee0d80d2ed29d1177dd3f58042a89e9efee9be17a4660c7d58",
+"build": 22621,
+"ubr": 1344,
+"version": "10.0.22621.1344 (WinBuild.160101.0800)",
+"timestamp": 4158856105,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5022913"
+]
+},
+{
+"sha256": "140ae8fda7efff8039514b89f571e6ae27e2c634881e3d3e1dc4b4e37ddbd6c8",
+"build": 22621,
+"ubr": 1413,
+"version": "10.0.22621.1413 (WinBuild.160101.0800)",
+"timestamp": 397850402,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5023706"
+]
+},
+{
+"sha256": "e71f2fbce0928fc02646985e8072214389247d69632b5a661f9fca49367ac346",
+"build": 22621,
+"ubr": 1485,
+"version": "10.0.22621.1485 (WinBuild.160101.0800)",
+"timestamp": 2053043576,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5023778"
+]
+},
+{
+"sha256": "35c9d3384ab1858b5460415ce752daa884dfd73eb25c02755909cd82a130103f",
+"build": 22621,
+"ubr": 1555,
+"version": "10.0.22621.1555 (WinBuild.160101.0800)",
+"timestamp": 2575483665,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5025239"
+]
+},
+{
+"sha256": "d70274429b40c5c90c5136b65f34ecdc0e988d7d3d277cb683d57bd04fa426d6",
+"build": 22621,
+"ubr": 1635,
+"version": "10.0.22621.1635 (WinBuild.160101.0800)",
+"timestamp": 238565628,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5025305"
+]
+},
+{
+"sha256": "970d9bdc6927282bc9779ce235bc0a6384f6ef5ca05b69b64eadb2f9bd08cbfb",
+"build": 22621,
+"ubr": 1702,
+"version": "10.0.22621.1702 (WinBuild.160101.0800)",
+"timestamp": 2951843045,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5026372"
+]
+},
+{
+"sha256": "3f21e646ab2febb818634de4639a3f3a1982398cd08977d20225f122d05595f8",
+"build": 22621,
+"ubr": 1778,
+"version": "10.0.22621.1778 (WinBuild.160101.0800)",
+"timestamp": 1143364363,
+"virtualSize": 17072128,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5026446"
+]
+},
+{
+"sha256": "c7a3f55fd7817cec48d095fbb121cd471f61529cd6915f961c67e8e7a9fb40af",
+"build": 22621,
+"ubr": 1848,
+"version": "10.0.22621.1848 (WinBuild.160101.0800)",
+"timestamp": 3620897783,
+"virtualSize": 17072128,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5027231"
+]
+},
+{
+"sha256": "87d0daa24d4143a602f80f671d49967e3f8c926ff96d0b2b1a6611b518970eaf",
+"build": 22621,
+"ubr": 1928,
+"version": "10.0.22621.1928 (WinBuild.160101.0800)",
+"timestamp": 1997140537,
+"virtualSize": 17072128,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5027303"
+]
+},
+{
+"sha256": "536d620bef8b97a765c0c9fee5f9fa5fa79fb5d057b6f6cba03343f538dad29f",
+"build": 22621,
+"ubr": 1992,
+"version": "10.0.22621.1992 (WinBuild.160101.0800)",
+"timestamp": 2115103488,
+"virtualSize": 17072128,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5028185"
+]
+},
+{
+"sha256": "62a4980090d5be72a21f07c4295d5cac9e6932cc7d6ba58e833d6b020e757252",
+"build": 22621,
+"ubr": 2070,
+"version": "10.0.22621.2070 (WinBuild.160101.0800)",
+"timestamp": 3447378901,
+"virtualSize": 17072128,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5028254"
+]
+},
+{
+"sha256": "75101b918e9f9999efef294fa94a318184f7dddb3ea0935fee5b2044cb3d2da1",
+"build": 22621,
+"ubr": 2134,
+"version": "10.0.22621.2134 (WinBuild.160101.0800)",
+"timestamp": 1772381081,
+"virtualSize": 17072128,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5029263"
+]
+},
+{
+"sha256": "9f0ad49c1a2c0c9f822db8262daa059bd0a0319e986902a699d117d281935191",
+"build": 22621,
+"ubr": 2215,
+"version": "10.0.22621.2215 (WinBuild.160101.0800)",
+"timestamp": 3600263827,
+"virtualSize": 17072128,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5029351"
+]
+},
+{
+"sha256": "d67c38552062a51eef56013bae30eedd2bae1c357067efb50be18a300860dce4",
+"build": 22621,
+"ubr": 2283,
+"version": "10.0.22621.2283 (WinBuild.160101.0800)",
+"timestamp": 2377549848,
+"virtualSize": 17072128,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5030219"
+]
+},
+{
+"sha256": "ae09a8d4fcfdc9fdafbdb834e671fef5e037aac5b99799037c0d546985873453",
+"build": 22621,
+"ubr": 2361,
+"version": "10.0.22621.2361 (WinBuild.160101.0800)",
+"timestamp": 2865564957,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5030310"
+]
+},
+{
+"sha256": "bf8489d981ea5d73dfb29b883405d68590f2b0b74dc2e9796e35cc1849c56826",
+"build": 22621,
+"ubr": 2428,
+"version": "10.0.22621.2428 (WinBuild.160101.0800)",
+"timestamp": 2097307966,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2",
+"11-23H2"
+],
+"kbs": [
+"BASE",
+"KB5031354"
+]
+},
+{
+"sha256": "4b954aae4b18a231b2254c0989b1b6bcc55741a8ef90a350f036d09cd480cc99",
+"build": 22621,
+"ubr": 2506,
+"version": "10.0.22621.2506 (WinBuild.160101.0800)",
+"timestamp": 3092655121,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5031455"
+]
+},
+{
+"sha256": "dcb872125f963f80b5d31132f1be41139afc62e4b48385236caa60d6d3a3f5f9",
+"build": 22621,
+"ubr": 2715,
+"version": "10.0.22621.2715 (WinBuild.160101.0800)",
+"timestamp": 629376012,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5032190"
+]
+},
+{
+"sha256": "98831dafa306900ac2b11f23fe69a789f1232127c653f3e01554c339bcb08365",
+"build": 22621,
+"ubr": 2792,
+"version": "10.0.22621.2792 (WinBuild.160101.0800)",
+"timestamp": 1172344925,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5032288"
+]
+},
+{
+"sha256": "0ce15480462e9cd3f7cbf2d44d2e393cf5674ee1d69a3459adfa0e913a7a2aeb",
+"build": 22621,
+"ubr": 2861,
+"version": "10.0.22621.2861 (WinBuild.160101.0800)",
+"timestamp": 2666411742,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5033375"
+]
+},
+{
+"sha256": "74e592a94ea0c3324bc2fb3498324a1566b77cf1bb3e8435e90eb7d5450bcac8",
+"build": 22621,
+"ubr": 3007,
+"version": "10.0.22621.3007 (WinBuild.160101.0800)",
+"timestamp": 381247543,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5034123"
+]
+},
+{
+"sha256": "5f1e8f8851a00580d297ff13f12f7463f1a3292df11645db6da3e12c489910d2",
+"build": 22621,
+"ubr": 3085,
+"version": "10.0.22621.3085 (WinBuild.160101.0800)",
+"timestamp": 1653495683,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5034204"
+]
+},
+{
+"sha256": "34eff4651d8d2305ab77eebc6dbbb94b193fa1d9382d5cab7beb60191a71a982",
+"build": 22621,
+"ubr": 3155,
+"version": "10.0.22621.3155 (WinBuild.160101.0800)",
+"timestamp": 1685709255,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5034765"
+]
+},
+{
+"sha256": "b433fbf64818818fdf8a56f73199410dc55ad3c2d1e191a2faa2d34eeef08f9f",
+"build": 22621,
+"ubr": 3235,
+"version": "10.0.22621.3235 (WinBuild.160101.0800)",
+"timestamp": 2336791373,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5034848"
+]
+},
+{
+"sha256": "52d860c99bd4fbf53994dad9cf8be727c8e08db1a3074eb5cd4d39bbc3974ca0",
+"build": 22621,
+"ubr": 3296,
+"version": "10.0.22621.3296 (WinBuild.160101.0800)",
+"timestamp": 1246202231,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5035853"
+]
+},
+{
+"sha256": "41ee592fe253caf442c7b162cbc70a08fab284fce47fd07d301f5a46b29e82e0",
+"build": 22621,
+"ubr": 3374,
+"version": "10.0.22621.3374 (WinBuild.160101.0800)",
+"timestamp": 396405556,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5035942"
+]
+},
+{
+"sha256": "a6b0411ff311e6b7ee93960dec3730edf444bdea26bdf82b12bd9844c9b781a8",
+"build": 22621,
+"ubr": 3447,
+"version": "10.0.22621.3447 (WinBuild.160101.0800)",
+"timestamp": 3967575416,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5036893"
+]
+},
+{
+"sha256": "d5c53140c2675b49e2d972d96f6d5c4e0b219b46c61e6222586dd2f4bd202616",
+"build": 22621,
+"ubr": 3527,
+"version": "10.0.22621.3527 (WinBuild.160101.0800)",
+"timestamp": 1609413699,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5036980"
+]
+},
+{
+"sha256": "fb95e5d14eab68e3b5a9ec998b08fd4cd15d73c3d422d78fe97e75e6d8e021b6",
+"build": 22621,
+"ubr": 3593,
+"version": "10.0.22621.3593 (WinBuild.160101.0800)",
+"timestamp": 2319079958,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5037771"
+]
+},
+{
+"sha256": "abf6854325023ec00811fb44f6abc7a00d2af5e17171ad9a7339ca3e8d75f81d",
+"build": 22621,
+"ubr": 3672,
+"version": "10.0.22621.3672 (WinBuild.160101.0800)",
+"timestamp": 3463142098,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5037853"
+]
+},
+{
+"sha256": "d2c63f71382ab464c9b243e4f19f123fb4b44917468ddb6928a57f90fe94664a",
+"build": 22621,
+"ubr": 3733,
+"version": "10.0.22621.3733 (WinBuild.160101.0800)",
+"timestamp": 1059458674,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5039212"
+]
+},
+{
+"sha256": "1c8fc096b11da9cdc7d44d8c7aca7a555548c4b87a6797efa3e815c3656aee83",
+"build": 22621,
+"ubr": 3810,
+"version": "10.0.22621.3810 (WinBuild.160101.0800)",
+"timestamp": 1923134723,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5039302"
+]
+},
+{
+"sha256": "ff790c868e0522fa314676664b6343954de8ed6225c420e565ea3f8fe3957043",
+"build": 22621,
+"ubr": 3880,
+"version": "10.0.22621.3880 (WinBuild.160101.0800)",
+"timestamp": 1802609032,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5040442"
+]
+},
+{
+"sha256": "6eadc85aef8bc4693ffeb2ae2dec09f01bae883e1e596a0236fcc8f789e8170e",
+"build": 22621,
+"ubr": 3958,
+"version": "10.0.22621.3958 (WinBuild.160101.0800)",
+"timestamp": 1617412865,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5040527"
+]
+},
+{
+"sha256": "e40b74571521d1f63d387ae441b3296e505a29550be75c770851832f064d2f40",
+"build": 22621,
+"ubr": 4036,
+"version": "10.0.22621.4036 (WinBuild.160101.0800)",
+"timestamp": 1167560930,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5041585"
+]
+},
+{
+"sha256": "78ee32fd777f0bc53c2e1977270cea3d6d6b0bbdb95a8e2be9473b12d10e1996",
+"build": 22621,
+"ubr": 4111,
+"version": "10.0.22621.4111 (WinBuild.160101.0800)",
+"timestamp": 2755537148,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5041587"
+]
+},
+{
+"sha256": "f7970a8c13be1b35a093eeffec1e4c8aa8271d5bd8a9a1802aa849e95b635d79",
+"build": 22621,
+"ubr": 4169,
+"version": "10.0.22621.4169 (WinBuild.160101.0800)",
+"timestamp": 1690081681,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5043076"
+]
+},
+{
+"sha256": "989e9b2a1691dd36412936ce23999acd1b100092f0b352b551f0cb4ac27ca80d",
+"build": 22621,
+"ubr": 4249,
+"version": "10.0.22621.4249 (WinBuild.160101.0800)",
+"timestamp": 3951060847,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5043145"
+]
+},
+{
+"sha256": "8214b4f98d1e18df604bf2a9ed0cb3c6c4df062a95181964e3da5e359cca4008",
+"build": 22621,
+"ubr": 4317,
+"version": "10.0.22621.4317 (WinBuild.160101.0800)",
+"timestamp": 741590280,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5044285"
+]
+},
+{
+"sha256": "9ecbf0b5046d2e4ced289fcf41c5b0b4e54efd2f3084c8c0edcf10a5653e9109",
+"build": 22621,
+"ubr": 4391,
+"version": "10.0.22621.4391 (WinBuild.160101.0800)",
+"timestamp": 3505852915,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5044380"
+]
+},
+{
+"sha256": "999c51d12cdf17a57054068d909e88e1587a9a715f15e0de9e32f4aa4875c473",
+"build": 22621,
+"ubr": 4455,
+"version": "10.0.22621.4455 (WinBuild.160101.0800)",
+"timestamp": 3514754307,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5046633"
+]
+},
+{
+"sha256": "61b9596eae4484650cbc8fd0add025624074eeb2f89167c369c0cf09d36b7aee",
+"build": 22621,
+"ubr": 4541,
+"version": "10.0.22621.4541 (WinBuild.160101.0800)",
+"timestamp": 2504609692,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5046732"
+]
+},
+{
+"sha256": "ab8ee9b6ed2670d5ceee6bde0a52a79e1c3c2e376bee2d17e7bedc84947d0ebe",
+"build": 22621,
+"ubr": 4601,
+"version": "10.0.22621.4601 (WinBuild.160101.0800)",
+"timestamp": 985476717,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5048685"
+]
+},
+{
+"sha256": "28a9531362a74cb16a02574f28606a1eb84c6524749c1c7f70029e533be759a4",
+"build": 22621,
+"ubr": 4746,
+"version": "10.0.22621.4746 (WinBuild.160101.0800)",
+"timestamp": 3775887644,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5050021"
+]
+},
+{
+"sha256": "1f0d199f3cf1e72ab1e1571e06d1692dbcb8a36d2d86e39a426c2b7f0f2c0aa6",
+"build": 22621,
+"ubr": 4830,
+"version": "10.0.22621.4830 (WinBuild.160101.0800)",
+"timestamp": 3918839370,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5050092"
+]
+},
+{
+"sha256": "b94103a049acde9fec25d8e66c5f0a844c1fc53f197ba10724ec141345c4dd57",
+"build": 22621,
+"ubr": 4890,
+"version": "10.0.22621.4890 (WinBuild.160101.0800)",
+"timestamp": 1241200119,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5051989"
+]
+},
+{
+"sha256": "985305c5a4e418f3f99f136ba7672d900f684de75021b3f0971df3b623c30f8c",
+"build": 22621,
+"ubr": 4974,
+"version": "10.0.22621.4974 (WinBuild.160101.0800)",
+"timestamp": 2815140930,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5052094"
+]
+},
+{
+"sha256": "cad22ccf5189f55a2dc91cb7abc3f18a638a318d5cc7629aa14f676c3568d77b",
+"build": 22621,
+"ubr": 5037,
+"version": "10.0.22621.5037 (WinBuild.160101.0800)",
+"timestamp": 160266929,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5053602"
+]
+},
+{
+"sha256": "d27836dc2f6b6eaabb3ff3da845842eb3f60d98b940a27ac1f2567d12cdc829f",
+"build": 22621,
+"ubr": 5124,
+"version": "10.0.22621.5124 (WinBuild.160101.0800)",
+"timestamp": 454088250,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5053657"
+]
+},
+{
+"sha256": "b21a9a464a69fc7f0fcde3e51db466ecad8ae5fe6c9edc370d51e336c824e136",
+"build": 22621,
+"ubr": 5185,
+"version": "10.0.22621.5185 (WinBuild.160101.0800)",
+"timestamp": 2691442235,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5055528"
+]
+},
+{
+"sha256": "40366220f121506c2d57f50327fdd562579f8413094689a45e120c1122676de5",
+"build": 22621,
+"ubr": 5262,
+"version": "10.0.22621.5262 (WinBuild.160101.0800)",
+"timestamp": 321715361,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5055629"
+]
+},
+{
+"sha256": "1fa89be1e7f4cab6a4ee176eccf3c00ca3395ab158773aa6c71c867d19b30dd4",
+"build": 22621,
+"ubr": 5331,
+"version": "10.0.22621.5331 (WinBuild.160101.0800)",
+"timestamp": 3397069097,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5058405"
+]
+},
+{
+"sha256": "beeccda61c51aeb5bd351d56fead3c3d189a5140cfc000a361eaf214b50cb8db",
+"build": 22621,
+"ubr": 5413,
+"version": "10.0.22621.5413 (WinBuild.160101.0800)",
+"timestamp": 3814276100,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5058502"
+]
+},
+{
+"sha256": "0d99afd25bdce0c2f708d7b7bc57a29c1ecfba4fdd71460e8f63edbc3e9479ea",
+"build": 22621,
+"ubr": 5415,
+"version": "10.0.22621.5415 (WinBuild.160101.0800)",
+"timestamp": 1619933269,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5062170"
+]
+},
+{
+"sha256": "13d68c41f8a8665e02dcafeb6efe96f4bed3139a4fe7cc8cc888df39eaca730f",
+"build": 22621,
+"ubr": 5471,
+"version": "10.0.22621.5471 (WinBuild.160101.0800)",
+"timestamp": 3916428395,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5060999"
+]
+},
+{
+"sha256": "3e640d33fcc0ea403eabe03dc1df3fc522799c62a5aab4dad610e95d707da6a5",
+"build": 22621,
+"ubr": 5547,
+"version": "10.0.22621.5547 (WinBuild.160101.0800)",
+"timestamp": 4284203730,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5060826"
+]
+},
+{
+"sha256": "ded038f6c8344ae068f85f098ee82cf7e6f3c98f6ce5737861e814e44ed23106",
+"build": 22621,
+"ubr": 5624,
+"version": "10.0.22621.5624 (WinBuild.160101.0800)",
+"timestamp": 3052974575,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5062552"
+]
+},
+{
+"sha256": "4ed95ba5d199ce563e86ea521e00ea6365ea798fa5b9b3c38eab41258239e8c8",
+"build": 22621,
+"ubr": 5697,
+"version": "10.0.22621.5697 (WinBuild.160101.0800)",
+"timestamp": 3360621123,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5062663"
+]
+},
+{
+"sha256": "54dabab774bd0c3939558d7dfc0c2e0d58f7c0e392e73682c62fec5589bffe10",
+"build": 22621,
+"ubr": 5766,
+"version": "10.0.22621.5766 (WinBuild.160101.0800)",
+"timestamp": 1737996640,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5063875"
+]
+},
+{
+"sha256": "1438fad5d761ac0e78160831a47bdc5f9f8481641d4f5de7dac4e973e2028f7a",
+"build": 22621,
+"ubr": 5771,
+"version": "10.0.22621.5771 (WinBuild.160101.0800)",
+"timestamp": 558968341,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5066189"
+]
+},
+{
+"sha256": "ee9972ccac7b41dcd8a3417e98dce494efaa5f5ea58548208c3302785f606752",
+"build": 22621,
+"ubr": 5840,
+"version": "10.0.22621.5840 (WinBuild.160101.0800)",
+"timestamp": 3258804702,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5064080"
+]
+},
+{
+"sha256": "fa82dff1bb034f355cdc31f6f3e1e97f2e6e61ef72a025a3386757588b37c8b9",
+"build": 22621,
+"ubr": 5909,
+"version": "10.0.22621.5909 (WinBuild.160101.0800)",
+"timestamp": 2000648746,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5065431"
+]
+},
+{
+"sha256": "5df4295cc4cd0c5fecb7593dcac61c0091b1fc26c132aa28a9154b2835a98c2c",
+"build": 22621,
+"ubr": 5983,
+"version": "10.0.22621.5983 (WinBuild.160101.0800)",
+"timestamp": 2942675599,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5065790"
+]
+},
+{
+"sha256": "3255a69b65c23e1356b247aa8c05e93f6a4868268c878952af60c520d887596b",
+"build": 22621,
+"ubr": 6060,
+"version": "10.0.22621.6060 (WinBuild.160101.0800)",
+"timestamp": 2468550555,
+"virtualSize": 17068032,
+"windows": [
+"11-22H2"
+],
+"kbs": [
+"KB5066793"
+]
+},
+{
+"sha256": "3bf9c2a9d2c1b162f88afc29cd9eec01f6469b9d43d4538ac154732ffcbb3434",
+"build": 22621,
+"ubr": 6133,
+"version": "10.0.22621.6133 (WinBuild.160101.0800)",
+"timestamp": 3743179263,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5067112"
+]
+},
+{
+"sha256": "bf8086243bd0f5139e3c516e1a7ab6acb43c8c5787ef6206b25447b264c4a665",
+"build": 22621,
+"ubr": 6199,
+"version": "10.0.22621.6199 (WinBuild.160101.0800)",
+"timestamp": 4242096534,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5068865"
+]
+},
+{
+"sha256": "680e316b500baefd49417820ba35d9122fc2ba5e69f698350c0f834dd0840d07",
+"build": 22621,
+"ubr": 6274,
+"version": "10.0.22621.6274 (WinBuild.160101.0800)",
+"timestamp": 1591222505,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5070312"
+]
+},
+{
+"sha256": "6e9c710209b45699452eefadadab32a26e261fcf3dc7f13f7f5a423abef28051",
+"build": 22621,
+"ubr": 6345,
+"version": "10.0.22621.6345 (WinBuild.160101.0800)",
+"timestamp": 406894671,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5071417"
+]
+},
+{
+"sha256": "3b98f8982ed0025a94407996076c15a2c4146e4372a2377d6d34d0227d18a086",
+"build": 22621,
+"ubr": 6489,
+"version": "10.0.22621.6489 (WinBuild.160101.0800)",
+"timestamp": 741438052,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5073455",
+"KB5077797",
+"KB5078132"
+]
+},
+{
+"sha256": "f1e5edf5175327d22c10eb2248456070b46b78db5dfdbc665d3b30fd570eefee",
+"build": 22621,
+"ubr": 6630,
+"version": "10.0.22621.6630 (WinBuild.160101.0800)",
+"timestamp": 2359409051,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5075941"
+]
+},
+{
+"sha256": "c4e266f8558d1fef33061f3839cc907e43ac7a345164a5b4ba01de516f8ded47",
+"build": 22621,
+"ubr": 6783,
+"version": "10.0.22621.6783 (WinBuild.160101.0800)",
+"timestamp": 2437813661,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5078883"
+]
+},
+{
+"sha256": "e54b26846ee0171f319cec615d5f9977e524afacaa7f1a0a53704939ddd5c976",
+"build": 22621,
+"ubr": 6931,
+"version": "10.0.22621.6931 (WinBuild.160101.0800)",
+"timestamp": 2707234157,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5082052"
+]
+},
+{
+"sha256": "1050bc6341c549140e488450d87fb5a9481a62dfd2a53c74889b1ed20b2aa187",
+"build": 22621,
+"ubr": 7079,
+"version": "10.0.22621.7079 (WinBuild.160101.0800)",
+"timestamp": 2800892564,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5087420"
+]
+},
+{
+"sha256": "ff6ba5625c54bd6f7a174af73f960e4c7931c86d26f0905f5d17c9aead7486e0",
+"build": 22621,
+"ubr": 7219,
+"version": "10.0.22621.7219 (WinBuild.160101.0800)",
+"timestamp": 2587142436,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5093998"
+]
+},
+{
+"sha256": "d46ec6128f45f627c891e1ee3c077879e0ff9a862310890bb48a4aceadaca57d",
+"build": 22621,
+"ubr": 7376,
+"version": "10.0.22621.7376 (WinBuild.160101.0800)",
+"timestamp": 142584354,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5099414"
+]
+},
+{
+"sha256": "84f859b4987b24a30948d7139117146a9c658486e9271b7037cffb1ce756c3a6",
+"build": 22621,
+"ubr": 7517,
+"version": "10.0.22621.7517 (WinBuild.160101.0800)",
+"timestamp": 2387119461,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5120240"
+]
+},
+{
+"sha256": "bfeb68c61b3b11cc232a1f77046b498e6b5d56575551e1f6fe5eba7a9ae4f8d5",
+"build": 22621,
+"ubr": 7582,
+"version": "10.0.22621.7582 (WinBuild.160101.0800)",
+"timestamp": 3796558328,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5122880",
+"KB5129242"
+]
+},
+{
+"sha256": "6a94366b060c53b9127ff10e0578493dd48c1609731363d24d0e39963dd1d837",
+"build": 22621,
+"ubr": 7649,
+"version": "10.0.22621.7649 (WinBuild.160101.0800)",
+"timestamp": 2329882908,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5126653",
+"KB5134130"
+]
+},
+{
+"sha256": "a513dc42a5bccbd61ece0ee8947bfb2cf8d14ee0fafc5a2c7e99feb44c5e3f4b",
+"build": 22621,
+"ubr": 7711,
+"version": "10.0.22621.7711 (WinBuild.160101.0800)",
+"timestamp": 480544859,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5131087"
+]
+},
+{
+"sha256": "9c58e8f93127427d9c27ae691b6afcd09bcf0f0f1c3896af06324f7ecffea80a",
+"build": 22621,
+"ubr": 7714,
+"version": "10.0.22621.7714 (WinBuild.160101.0800)",
+"timestamp": 1171908302,
+"virtualSize": 17068032,
+"windows": [
+"11-23H2"
+],
+"kbs": [
+"KB5136483"
+]
+},
+{
+"sha256": "1cc3b103b25333ee2b79363bb898832a93576befd2e3a29817bd34cf7a3a102b",
+"build": 26100,
+"ubr": 1,
+"version": "10.0.26100.1 (WinBuild.160101.0800)",
+"timestamp": 2670613943,
+"virtualSize": 21291008,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"BASE"
+]
+},
+{
+"sha256": "4775594470b73e3a12bfcd0f891e1460e789416350b7bacd348887a647af7c0a",
+"build": 26100,
+"ubr": 863,
+"version": "10.0.26100.863 (WinBuild.160101.0800)",
+"timestamp": 1651739744,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5039239"
+]
+},
+{
+"sha256": "fec879038dda054398c329be63fcb49cbdcfaa3f62b18d142581295ae17f1c83",
+"build": 26100,
+"ubr": 1000,
+"version": "10.0.26100.1000 (WinBuild.160101.0800)",
+"timestamp": 2721058288,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5039304"
+]
+},
+{
+"sha256": "53af7121ce55fcec24933c56cbb5b8fd9e4bec8d2df94d6bceda3b591ca04de3",
+"build": 26100,
+"ubr": 1150,
+"version": "10.0.26100.1150 (WinBuild.160101.0800)",
+"timestamp": 1847958618,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5040435"
+]
+},
+{
+"sha256": "5991bd464e3574854415910f0f6d2d1402755b4bdf4127328157e71f3ac252b0",
+"build": 26100,
+"ubr": 1301,
+"version": "10.0.26100.1301 (WinBuild.160101.0800)",
+"timestamp": 2130549270,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5040529"
+]
+},
+{
+"sha256": "44c54268ab0a89d6a1b270184122e2e7128396f41dee9b4a7ad5f490945b75e3",
+"build": 26100,
+"ubr": 1455,
+"version": "10.0.26100.1455 (WinBuild.160101.0800)",
+"timestamp": 389658524,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5041571"
+]
+},
+{
+"sha256": "475457f5a280b71a33ce0ddf2b1faf394457f81384f53f756c70996d2ebb0c05",
+"build": 26100,
+"ubr": 1591,
+"version": "10.0.26100.1591 (WinBuild.160101.0800)",
+"timestamp": 281766628,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5041865"
+]
+},
+{
+"sha256": "93db70780a95192d13d04b4c3cb49c22a138063adba5c83d4855be02b645fdd0",
+"build": 26100,
+"ubr": 1742,
+"version": "10.0.26100.1742 (WinBuild.160101.0800)",
+"timestamp": 3649943206,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5043080"
+]
+},
+{
+"sha256": "dcbb965ec88e67b10b941c593326d889d9ecb64782a62afc2897f1e9e8b0da47",
+"build": 26100,
+"ubr": 1882,
+"version": "10.0.26100.1882 (WinBuild.160101.0800)",
+"timestamp": 3059546,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5043178"
+]
+},
+{
+"sha256": "80eb4c09526b97be23f6daa4ccd2bc97c467d2f3f5b278127693ccbcc17c8369",
+"build": 26100,
+"ubr": 2033,
+"version": "10.0.26100.2033 (WinBuild.160101.0800)",
+"timestamp": 3406801370,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5044284"
+]
+},
+{
+"sha256": "eef130017cf8e31807adf16170f65374dfd074092320c96adcfef89e4f5ac395",
+"build": 26100,
+"ubr": 2161,
+"version": "10.0.26100.2161 (WinBuild.160101.0800)",
+"timestamp": 3961592409,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5044384"
+]
+},
+{
+"sha256": "866bc13d7872cc9f7f1807d1d6bfac63ed9b761651c653258ec972eed493bd95",
+"build": 26100,
+"ubr": 2314,
+"version": "10.0.26100.2314 (WinBuild.160101.0800)",
+"timestamp": 1011886302,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5046617"
+]
+},
+{
+"sha256": "7550d69115ee1a763ee92d26c24a8b340533f60bf61f06d79f282552850ab5a7",
+"build": 26100,
+"ubr": 2454,
+"version": "10.0.26100.2454 (WinBuild.160101.0800)",
+"timestamp": 294323502,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5046740"
+]
+},
+{
+"sha256": "5f71d2ec174651a1b573b5acc3172f1c626b3ba23e8f54e735166764da39a244",
+"build": 26100,
+"ubr": 2605,
+"version": "10.0.26100.2605 (WinBuild.160101.0800)",
+"timestamp": 1332496313,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5048667"
+]
+},
+{
+"sha256": "7de227afd50c0981da7e6479893e0c820ac7d5e26fb55ebcfce25bbb0e80d687",
+"build": 26100,
+"ubr": 2894,
+"version": "10.0.26100.2894 (WinBuild.160101.0800)",
+"timestamp": 599454907,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5050009"
+]
+},
+{
+"sha256": "00e65cb6bb72e836d37ab1ec460bed22080d3de46623fc38e7921a0e850db87f",
+"build": 26100,
+"ubr": 3037,
+"version": "10.0.26100.3037 (WinBuild.160101.0800)",
+"timestamp": 1659648932,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5050094"
+]
+},
+{
+"sha256": "f17b73cb132ac289bd40247685ee07e92786e7667cf50440c1a37d5110869e5f",
+"build": 26100,
+"ubr": 3194,
+"version": "10.0.26100.3194 (WinBuild.160101.0800)",
+"timestamp": 741152435,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5051987"
+]
+},
+{
+"sha256": "95e38650e89f0151e35e27e2b71f505d52304c117eddcb448969e85c1657427d",
+"build": 26100,
+"ubr": 3323,
+"version": "10.0.26100.3323 (WinBuild.160101.0800)",
+"timestamp": 303298039,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5052093"
+]
+},
+{
+"sha256": "0fb338e78146cda5eca21415a88be60da38121df48e1b3e9e73401ee9184fbce",
+"build": 26100,
+"ubr": 3476,
+"version": "10.0.26100.3476 (WinBuild.160101.0800)",
+"timestamp": 2017098371,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5053598"
+]
+},
+{
+"sha256": "7bda94993a4ca9a70036d744c729745bbee0e3489a7f82c337003dab7efe153c",
+"build": 26100,
+"ubr": 3624,
+"version": "10.0.26100.3624 (WinBuild.160101.0800)",
+"timestamp": 590136458,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5053656"
+]
+},
+{
+"sha256": "e27e76b272cac6ae91a1d93a419ec1007822c65d7c35debcc6a596dcfb065503",
+"build": 26100,
+"ubr": 3775,
+"version": "10.0.26100.3775 (WinBuild.160101.0800)",
+"timestamp": 2237916621,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5055523"
+]
+},
+{
+"sha256": "be454a67222d5aa5ae2bdf54f1f923a39c7e39eb255f1c7600b1b8e8e6c42569",
+"build": 26100,
+"ubr": 3912,
+"version": "10.0.26100.3912 (WinBuild.160101.0800)",
+"timestamp": 3012424118,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5055627"
+]
+},
+{
+"sha256": "6906ccc9622e7f3bd9a152c1f164418e19a26003c6c5081421c6fe5e4a957949",
+"build": 26100,
+"ubr": 4061,
+"version": "10.0.26100.4061 (WinBuild.160101.0800)",
+"timestamp": 790360004,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5058411",
+"KB5061977"
+]
+},
+{
+"sha256": "c14d40119ff8d601a98abbdbbb3f15ae6205836b3c7155ff91f7d4f28ba10e2f",
+"build": 26100,
+"ubr": 4202,
+"version": "10.0.26100.4202 (WinBuild.160101.0800)",
+"timestamp": 1044452247,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5058499"
+]
+},
+{
+"sha256": "e8a8064931b1217e2341644f5013046d56d3dc3e909bd9f1cb40da03f65c53d2",
+"build": 26100,
+"ubr": 4343,
+"version": "10.0.26100.4343 (WinBuild.160101.0800)",
+"timestamp": 3046919293,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5060842"
+]
+},
+{
+"sha256": "eb3aff3f0c7d210e31dc8da896493b2f74dbafe8ebf2c10b0600e33cb3139aa2",
+"build": 26100,
+"ubr": 4351,
+"version": "10.0.26100.4351 (WinBuild.160101.0800)",
+"timestamp": 804405306,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5063060"
+]
+},
+{
+"sha256": "1b006febd10410d7db9af56176115ecd4aa5ddc72cee7d180971404b725bcc6b",
+"build": 26100,
+"ubr": 4484,
+"version": "10.0.26100.4484 (WinBuild.160101.0800)",
+"timestamp": 2882157433,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5060829"
+]
+},
+{
+"sha256": "593136dedfc7151185458ef2a2eb1a7c216b3ac0145097c1e1d97eaa911e23b5",
+"build": 26100,
+"ubr": 4652,
+"version": "10.0.26100.4652 (WinBuild.160101.0800)",
+"timestamp": 876738325,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5062553"
+]
+},
+{
+"sha256": "1db0766097e5fd89d95c7926a1142b80847cd4b12eb647e399ff3b70f2ffe4d5",
+"build": 26100,
+"ubr": 4656,
+"version": "10.0.26100.4656 (WinBuild.160101.0800)",
+"timestamp": 3421668698,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5064489"
+]
+},
+{
+"sha256": "9b00ca17004d0c1a9af2cbf02f8b9d9f219d296e0c83e4bd66057547a77df688",
+"build": 26100,
+"ubr": 4768,
+"version": "10.0.26100.4768 (WinBuild.160101.0800)",
+"timestamp": 1583515601,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5062660"
+]
+},
+{
+"sha256": "e5a221f557eb03d7e1a8ec6b6aea6f698eff974eafb13cfaa9317b65ba47e935",
+"build": 26100,
+"ubr": 4946,
+"version": "10.0.26100.4946 (WinBuild.160101.0800)",
+"timestamp": 2480591141,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5063878"
+]
+},
+{
+"sha256": "6975ad867e4b7795f8ddb23a798d04a19753781b40be607736366e8244303ebf",
+"build": 26100,
+"ubr": 5074,
+"version": "10.0.26100.5074 (WinBuild.160101.0800)",
+"timestamp": 3328019551,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5064081"
+]
+},
+{
+"sha256": "e64c39474974c5f7b07eeb6845994e949e76d7dd5970991e25025e5d55d61873",
+"build": 26100,
+"ubr": 6584,
+"version": "10.0.26100.6584 (WinBuild.160101.0800)",
+"timestamp": 3635016801,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2",
+"11-25H2"
+],
+"kbs": [
+"BASE",
+"KB5065426",
+"KB5068221"
+]
+},
+{
+"sha256": "4f4e0772425290d60c20b8d32800fb41ffb1a6a6b1edf710c27bf487ada50f52",
+"build": 26100,
+"ubr": 6725,
+"version": "10.0.26100.6725 (WinBuild.160101.0800)",
+"timestamp": 602770787,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5065789"
+]
+},
+{
+"sha256": "2014e8fdb170187248b6c4b8ee2ec3bd2de9a91bc6ccceeb2d73082987bcd332",
+"build": 26100,
+"ubr": 6899,
+"version": "10.0.26100.6899 (WinBuild.160101.0800)",
+"timestamp": 2391212874,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5066835"
+]
+},
+{
+"sha256": "94d9ea908f6ce0f958b14ef75ab473645adc8be37f3df8b496b0316ef051bc3c",
+"build": 26100,
+"ubr": 6901,
+"version": "10.0.26100.6901 (WinBuild.160101.0800)",
+"timestamp": 471731156,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5070773"
+]
+},
+{
+"sha256": "2aebef5036073a2a2d74e20e032db412b6ec23f304a5643c95a27a85b7672d74",
+"build": 26100,
+"ubr": 7019,
+"version": "10.0.26100.7019 (WinBuild.160101.0800)",
+"timestamp": 1659345551,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5067036"
+]
+},
+{
+"sha256": "33f254bf40042ed25f4d96dc77225451582b3f43c1859ab642106b056138ca4e",
+"build": 26100,
+"ubr": 7171,
+"version": "10.0.26100.7171 (WinBuild.160101.0800)",
+"timestamp": 2525550095,
+"virtualSize": 21295104,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5068861"
+]
+},
+{
+"sha256": "aece8d51b814c904c9b69f7660d0f978f3a394929f7e418d83586d477e885365",
+"build": 26100,
+"ubr": 7309,
+"version": "10.0.26100.7309 (WinBuild.160101.0800)",
+"timestamp": 707931933,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5070311"
+]
+},
+{
+"sha256": "710cf711b95c30f4fe78ac15026e2aa8c0bc96c2f72b15a09903818219e6c85a",
+"build": 26100,
+"ubr": 7462,
+"version": "10.0.26100.7462 (WinBuild.160101.0800)",
+"timestamp": 2595635642,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5072033"
+]
+},
+{
+"sha256": "8fe12fb477a59e000c787b7fa3971f589b7208c56eb0d2501e5cebf314b13b7c",
+"build": 26100,
+"ubr": 7623,
+"version": "10.0.26100.7623 (WinBuild.160101.0800)",
+"timestamp": 3842762629,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5074109"
+]
+},
+{
+"sha256": "80d392edfa295b4483736c6bd5a1acb31962f01d0fd799fa68b9a4780ff93c91",
+"build": 26100,
+"ubr": 7627,
+"version": "10.0.26100.7627 (WinBuild.160101.0800)",
+"timestamp": 1328593636,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5077744",
+"KB5078127"
+]
+},
+{
+"sha256": "6902ecad43b2f9a1ad4cb86ddebb08c78577f6f831e974e2a869e70431d5fa86",
+"build": 26100,
+"ubr": 7705,
+"version": "10.0.26100.7705 (WinBuild.160101.0800)",
+"timestamp": 2227122312,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5074105"
+]
+},
+{
+"sha256": "54f57116bcbbe96da72088130a8f949e13884a3db39d81f4b80cb26a88de00ac",
+"build": 26100,
+"ubr": 7824,
+"version": "10.0.26100.7824 (WinBuild.160101.0800)",
+"timestamp": 2922963599,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5077181"
+]
+},
+{
+"sha256": "26cc8c3eb2a12e3309092ecda22e59178ee3c8ced4b0db67dd5ec508ca7aba46",
+"build": 26100,
+"ubr": 7920,
+"version": "10.0.26100.7920 (WinBuild.160101.0800)",
+"timestamp": 2561330171,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5077241"
+]
+},
+{
+"sha256": "620777f6aa7186447ae9b45cbcdddcf0c59516b87a2f702ffc8a1d07dbfe678b",
+"build": 26100,
+"ubr": 8036,
+"version": "10.0.26100.8036 (WinBuild.160101.0800)",
+"timestamp": 1148442509,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5079473",
+"KB5085516"
+]
+},
+{
+"sha256": "8cafc9af14335d6b0147b29da4a43177f618dbf16fdeffb6673b9ae4d729daef",
+"build": 26100,
+"ubr": 8115,
+"version": "10.0.26100.8115 (WinBuild.160101.0800)",
+"timestamp": 3664947335,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5079391"
+]
+},
+{
+"sha256": "570521459568acf8f4aaec458855a833baa0cd3d6ef67f995786cfb9748587fc",
+"build": 26100,
+"ubr": 8117,
+"version": "10.0.26100.8117 (WinBuild.160101.0800)",
+"timestamp": 2940535094,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5086672"
+]
+},
+{
+"sha256": "701238de5ba76f55ed65a874d16447dc491ab8d73abf513aee9a403bbeaf332b",
+"build": 26100,
+"ubr": 8246,
+"version": "10.0.26100.8246 (WinBuild.160101.0800)",
+"timestamp": 2303503493,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5083769"
+]
+},
+{
+"sha256": "500c37f284e4deec92800bf8db3535f463b8a674fac233b761fc544a76cfe75d",
+"build": 26100,
+"ubr": 8328,
+"version": "10.0.26100.8328 (WinBuild.160101.0800)",
+"timestamp": 2314305565,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5083631"
+]
+},
+{
+"sha256": "202483dea4773ea0f2f7bb88dc1809671afe31d581045293a3af1a349f319705",
+"build": 26100,
+"ubr": 8457,
+"version": "10.0.26100.8457 (WinBuild.160101.0800)",
+"timestamp": 1710586265,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5089549"
+]
+},
+{
+"sha256": "3155848dfad405956c494b17c954a1d7b110c50dcc1605daed4763d769a8e80e",
+"build": 26100,
+"ubr": 8521,
+"version": "10.0.26100.8521 (WinBuild.160101.0800)",
+"timestamp": 3979426275,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5089573"
+]
+},
+{
+"sha256": "ee04f9e58743d6a6b5bc53c4bfa89ff97cd715b9091b0d67afd72e278bfc5395",
+"build": 26100,
+"ubr": 8655,
+"version": "10.0.26100.8655 (WinBuild.160101.0800)",
+"timestamp": 2427487194,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5094126"
+]
+},
+{
+"sha256": "c6c92e1433122055e792e2ed58f048ed342a90f0431dedf469f5fbe4f11c0ba7",
+"build": 26100,
+"ubr": 8737,
+"version": "10.0.26100.8737 (WinBuild.160101.0800)",
+"timestamp": 3825865105,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5095093"
+]
+},
+{
+"sha256": "41cdca29ad3c9e3efa1912dccd04757ebcb3553ac515a279e5dd8d9290e7e030",
+"build": 26100,
+"ubr": 8875,
+"version": "10.0.26100.8875 (WinBuild.160101.0800)",
+"timestamp": 1248046926,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5101650"
+]
+},
+{
+"sha256": "83a97d83e001c93f239c07671f696aeb10979949dbd16948edc0583fbc2aa737",
+"build": 26100,
+"ubr": 8894,
+"version": "10.0.26100.8894 (WinBuild.160101.0800)",
+"timestamp": 2566654101,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5121767"
+]
+},
+{
+"sha256": "5886b3c7a4e8b3eb674af14d13a9e23decf11834af898349ef9121ef9f108a15",
+"build": 26100,
+"ubr": 8972,
+"version": "10.0.26100.8972 (WinBuild.160101.0800)",
+"timestamp": 1369519577,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5101684"
+]
+},
+{
+"sha256": "13aa072103656881bab86c09ac0f8362265783bbfb428e85ff060e6018ec2488",
+"build": 26100,
+"ubr": 9168,
+"version": "10.0.26100.9168 (WinBuild.160101.0800)",
+"timestamp": 3128014077,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5121003"
+]
+},
+{
+"sha256": "f9215193d514541abdacec7c19e3f8f765894f7abb517b3845a39cf61ddb3066",
+"build": 26100,
+"ubr": 9278,
+"version": "10.0.26100.9278 (WinBuild.160101.0800)",
+"timestamp": 1285879357,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5120998"
+]
+},
+{
+"sha256": "75665496a75fc020a0573523f3f77d7c719479aceb5806a98d82ff2d1b5314a1",
+"build": 26100,
+"ubr": 9444,
+"version": "10.0.26100.9444 (WinBuild.160101.0800)",
+"timestamp": 1524618710,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5124008"
+]
+},
+{
+"sha256": "d90c69cfa925d42037ef1cdba3ff5b3f13cc14e16060938073b97e396fdde2f2",
+"build": 26100,
+"ubr": 9457,
+"version": "10.0.26100.9457 (WinBuild.160101.0800)",
+"timestamp": 4255772020,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5129195"
+]
+},
+{
+"sha256": "ca0c17444fdd7b8a090c30fd28dc3f3caa2493472538f11a92542981c086a13b",
+"build": 26100,
+"ubr": 9549,
+"version": "10.0.26100.9549 (WinBuild.160101.0800)",
+"timestamp": 3804469486,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5124010"
+]
+},
+{
+"sha256": "4a6af9a3dbbeb440c4a9fbe8a4d6832eae751ac3a85860d860b8313a737a2e3a",
+"build": 26100,
+"ubr": 9711,
+"version": "10.0.26100.9711 (WinBuild.160101.0800)",
+"timestamp": 2952155935,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5127648",
+"KB5134133"
+]
+},
+{
+"sha256": "1dd53f287e2b1ed6b85044cef0d3f55607240319e9c9842bc4b24ae353e55510",
+"build": 26100,
+"ubr": 9818,
+"version": "10.0.26100.9818 (WinBuild.160101.0800)",
+"timestamp": 3146626024,
+"virtualSize": 21299200,
+"windows": [
+"11-25H2"
+],
+"kbs": [
+"KB5127936"
+]
+},
+{
+"sha256": "f6f275f67c7ef44fc2df2d828658fb31eaffd41018ac5a0fd9440e08d9912c30",
+"build": 26100,
+"ubr": 9974,
+"version": "10.0.26100.9974 (WinBuild.160101.0800)",
+"timestamp": 1718926174,
+"virtualSize": 21299200,
+"windows": [
+"11-24H2"
+],
+"kbs": [
+"KB5132061"
+]
+},
+{
+"sha256": "1f645b1a505b8fce90c6f40cb0492507eef0643ef6e22db8b760e3dba83f4ada",
+"build": 26100,
+"ubr": 10068,
+"version": "10.0.26100.10068 (WinBuild.160101.0800)",
+"timestamp": 3415523952,
+"virtualSize": 21299200,
+"windows": [
+"11-25H2"
+],
+"kbs": [
+"KB5132057"
+]
+},
+{
+"sha256": "9b2063bdf3b5a20190a469e27a242f5ba10cfcff560bc3c08ed3283e35acf312",
+"build": 28000,
+"ubr": 1575,
+"version": "10.0.28000.1575 (WinBuild.160101.0800)",
+"timestamp": 1912614843,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5077179"
+]
+},
+{
+"sha256": "d938c989b653510d613a8b81a3a1b09cc605bd73dc18bba53e69d28222bb056f",
+"build": 28000,
+"ubr": 1643,
+"version": "10.0.28000.1643 (WinBuild.160101.0800)",
+"timestamp": 2985096020,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5077239"
+]
+},
+{
+"sha256": "56f61593e90e42437ee3894117f0a2dc196f46780194302d0c6238a1f6e246c4",
+"build": 28000,
+"ubr": 1719,
+"version": "10.0.28000.1719 (WinBuild.160101.0800)",
+"timestamp": 1126021177,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5079466"
+]
+},
+{
+"sha256": "e33c009881f5979e12b3d84ab3ed3954b75dd4bdd911f8a5071810e2887c0c2b",
+"build": 28000,
+"ubr": 1761,
+"version": "10.0.28000.1761 (WinBuild.160101.0800)",
+"timestamp": 1136277923,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5079489"
+]
+},
+{
+"sha256": "4c69d9a144e0b8912c10ff4b29785e7050efc69776dbd6b894afe1853084901d",
+"build": 28000,
+"ubr": 1830,
+"version": "10.0.28000.1830 (WinBuild.160101.0800)",
+"timestamp": 1819546421,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5083768"
+]
+},
+{
+"sha256": "c5accdf8e8121899e5eb0335a53802a20110b6461c42306f4face2c99799c8a3",
+"build": 28000,
+"ubr": 2113,
+"version": "10.0.28000.2113 (WinBuild.160101.0800)",
+"timestamp": 539534656,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5089548"
+]
+},
+{
+"sha256": "f044130cddee76b1c4a25fb3fed51516edfe1e88d3e042853ae1875eeacc395d",
+"build": 28000,
+"ubr": 2269,
+"version": "10.0.28000.2269 (WinBuild.160101.0800)",
+"timestamp": 2986560630,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5095051"
+]
+},
+{
+"sha256": "08f8b11623ad83422d1913674bd73ffce960f50be6f3edf81c88392ef55f6e98",
+"build": 28000,
+"ubr": 2336,
+"version": "10.0.28000.2336 (WinBuild.160101.0800)",
+"timestamp": 499817444,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5095091"
+]
+},
+{
+"sha256": "e2d4e21b991067491ae39d0e8be1c36de46da222359347c575d674b13ba65a76",
+"build": 28000,
+"ubr": 2525,
+"version": "10.0.28000.2525 (WinBuild.160101.0800)",
+"timestamp": 4002599656,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5101649"
+]
+},
+{
+"sha256": "0dfea72fa7481ebee3666c71e56519ee080a50b94bab02d3dfb25efe21734c43",
+"build": 28000,
+"ubr": 2605,
+"version": "10.0.28000.2605 (WinBuild.160101.0800)",
+"timestamp": 3878654125,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5101681"
+]
+},
+{
+"sha256": "f49da31710075eae79b572012fbd81fa6e3e7c6b871017d72f7f67fba5ad6ef0",
+"build": 28000,
+"ubr": 2704,
+"version": "10.0.28000.2704 (WinBuild.160101.0800)",
+"timestamp": 1949460266,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5121000"
+]
+},
+{
+"sha256": "0239d11e3bfb0cf35eb00f54389c921d51e0ec4f09caee62992183301489a669",
+"build": 28000,
+"ubr": 2804,
+"version": "10.0.28000.2804 (WinBuild.160101.0800)",
+"timestamp": 2753821541,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5120996"
+]
+},
+{
+"sha256": "6ea54ed50bbac50fb7e9f56d1178b0d1f7a48faf8bca934770906dcc1edfc049",
+"build": 28000,
+"ubr": 2952,
+"version": "10.0.28000.2952 (WinBuild.160101.0800)",
+"timestamp": 3786011936,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5124012",
+"KB5129194"
+]
+},
+{
+"sha256": "a288372624e613098297122908aa496e27db4214c005f25bee6b0eaafd2a43ce",
+"build": 28000,
+"ubr": 3086,
+"version": "10.0.28000.3086 (WinBuild.160101.0800)",
+"timestamp": 978107425,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5124006"
+]
+},
+{
+"sha256": "0e04b67c16f05f14e046a275097769a29ca88692ce3278eebc39ad476d922a76",
+"build": 28000,
+"ubr": 3231,
+"version": "10.0.28000.3231 (WinBuild.160101.0800)",
+"timestamp": 2764628947,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5127646"
+]
+},
+{
+"sha256": "71be168d7872900ef5272e81ff66b3c775e267030d6e6be0ceda4aa3adddef38",
+"build": 28000,
+"ubr": 3365,
+"version": "10.0.28000.3365 (WinBuild.160101.0800)",
+"timestamp": 2244499699,
+"virtualSize": 21336064,
+"windows": [
+"11-26H1"
+],
+"kbs": [
+"KB5127653"
+]
+}
+]
