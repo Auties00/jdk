@@ -1173,8 +1173,7 @@ void Compile::Init(bool aliasing) {
   set_do_inlining(Inline);
   set_max_inline_size(MaxInlineSize);
   set_freq_inline_size(FreqInlineSize);
-  // The trap scrubs placed after register allocation must not be moved (see TrapScrubPlatform).
-  set_do_scheduling(OptoScheduling && Matcher::trap_scrub() == nullptr);
+  set_do_scheduling(OptoScheduling);
 
   set_do_vector_loop(false);
   set_has_monitors(false);

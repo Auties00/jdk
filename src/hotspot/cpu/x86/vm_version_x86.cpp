@@ -2501,7 +2501,9 @@ uint64_t VM_Version::exception_xstate_losable_components() {
 void VM_Version::set_exception_xstate_mitigation() {
 #ifdef _WINDOWS
   // Only AVX state is at risk: without AVX there is no AVX-512 and no APX (both need UseAVX 3).
-  if (UseAVX > 0) {
+  // Builds before 22000 (Windows 10, Windows Server 2019 and 2022) predate the routine that trusts
+  // the stale header; the check would only cost startup time there.
+  if (UseAVX > 0 && os::win32::windows_build_number() >= 22000) {
     check_exception_xstate();
   }
 #endif
@@ -2528,6 +2530,12 @@ void VM_Version::set_exception_xstate_mitigation() {
     FLAG_SET_ERGO(ExceptionXStateLength, scrub);
     log_info(os, cpu)("Compiled code clears the stale XSAVE header %d bytes below the stack "
                       "pointer where a trap site with AVX state live can be reached", scrub);
+#ifdef COMPILER2
+    if (OptoScheduling && !FLAG_IS_DEFAULT(OptoScheduling)) {
+      warning("OptoScheduling is not applied to compiled methods that clear the stale XSAVE header "
+              "(see ScrubExceptionXStateHeader)");
+    }
+#endif
   }
   if (_exception_resume_loses_xstate || forced) {
     if (UseAPX && !FLAG_IS_DEFAULT(UseAPX)) {

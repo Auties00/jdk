@@ -97,6 +97,8 @@ private:
   // List of not inlined Java callees
   GrowableArray<ciMethod*>* _java_callees;
 
+  // Whether TrapScrubs::insert() placed scrubs (see TrapScrubPlatform).
+  bool _has_trap_scrubs;
   // The trap sites TrapScrubs::insert() protected, for TrapScrubs::verify().
   DEBUG_ONLY(GrowableArray<Node*>* _trap_scrub_hot_traps;)
 
@@ -133,6 +135,10 @@ public:
   // Code emission iterator
   Block* block()   { return _block; }
   int index()      { return _index; }
+
+  // Whether the compilation placed trap scrubs: its out of line stubs that call out then clear
+  // the stale header too (see TrapScrubPlatform).
+  bool has_trap_scrubs() const { return _has_trap_scrubs; }
 
   // The architecture description provides short branch variants for some long
   // branch instructions. Replace eligible long branches with short branches.

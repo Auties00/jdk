@@ -135,6 +135,13 @@ define_pd_global(bool, ValueTypeReturnedAsFields, true);
           "below the stack pointer. Use with ExceptionXStateLength on "     \
           "systems that do not need the scrub")                             \
                                                                             \
+  develop(bool, PlantExceptionXStateHeader, false,                          \
+          "Testing: leave a value that passes for a stale XSAVE header "    \
+          "where the next exception would read it, at the return of every " \
+          "compiled method and in the slow paths that call out, so that "  \
+          "VerifyExceptionXStateScrub stops the VM where a scrub is "       \
+          "missing")                                                        \
+                                                                            \
   develop(bool, TrapScrubOmitAfterCalls, false,                             \
           "Testing: do not clear the stale XSAVE header after calls, so "   \
           "that VerifyExceptionXStateScrub can be seen to fail")            \

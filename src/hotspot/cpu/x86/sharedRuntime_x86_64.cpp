@@ -3242,6 +3242,7 @@ SafepointBlob* SharedRuntime::generate_handler_blob(StubId id, address call_ptr)
     // The saved registers may pass for a stale XSAVE header where the next exception of the
     // compiled frame we return to would find it (see MacroAssembler::scrub_exception_xstate_header()).
     // That frame's stack pointer is above the return pc.
+    __ plant_exception_xstate_header_if_enabled(wordSize);
     __ scrub_exception_xstate_header_if_enabled(wordSize);
   }
   __ ret(0);

@@ -117,6 +117,22 @@ void PhaseRegAlloc::alloc_node_regs(int size) {
     _node_regs[i].set_bad();
 }
 
+void PhaseRegAlloc::grow_node_regs(uint size) {
+  if (size <= _node_regs_max_index) {
+    return;
+  }
+  // In the compilation's arena: callers may run inside a shorter-lived ResourceMark.
+  OptoRegPair* regs = NEW_ARENA_ARRAY(C->comp_arena(), OptoRegPair, size);
+  for (uint i = 0; i < _node_regs_max_index; i++) {
+    regs[i] = _node_regs[i];
+  }
+  for (uint i = _node_regs_max_index; i < size; i++) {
+    regs[i].set_bad();
+  }
+  _node_regs = regs;
+  _node_regs_max_index = size;
+}
+
 #ifndef PRODUCT
 void
 PhaseRegAlloc::print_statistics() {

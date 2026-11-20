@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2026, Alessandro Autiero. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,6 +29,8 @@
  *          exception context header at the length the probe measures, or, without the scrub,
  *          no state that can be lost (UseAVX at most 2, MaxVectorSize at most 16, with a
  *          warning when that overrides the command line). APX is off where state can be lost.
+ *          The check is skipped on Windows builds before 22000, which the probe must then find
+ *          unaffected.
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.flagless
  * @library /test/lib /
@@ -98,8 +100,17 @@ public class TestExceptionXStateDefaults {
             return;
         }
 
-        if (jvmLoses == jvmKeeps) {
-            throw new RuntimeException("startup check did not report exactly one result");
+        if (jvmLoses && jvmKeeps) {
+            throw new RuntimeException("startup check reported both results");
+        }
+        if (!jvmLoses && !jvmKeeps) {
+            // The check is skipped on builds that predate the bug (before 22000); the native probe
+            // must then find the system unaffected.
+            if (probe.known() && probe.loses()) {
+                throw new RuntimeException("startup check skipped, but the native probe found " + probe);
+            }
+            expect(out, "ExceptionXStateLength", 0);
+            return;
         }
         // The oracle: the JVM must agree with the native probe whenever the probe can tell.
         if (probe.known() && probe.loses() != jvmLoses) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2026, Alessandro Autiero. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -111,36 +111,6 @@
  */
 
 /*
- * @test id=opto-scheduling
- * @bug 8365196
- * @summary OptoScheduling is turned off where scrubs are placed, so it cannot move a scrub past
- *          the trap it protects; TrapScrubs::verify() checks the order after scheduling.
- * @requires os.arch == "amd64" | os.arch == "x86_64"
- * @requires vm.debug & vm.compiler2.enabled & vm.flagless
- * @modules jdk.incubator.vector java.base/jdk.internal.misc
- * @library /test/lib /
- * @build compiler.runtime.safepoints.ExceptionXState
- * @run main/othervm/native -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
- *      -XX:+VerifyExceptionXStateScrub -XX:+OptoScheduling -XX:-TieredCompilation -XX:-UseSuperWord
- *      -XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee
- *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify
- */
-
-/*
- * @test id=opto-scheduling-at-traps
- * @bug 8365196
- * @requires os.arch == "amd64" | os.arch == "x86_64"
- * @requires vm.debug & vm.compiler2.enabled & vm.flagless
- * @modules jdk.incubator.vector java.base/jdk.internal.misc
- * @library /test/lib /
- * @build compiler.runtime.safepoints.ExceptionXState
- * @run main/othervm/native -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
- *      -XX:+VerifyExceptionXStateScrub -XX:+ScrubExceptionXStateHeaderAtTraps -XX:+OptoScheduling -XX:-TieredCompilation
- *      -XX:-UseSuperWord -XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee
- *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify
- */
-
-/*
  * @test id=connector
  * @bug 8365196
  * @summary The scrub after a call whose return block is empty (a call in an arm of an if or a
@@ -156,6 +126,51 @@
  *      -XX:+VerifyExceptionXStateScrub -XX:-TieredCompilation -XX:+UseCountedLoopSafepoints
  *      -XX:LoopStripMiningIter=1000
  *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify connector
+ */
+
+/*
+ * @test id=plant-G1
+ * @bug 8365196
+ * @summary With PlantExceptionXStateHeader, every compiled method's return and every slow path that
+ *          calls out leaves a value that passes for a stale header: the checks before the protected
+ *          trap sites still find the place clear, so no scrub after a writer is missing.
+ * @requires os.arch == "amd64" | os.arch == "x86_64"
+ * @requires vm.debug & vm.compiler2.enabled & vm.gc.G1 & vm.flagless
+ * @modules jdk.incubator.vector java.base/jdk.internal.misc
+ * @library /test/lib /
+ * @build compiler.runtime.safepoints.ExceptionXState
+ * @run main/othervm/native -XX:+UseG1GC -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
+ *      -XX:+VerifyExceptionXStateScrub -XX:+PlantExceptionXStateHeader -XX:+StressGCM -XX:+StressLCM
+ *      -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee
+ *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify
+ */
+
+/*
+ * @test id=plant-Z
+ * @bug 8365196
+ * @requires os.arch == "amd64" | os.arch == "x86_64"
+ * @requires vm.debug & vm.compiler2.enabled & vm.gc.Z & vm.flagless
+ * @modules jdk.incubator.vector java.base/jdk.internal.misc
+ * @library /test/lib /
+ * @build compiler.runtime.safepoints.ExceptionXState
+ * @run main/othervm/native -XX:+UseZGC -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
+ *      -XX:+VerifyExceptionXStateScrub -XX:+PlantExceptionXStateHeader -XX:+StressGCM -XX:+StressLCM
+ *      -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee
+ *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify
+ */
+
+/*
+ * @test id=plant-negative
+ * @bug 8365196
+ * @summary With PlantExceptionXStateHeader and without the scrub after calls, the check stops the VM
+ *          at the first protected trap site after a call to a compiled method, with no native code
+ *          involved.
+ * @requires os.arch == "amd64" | os.arch == "x86_64"
+ * @requires vm.debug & vm.compiler2.enabled & vm.flagless
+ * @modules jdk.incubator.vector java.base/jdk.internal.misc
+ * @library /test/lib /
+ * @build compiler.runtime.safepoints.ExceptionXState
+ * @run main/othervm/native compiler.runtime.safepoints.TestExceptionXStateScrubVerify plant-negative
  */
 
 /*
@@ -411,6 +426,18 @@ public class TestExceptionXStateScrubVerify {
             connector(Long.getLong("millis", 8000));
             return;
         }
+        if (args.length > 0 && args[0].equals("plant-negative")) {
+            plantNegative();
+            return;
+        }
+        if (args.length > 0 && args[0].equals("plant-child")) {
+            double[] data = new double[256];
+            long end = System.nanoTime() + Long.parseLong(args[1]) * 1_000_000L;
+            while (System.nanoTime() < end) {
+                sinkD = vectorCallKernel(-0.0, data);
+            }
+            return;
+        }
         if (args.length > 0 && args[0].equals("child")) {
             run(Long.parseLong(args[1]), true);
             return;
@@ -432,6 +459,20 @@ public class TestExceptionXStateScrubVerify {
         gc.start();
         run(Long.getLong("millis", 8000), false);
         stop = true;
+    }
+
+    static void plantNegative() throws Exception {
+        List<String> opts = new ArrayList<>(List.of(
+            "-XX:+UnlockDiagnosticVMOptions", "-XX:ExceptionXStateLength=1920",
+            "-XX:+VerifyExceptionXStateScrub", "-XX:+PlantExceptionXStateHeader", "-XX:+TrapScrubOmitAfterCalls",
+            "-XX:-TieredCompilation", "-XX:+UseCountedLoopSafepoints", "-XX:LoopStripMiningIter=1000",
+            "-XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee",
+            "-XX:-CreateCoredumpOnCrash", "--add-modules", "jdk.incubator.vector",
+            "--add-exports", "java.base/jdk.internal.misc=ALL-UNNAMED",
+            TestExceptionXStateScrubVerify.class.getName(), "plant-child", "20000"));
+        OutputAnalyzer out = ProcessTools.executeTestJava(opts);
+        out.shouldNotHaveExitValue(0);
+        out.shouldContain("stale XSAVE header below a compiled trap site");
     }
 
     static void negative() throws Exception {

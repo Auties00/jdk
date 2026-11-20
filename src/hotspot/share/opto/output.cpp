@@ -225,6 +225,7 @@ PhaseOutput::PhaseOutput()
     _node_bundling_base(nullptr),
     _orig_pc_slot_offset_in_bytes(0),
     _java_callees(nullptr),
+    _has_trap_scrubs(false),
     DEBUG_ONLY(_trap_scrub_hot_traps(nullptr) COMMA)
     _buf_sizes(),
     _block(nullptr),
@@ -328,7 +329,7 @@ void PhaseOutput::Output() {
 #ifdef ASSERT
     _trap_scrub_hot_traps = new (C->comp_arena()) GrowableArray<Node*>(C->comp_arena(), 8, 0, nullptr);
 #endif
-    TrapScrubs::insert(C, trap_scrub, DEBUG_ONLY(_trap_scrub_hot_traps) NOT_DEBUG(nullptr));
+    _has_trap_scrubs = TrapScrubs::insert(C, trap_scrub, DEBUG_ONLY(_trap_scrub_hot_traps) NOT_DEBUG(nullptr));
     if (C->failing()) return;
   }
 
@@ -371,7 +372,11 @@ void PhaseOutput::Output() {
     }
   }
 
-  ScheduleAndBundle();
+  // The trap scrubs have no dependences that would keep them in place, so a compilation that
+  // placed them is not scheduled.
+  if (!_has_trap_scrubs) {
+    ScheduleAndBundle();
+  }
 #ifdef ASSERT
   if (_trap_scrub_hot_traps != nullptr) {
     TrapScrubs::verify(C, Matcher::trap_scrub(), _trap_scrub_hot_traps);

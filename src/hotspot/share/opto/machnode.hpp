@@ -369,9 +369,6 @@ public:
     }
   }
 
-  // Whether this is a MachTrapScrubNode.
-  virtual bool is_trap_scrub() const { return false; }
-
   // If this is a memory op, return the base pointer and fixed offset.
   // If there are no such, return null.  If there are multiple addresses
   // or the address is indeterminate (rare cases) then return (Node*)-1,
@@ -643,15 +640,17 @@ public:
 // Clears the place where the system may read a stale header when it saves the processor state
 // of an exception (see TrapScrubPlatform), or, as a check, verifies that it is clear. Placed by
 // TrapScrubs::insert() after register allocation: after a writer below the stack pointer, or
-// right before a trap site. Its code uses no register and keeps the condition codes (except right
-// after a call), and nothing moves it: scheduling is off where scrubs are placed.
+// right before a trap site. Its code uses no register and keeps the condition codes (except where
+// the registers it uses hold nothing), and nothing moves it: a compilation that places scrubs is
+// not scheduled after register allocation.
 class MachTrapScrubNode : public MachIdealNode {
   const bool _check;
-  const bool _after_call; // right after a call: may use the registers the call does not preserve
+  const bool _free_scratch; // r10 and the condition codes hold nothing here (after a call)
 public:
-  MachTrapScrubNode(bool check = false, bool after_call = false) : _check(check), _after_call(after_call) {}
+  MachTrapScrubNode(bool check = false, bool free_scratch = false) : _check(check), _free_scratch(free_scratch) {
+    init_class_id(Class_MachTrapScrub);
+  }
   bool is_check() const { return _check; }
-  virtual bool is_trap_scrub() const { return true; }
   virtual void emit(C2_MacroAssembler *masm, PhaseRegAlloc *ra_) const;
   virtual uint size(PhaseRegAlloc *ra_) const;
 

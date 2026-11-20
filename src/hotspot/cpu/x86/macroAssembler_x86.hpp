@@ -783,10 +783,13 @@ public:
   // sp_offset: the stores are placed for the stack pointer rsp + sp_offset (for code that runs
   // with a return address or other words pushed).
   void scrub_exception_xstate_header(int length = VM_Version::exception_xstate_scrub_length(), int sp_offset = 0);
-  static int scrub_exception_xstate_header_size(int length = VM_Version::exception_xstate_scrub_length(), int sp_offset = 0);
   // The scrub where it is in use (see VM_Version::exception_xstate_scrub_length()), else nothing:
   // for the slow paths that call out and then continue in a compiled frame.
   void scrub_exception_xstate_header_if_enabled(int sp_offset = 0);
+  // Testing (PlantExceptionXStateHeader): leaves a value that passes for a stale compacted header
+  // naming no component at each place scrub_exception_xstate_header() clears, so that a scrub
+  // missing after this point stops VerifyExceptionXStateScrub. Keeps all registers and the flags.
+  void plant_exception_xstate_header_if_enabled(int sp_offset = 0);
   // The same with one store, where tmp and the condition codes are free.
   void scrub_exception_xstate_header(Register tmp, int length = VM_Version::exception_xstate_scrub_length());
   // VerifyExceptionXStateScrub: stops the VM if the stale header position for an exception at

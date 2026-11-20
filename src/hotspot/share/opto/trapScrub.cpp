@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2026, Alessandro Autiero. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -54,6 +54,10 @@
 // Whether n can fault and resume in this frame: a loop safepoint poll, the memory access of an
 // implicit null check, or, in a compilation with unsafe accesses, an access to raw or unknown
 // memory (a fault there resumes at the next instruction, see JavaThread::doing_unsafe_access()).
+// An intrinsic that addresses memory through registers only (no memory operand, such as the
+// inline vectorized mismatch) is not counted: an unsafe fault in it leaves an InternalError
+// pending and the frame is deoptimized at the next poll, so the state it may lose is not used
+// unless the method catches InternalError and goes on computing.
 static bool may_be_raw_memory(const TypePtr* adr_type) {
   return adr_type == nullptr || adr_type->base() == Type::RawPtr || adr_type->base() == Type::AnyPtr;
 }
@@ -95,7 +99,7 @@ static bool is_writer(const TrapScrubPlatform* platform, const Node* n) {
 
 #ifdef ASSERT
 static bool is_scrub(const Node* n) {
-  return n->is_Mach() && n->as_Mach()->is_trap_scrub() && !((const MachTrapScrubNode*)n)->is_check();
+  return n->is_MachTrapScrub() && !n->as_MachTrapScrub()->is_check();
 }
 #endif
 
@@ -127,23 +131,101 @@ static bool need_out(const Block* block, const bool* need_in) {
   return false;
 }
 
-// Whether the only way into target leads from block, through connectors only.
-static bool only_predecessor_is(PhaseCFG* cfg, Block* target, const Block* block) {
-  Block* b = target;
-  while (b->num_preds() == 2) {
-    Block* pred = cfg->get_block_for_node(b->pred(1));
-    if (pred == block) {
-      return true;
-    }
-    if (!pred->is_connector()) {
-      return false;
-    }
-    b = pred;
+// The index in block right after writer and the projections that belong with it (they emit no
+// code); a projection that ends the block stays last.
+static uint first_after(Block* block, Node* writer) {
+  uint k = block->find_node(writer) + 1;
+  while (k + 1 < block->number_of_nodes() && block->get_node(k)->is_MachProj() &&
+         block->get_node(k)->in(0) == writer && block->get_node(k)->is_block_proj() == nullptr) {
+    k++;
   }
-  return false;
+  return k;
 }
 
-void TrapScrubs::insert(Compile* C, const TrapScrubPlatform* platform, GrowableArray<Node*>* hot_traps_out) {
+static uint first_after_phis(Block* block) {
+  uint start = 1;
+  while (start < block->number_of_nodes() && block->get_node(start)->is_Phi()) {
+    start++;
+  }
+  return start;
+}
+
+static bool starts_with_create_ex(Block* block) {
+  uint start = first_after_phis(block);
+  return start < block->number_of_nodes() && block->get_node(start)->is_Mach() &&
+         block->get_node(start)->as_Mach()->ideal_Opcode() == Op_CreateEx;
+}
+
+// The block that leads to b through connectors only, or null if a connector on the way has more
+// than one predecessor.
+static Block* predecessor_through_connectors(PhaseCFG* cfg, Block* b, uint pred_index) {
+  Block* pred = cfg->get_block_for_node(b->pred(pred_index));
+  while (pred->is_connector()) {
+    if (pred->num_preds() != 2) {
+      return nullptr;
+    }
+    pred = cfg->get_block_for_node(pred->pred(1));
+  }
+  return pred;
+}
+
+// Whether handler only takes the exception of the call in call_block and goes on: it is reached
+// from call_block alone and holds nothing but the exception's creation and its projections and
+// branch, so it leaves every register the call kills unused.
+static bool is_empty_handler_of(PhaseCFG* cfg, Block* handler, const Block* call_block) {
+  if (handler->num_preds() != 2 || predecessor_through_connectors(cfg, handler, 1) != call_block) {
+    return false;
+  }
+  for (uint j = 1; j < handler->number_of_nodes(); j++) {
+    Node* n = handler->get_node(j);
+    if (n->is_MachProj() || n->is_MachGoto()) {
+      continue;
+    }
+    if (n->is_Mach() && n->as_Mach()->ideal_Opcode() == Op_CreateEx) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+// Whether every way into target comes from the call in call_block, directly or through an empty
+// exception handler of that call: then the registers the call kills hold nothing at its start.
+static bool only_reached_from_call(PhaseCFG* cfg, Block* target, const Block* call_block) {
+  for (uint k = 1; k < target->num_preds(); k++) {
+    Block* pred = predecessor_through_connectors(cfg, target, k);
+    if (pred == nullptr) {
+      return false;
+    }
+    if (pred != call_block && !is_empty_handler_of(cfg, pred, call_block)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Whether, from index k of block to its end, no trap is hot and no writer runs, and every block
+// block leads to starts with a scrub.
+static bool covered_by_successors(const TrapScrubPlatform* platform, Block* block, uint k, const VectorSet& hot,
+                                  const VectorSet& scrubbed_at_start) {
+  for (uint j = k; j < block->number_of_nodes(); j++) {
+    Node* n = block->get_node(j);
+    if (hot.test(n->_idx) || is_writer(platform, n)) {
+      return false;
+    }
+  }
+  if (block->_num_succs == 0) {
+    return false;
+  }
+  for (uint s = 0; s < block->_num_succs; s++) {
+    if (!scrubbed_at_start.test(block->_succs[s]->non_connector()->_pre_order)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool TrapScrubs::insert(Compile* C, const TrapScrubPlatform* platform, GrowableArray<Node*>* hot_traps_out) {
   PhaseCFG* cfg = C->cfg();
   PhaseRegAlloc* ra = C->regalloc();
   ResourceMark rm;
@@ -218,7 +300,7 @@ void TrapScrubs::insert(Compile* C, const TrapScrubPlatform* platform, GrowableA
     }
   }
   if (hot_traps.is_empty()) {
-    return;
+    return false;
   }
 
   // need_in[b]: a hot trap is reachable from the start of b without passing a writer.
@@ -277,55 +359,56 @@ void TrapScrubs::insert(Compile* C, const TrapScrubPlatform* platform, GrowableA
   }
   const bool verify = platform->verify();
 
-  // A call's Catch can have several successors.
-  uint scrubs = (uint)(2 * after.length() + 2 * hot_traps.length());
-  if (C->check_node_count(scrubs, "out of nodes inserting trap scrubs")) {
-    return;
-  }
-  if (C->unique() + scrubs >= ra->node_regs_max_index()) {
-    // Not permanent: a later compilation of the method can succeed.
-    C->record_failure("out of register allocation slots inserting trap scrubs");
-    return;
-  }
+  // Room for the scrubs (a call's Catch can have several successors) in the register allocation
+  // table; they get no register.
+  ra->grow_node_regs(C->unique() + (uint)(2 * after.length() + 2 * hot_traps.length()) + 1);
 
   // A call whose block ends in a Catch must be followed only by its projections and the Catch
   // (the exception table is built from the call's return): the scrub then goes at the start of
   // each block the Catch leads to that needs it, other than the exception handlers (they start
   // with CreateEx, itself a writer). An empty successor is a connector by now, so the scrub goes
   // into the block it leads to. That block can be a join reached by other paths, which then run
-  // a scrub they do not need (harmless); it uses the registers the call kills only when the call
-  // is the only way into it.
+  // a scrub they do not need (harmless). It uses the registers the call kills only when every way
+  // into it comes from the call: directly, or through an exception handler of the call that only
+  // takes the exception (an empty catch).
   VectorSet scrubbed_at_start;
+  GrowableArray<Block*> targets;
+  GrowableArray<bool> free_scratch;
+  VectorSet catch_writers;
   for (int i = 0; i < after.length(); i++) {
     Node* writer = after.at(i);
     Block* block = cfg->get_block_for_node(writer);
-    uint k = block->find_node(writer) + 1;
-    // Keep the writer's data projections next to it (they emit no code), but stay before a
-    // projection that ends the block.
-    while (k + 1 < block->number_of_nodes() && block->get_node(k)->is_MachProj() &&
-           block->get_node(k)->in(0) == writer && block->get_node(k)->is_block_proj() == nullptr) {
-      k++;
+    uint k = first_after(block, writer);
+    if (!block->get_node(k)->is_Catch()) {
+      continue;
     }
-    if (block->get_node(k)->is_Catch()) {
-      for (uint s = 0; s < block->_num_succs; s++) {
-        Block* target = block->_succs[s]->non_connector();
-        if (!need_in[target->_pre_order] || scrubbed_at_start.test(target->_pre_order)) {
-          continue;
-        }
-        uint start = 1;
-        while (start < target->number_of_nodes() && target->get_node(start)->is_Phi()) {
-          start++;
-        }
-        if (start < target->number_of_nodes() && target->get_node(start)->is_Mach() &&
-            target->get_node(start)->as_Mach()->ideal_Opcode() == Op_CreateEx) {
-          continue;
-        }
-        scrubbed_at_start.set(target->_pre_order);
-        bool after_call = writer->is_MachCall() && only_predecessor_is(cfg, target, block);
-        MachTrapScrubNode* scrub = new MachTrapScrubNode(false /* check */, after_call);
-        target->insert_node(scrub, start);
-        cfg->map_node_to_block(scrub, target);
+    catch_writers.set(writer->_idx);
+    for (uint s = 0; s < block->_num_succs; s++) {
+      Block* target = block->_succs[s]->non_connector();
+      if (!need_in[target->_pre_order] || scrubbed_at_start.test(target->_pre_order) ||
+          starts_with_create_ex(target)) {
+        continue;
       }
+      scrubbed_at_start.set(target->_pre_order);
+      targets.append(target);
+      free_scratch.append(writer->is_MachCall() && only_reached_from_call(cfg, target, block));
+    }
+  }
+  for (int i = 0; i < targets.length(); i++) {
+    MachTrapScrubNode* scrub = new MachTrapScrubNode(false /* check */, free_scratch.at(i));
+    targets.at(i)->insert_node(scrub, first_after_phis(targets.at(i)));
+    cfg->map_node_to_block(scrub, targets.at(i));
+  }
+  for (int i = 0; i < after.length(); i++) {
+    Node* writer = after.at(i);
+    if (catch_writers.test(writer->_idx)) {
+      continue;
+    }
+    Block* block = cfg->get_block_for_node(writer);
+    uint k = first_after(block, writer);
+    // Not needed when the rest of the block reaches no trap and runs no writer, and every block it
+    // leads to starts with a scrub (an empty exception handler that falls into a scrubbed join).
+    if (covered_by_successors(platform, block, k, hot, scrubbed_at_start)) {
       continue;
     }
     MachTrapScrubNode* scrub = new MachTrapScrubNode(false /* check */, writer->is_MachCall());
@@ -349,6 +432,7 @@ void TrapScrubs::insert(Compile* C, const TrapScrubPlatform* platform, GrowableA
   if (hot_traps_out != nullptr) {
     hot_traps_out->appendAll(&hot_traps);
   }
+  return true;
 }
 
 #ifdef ASSERT

@@ -727,7 +727,7 @@ void MachTrapScrubNode::format(PhaseRegAlloc*, outputStream* st) const {
   if (_check) {
     st->print("trap scrub check\t# verify that no stale exception context header is below");
   } else {
-    st->print("trap scrub%s\t# clear the stale exception context header", _after_call ? " after call" : "");
+    st->print("trap scrub%s\t# clear the stale exception context header", _free_scratch ? " (one store)" : "");
   }
 }
 #endif
@@ -736,12 +736,12 @@ void MachTrapScrubNode::emit(C2_MacroAssembler* masm, PhaseRegAlloc* ra_) const 
   if (_check) {
     Matcher::trap_scrub()->emit_check(masm);
   } else {
-    Matcher::trap_scrub()->emit_scrub(masm, _after_call);
+    Matcher::trap_scrub()->emit_scrub(masm, _free_scratch);
   }
 }
 
 uint MachTrapScrubNode::size(PhaseRegAlloc* ra_) const {
-  return (_check || _after_call) ? MachNode::size(ra_) : Matcher::trap_scrub()->scrub_size();
+  return MachNode::size(ra_);
 }
 
 const Pipeline* MachTrapScrubNode::pipeline() const {

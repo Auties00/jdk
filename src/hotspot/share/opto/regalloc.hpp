@@ -48,6 +48,10 @@ protected:
   VectorSet    _node_oops;         // Mapping from node indices to oopiness
 
   void alloc_node_regs(int size);  // allocate _node_regs table with at least "size" elements
+public:
+  // Makes room for nodes created after allocation, up to index size - 1; they have no register.
+  void grow_node_regs(uint size);
+protected:
 
   PhaseRegAlloc( uint unique, PhaseCFG &cfg, Matcher &matcher,
                  void (*pr_stats)());

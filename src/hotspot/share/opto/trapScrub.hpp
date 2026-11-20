@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2026, Alessandro Autiero. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -54,22 +54,25 @@ class TrapScrubPlatform {
   virtual bool omit_after_calls() const = 0;
   // Whether to check, right before each trap site, that the place is clear.
   virtual bool verify() const = 0;
-  // Emit the scrub: no register used and condition codes kept, unless after_call, where the
-  // registers a call does not preserve hold nothing.
-  virtual void emit_scrub(C2_MacroAssembler* masm, bool after_call) const = 0;
-  virtual uint scrub_size() const = 0;
+  // Emit the scrub: no register used and condition codes kept, unless free_scratch, where the
+  // registers a call does not preserve hold nothing (right after a call, or at a block that only
+  // the call and its empty exception handlers reach).
+  virtual void emit_scrub(C2_MacroAssembler* masm, bool free_scratch) const = 0;
   virtual void emit_check(C2_MacroAssembler* masm) const = 0;
 };
 
 // The pass that places MachTrapScrubNodes after register allocation (see TrapScrubPlatform).
 class TrapScrubs : public AllStatic {
  public:
-  // Inserts the scrubs into C's CFG. When hot_traps is not null, appends the trap sites the scrubs
-  // protect to it, for verify().
-  static void insert(Compile* C, const TrapScrubPlatform* platform, GrowableArray<Node*>* hot_traps);
+  // Inserts the scrubs into C's CFG. Returns whether a trap site needed protection; if not, nothing
+  // was inserted, and the out of line stubs of the compilation need no scrub either. When
+  // hot_traps is not null, appends the trap sites the scrubs protect to it, for verify().
+  static bool insert(Compile* C, const TrapScrubPlatform* platform, GrowableArray<Node*>* hot_traps);
 #ifdef ASSERT
-  // Asserts that, in the code as laid out after scheduling, no writer reaches one of hot_traps
-  // without passing a scrub, and that no scrub sits in a block that is never executed.
+  // A self-check of the insertion: asserts that, in the code as laid out after scheduling, no
+  // writer reaches one of hot_traps without passing a scrub, and that no scrub sits in a block
+  // that is never executed. It shares the pass's liveness, trap sites and writers, so it cannot
+  // find a mistake in those.
   static void verify(Compile* C, const TrapScrubPlatform* platform, const GrowableArray<Node*>* hot_traps);
 #endif
 };

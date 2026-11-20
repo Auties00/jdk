@@ -2594,21 +2594,25 @@ static int exception_xstate_header_scrub_offset(int length, int sp_mod_64) {
 
 void MacroAssembler::scrub_exception_xstate_header(int length, int sp_offset) {
   assert(length > 0, "no scrub");
+#ifdef ASSERT
+  // The four candidate places assume rsp + sp_offset is 16-byte aligned.
+  Label aligned;
+  pushf();
+  push(rax);
+  lea(rax, Address(rsp, 2 * wordSize + sp_offset));
+  testl(rax, 15);
+  jcc(Assembler::zero, aligned);
+  stop("stale XSAVE header scrub: stack pointer not 16-byte aligned");
+  bind(aligned);
+  pop(rax);
+  popf();
+#endif
   for (int sp_mod_64 = 0; sp_mod_64 < 64; sp_mod_64 += 16) {
     // A whole quadword: byte stores here cost far more on some processors (AMD Zen 3).
     movslq(Address(rsp, sp_offset + exception_xstate_header_scrub_offset(length, sp_mod_64)), 0);
   }
 }
 
-int MacroAssembler::scrub_exception_xstate_header_size(int length, int sp_offset) {
-  int size = 0;
-  for (int sp_mod_64 = 0; sp_mod_64 < 64; sp_mod_64 += 16) {
-    int offset = sp_offset + exception_xstate_header_scrub_offset(length, sp_mod_64);
-    // REX.W C7 /0 with a SIB byte for rsp, disp8 or disp32, imm32
-    size += 4 + (is_simm8(offset) ? 1 : 4) + 4;
-  }
-  return size;
-}
 
 void MacroAssembler::scrub_exception_xstate_header(Register tmp, int length) {
   assert(length > 0, "no scrub");
@@ -2616,6 +2620,19 @@ void MacroAssembler::scrub_exception_xstate_header(Register tmp, int length) {
   lea(tmp, Address(rsp, -length));
   andptr(tmp, -64);
   movslq(Address(tmp, 8), 0);
+}
+
+void MacroAssembler::plant_exception_xstate_header_if_enabled(int sp_offset) {
+  int length = VM_Version::exception_xstate_scrub_length();
+  if (!PlantExceptionXStateHeader || length == 0) {
+    return;
+  }
+  push(rax);
+  mov64(rax, min_jlong);
+  for (int sp_mod_64 = 0; sp_mod_64 < 64; sp_mod_64 += 16) {
+    movptr(Address(rsp, wordSize + sp_offset + exception_xstate_header_scrub_offset(length, sp_mod_64)), rax);
+  }
+  pop(rax);
 }
 
 void MacroAssembler::scrub_exception_xstate_header_if_enabled(int sp_offset) {

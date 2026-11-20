@@ -129,6 +129,7 @@ class MachReturnNode;
 class MachSafePointNode;
 class MachSpillCopyNode;
 class MachTempNode;
+class MachTrapScrubNode;
 class MachUncommonTrapNode;
 class MachMergeNode;
 class MachMemBarNode;
@@ -749,6 +750,7 @@ public:
       DEFINE_CLASS_ID(MachMemBar,       Mach, 7)
       DEFINE_CLASS_ID(MachProlog,       Mach, 8)
       DEFINE_CLASS_ID(MachVEP,          Mach, 9)
+      DEFINE_CLASS_ID(MachTrapScrub,    Mach, 10)
 
     DEFINE_CLASS_ID(Type,  Node, 2)
       DEFINE_CLASS_ID(Phi,   Type, 0)
@@ -1016,6 +1018,7 @@ public:
   do_node(MachUncommonTrap) \
   do_node(MachSpillCopy) \
   do_node(MachTemp) \
+  do_node(MachTrapScrub) \
   do_node(MachMemBar) \
   do_node(MachMerge) \
   do_node(MachVEP) \
