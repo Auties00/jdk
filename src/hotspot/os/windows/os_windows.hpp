@@ -70,6 +70,16 @@ class os::win32 {
   // filter, and waits for it to finish. Needs no Thread: fn must not use one. Returns false if the
   // thread could not be created.
   static bool   run_on_native_thread(void (*fn)(void*), void* arg, size_t stack_size);
+  // The file version of ntoskrnl.exe, which a monthly update changes with the kernel: the build
+  // number and the revision (UBR) of the kernel itself. Returns false if it cannot be read.
+  static bool   kernel_file_version(int* build, int* revision);
+  // Whether the machine runs this process's instruction set natively, rather than through an
+  // emulator (an x64 process on an Arm64 machine). Assumes native where it cannot be told.
+  static bool   runs_natively();
+  // The state of a feature of the Windows feature configuration (the staged rollout of fixes in
+  // a monthly update), through ntdll's undocumented RtlQueryFeatureConfiguration: 1 if it is
+  // enabled, 0 if it is disabled, -1 if it has no configuration or the query is unavailable.
+  static int    feature_configuration_state(uint32_t feature_id);
   static size_t large_page_init_decide_size();
   static int windows_major_version() {
     assert(_major_version > 0, "windows version not initialized.");

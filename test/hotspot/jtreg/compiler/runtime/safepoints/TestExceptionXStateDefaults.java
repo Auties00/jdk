@@ -24,13 +24,13 @@
 /*
  * @test
  * @bug 8365196
- * @summary The startup check of whether resuming from an exception can lose AVX state agrees with
- *          an independent native probe, and selects the mitigation: the scrub of the stale
- *          exception context header at the length the probe measures, or, without the scrub,
- *          no state that can be lost (UseAVX at most 2, MaxVectorSize at most 16, with a
- *          warning when that overrides the command line). APX is off where state can be lost.
- *          The check is skipped on Windows builds before 22000, which the probe must then find
- *          unaffected.
+ * @summary Whether resuming from an exception can lose AVX state, as the JVM decides it from its
+ *          table of Windows kernels or from its startup check, agrees with an independent native
+ *          probe, both by default and with the startup check forced (ExceptionXStateSelfTest), and
+ *          selects the mitigation: the scrub of the stale exception context header at the length
+ *          the probe measures, or, without the scrub, no state that can be lost (UseAVX at most 2,
+ *          MaxVectorSize at most 16, with a warning when that overrides the command line). APX is
+ *          off where state can be lost.
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.flagless
  * @library /test/lib /
@@ -104,18 +104,27 @@ public class TestExceptionXStateDefaults {
             throw new RuntimeException("startup check reported both results");
         }
         if (!jvmLoses && !jvmKeeps) {
-            // The check is skipped on builds that predate the bug (before 22000); the native probe
-            // must then find the system unaffected.
-            if (probe.known() && probe.loses()) {
-                throw new RuntimeException("startup check skipped, but the native probe found " + probe);
-            }
-            expect(out, "ExceptionXStateLength", 0);
-            return;
+            throw new RuntimeException("no decision reported");
         }
         // The oracle: the JVM must agree with the native probe whenever the probe can tell.
         if (probe.known() && probe.loses() != jvmLoses) {
             throw new RuntimeException("JVM reports \"" + (jvmLoses ? LOSES : KEEPS)
                                        + "\" but the native probe found " + probe);
+        }
+        // The same with the startup check forced, which must also agree with the table.
+        OutputAnalyzer selfTest = flags("-XX:+ExceptionXStateSelfTest");
+        boolean selfTestLoses = selfTest.getStdout().contains(LOSES);
+        if (selfTestLoses == selfTest.getStdout().contains(KEEPS)) {
+            throw new RuntimeException("startup check: no single decision reported");
+        }
+        if (probe.known() && probe.loses() != selfTestLoses) {
+            throw new RuntimeException("startup check reports \"" + (selfTestLoses ? LOSES : KEEPS)
+                                       + "\" but the native probe found " + probe);
+        }
+        selfTest.shouldNotContain("disagrees with the table");
+        if (selfTestLoses && jvmLoses) {
+            // The length of the table's formula is the one the startup check measures.
+            expect(selfTest, "ExceptionXStateLength", flag(out, "ExceptionXStateLength"));
         }
 
         if (!jvmLoses) {

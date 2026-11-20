@@ -118,10 +118,16 @@ define_pd_global(bool, ValueTypeReturnedAsFields, true);
   product(int, ExceptionXStateLength, 0, DIAGNOSTIC,                        \
           "Length in bytes of the extended processor state the OS saves "   \
           "below the stack pointer of an exception, used by "               \
-          "ScrubExceptionXStateHeader. 0: measured at startup where "       \
-          "needed. Any other value enables the scrub on every system, "     \
+          "ScrubExceptionXStateHeader. 0: from the table of Windows "       \
+          "kernels, or measured at startup, where needed. Any other value " \
+          "enables the scrub on every system, "                             \
           "for testing")                                                    \
           range(0, 16384)                                                   \
+                                                                            \
+  product(bool, ExceptionXStateSelfTest, false, DIAGNOSTIC,                 \
+          "Check at startup whether resuming from an exception keeps AVX "  \
+          "state, and use the result, also on Windows kernels whose "       \
+          "behaviour is known without the check")                           \
                                                                             \
   develop(bool, ScrubExceptionXStateHeaderAtTraps, false,                   \
           "Clear the stale XSAVE header right before each trap site at "    \

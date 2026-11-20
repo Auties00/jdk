@@ -45,6 +45,10 @@
 #include "utilities/powerOfTwo.hpp"
 #include "utilities/virtualizationSupport.hpp"
 
+#ifdef _WINDOWS
+#include <intrin.h>
+#endif
+
 int VM_Version::_cpu;
 int VM_Version::_model;
 int VM_Version::_stepping;
@@ -2480,6 +2484,151 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
   }
   return true;
 }
+
+// What the Windows kernel does with the XSAVE header of a user-mode exception context, as found by
+// disassembling KiDispatchException and RtlpCopyXStateChunk of each x64 ntoskrnl.exe revision
+// listed below, with its public symbols from the Microsoft symbol server (JDK-8365196):
+// - before build 26100, RtlpCopyXStateChunk clears the header at the destination before it copies
+//   the state: a stale header on the stack is never read;
+// - from build 26100, it trusts a header already at the destination, and KiDispatchException
+//   copies the kernel's own header there first only in the revisions listed as keeping the state,
+//   and, in those listed as gated, only when feature 58474193 (0x037C3AD1,
+//   Feature_Servicing_ExceptionDispatchUninitializedUserXStateHeaderFix) is enabled.
+// A kernel not listed here is checked at startup (check_exception_xstate()).
+enum ExceptionXStateKernel {
+  exception_xstate_kernel_unknown,
+  exception_xstate_kernel_keeps,
+  exception_xstate_kernel_loses
+};
+
+// The builds before 26100: every revision examined, from oldest_revision to newest_revision,
+// clears the header. 18362 is the kernel of 1903 and 1909, 19041 that of 2004 to 22H2, 22621 that
+// of Windows 11 22H2 and 23H2; 20348 (Windows Server 2022) was examined in one revision only.
+struct ExceptionXStateClearingLine {
+  int build;
+  int oldest_revision;
+  int newest_revision;
+};
+
+static const ExceptionXStateClearingLine exception_xstate_clearing_lines[] = {
+  { 17763,    1, 9479 }, // Windows 10 1809, Windows Server 2019
+  { 18362,   30, 2274 },
+  { 19041,  264, 7844 },
+  { 20348, 5866, 5866 },
+  { 22000,  194, 3260 }, // Windows 11 21H2
+  { 22621,  382, 7714 }
+};
+
+// The revisions of build 26100 (Windows 11 24H2 and 25H2, Windows Server 2025) and 28000 (Windows 11
+// 26H1) that were examined, by what they do. Client and server revisions of 26100 are numbered
+// apart (the server ones are above 30000), so a revision is matched exactly, never by range.
+static const int exception_xstate_26100_loses[] = {
+  1, 863, 1000, 1150, 1301, 1455, 1591, 1742, 1882, 2033, 2161, 2314, 2454, 2605, 2894, 3037, 3194,
+  3323, 3476, 3624, 3775, 3912, 4061, 4202, 4343, 4351, 4484, 4652, 4656, 4768, 4946, 5074, 6584
+};
+static const int exception_xstate_26100_gated[] = {
+  6725, 6899, 6901, 7019, 7171, 7309, 7462, 7623, 7627, 7705, 7824,
+  33828 // Windows Server 2025
+};
+static const int exception_xstate_26100_keeps[] = {
+  7920, 8036, 8115, 8117, 8246, 8328, 8457, 8521, 8655, 8737, 8875, 8894, 8972, 9168, 9278, 9444,
+  9457, 9549, 9711, 9818, 9974
+};
+static const int exception_xstate_28000_keeps[] = {
+  1575, 1643, 1719, 1761, 1830, 2113, 2269, 2336, 2525, 2605, 2704, 2804, 2952, 3086, 3231, 3365
+};
+
+static bool exception_xstate_listed(const int* revisions, size_t count, int revision) {
+  for (size_t i = 0; i < count; i++) {
+    if (revisions[i] == revision) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static int exception_xstate_newest(const int* revisions, size_t count) {
+  int newest = 0;
+  for (size_t i = 0; i < count; i++) {
+    newest = MAX2(newest, revisions[i]);
+  }
+  return newest;
+}
+
+static const uint32_t exception_xstate_header_fix_feature = 58474193;
+
+// What the kernel of this system does, from the table above and, for a gated kernel or one newer
+// than every kernel examined, the state of feature 58474193.
+static ExceptionXStateKernel classify_exception_xstate_kernel(int* build, int* revision, int* feature) {
+  *build = 0;
+  *revision = 0;
+  *feature = -1;
+  // An emulator (x64 on Arm64) dispatches exceptions in code of its own.
+  if (!os::win32::runs_natively() || !os::win32::kernel_file_version(build, revision)) {
+    return exception_xstate_kernel_unknown;
+  }
+  for (size_t i = 0; i < ARRAY_SIZE(exception_xstate_clearing_lines); i++) {
+    if (*build == exception_xstate_clearing_lines[i].build) {
+      const ExceptionXStateClearingLine& line = exception_xstate_clearing_lines[i];
+      return *revision >= line.oldest_revision && *revision <= line.newest_revision ? exception_xstate_kernel_keeps
+                                                                                    : exception_xstate_kernel_unknown;
+    }
+  }
+  bool newer = false;
+  if (*build == 26100) {
+    if (exception_xstate_listed(exception_xstate_26100_loses, ARRAY_SIZE(exception_xstate_26100_loses), *revision)) {
+      return exception_xstate_kernel_loses;
+    }
+    if (exception_xstate_listed(exception_xstate_26100_keeps, ARRAY_SIZE(exception_xstate_26100_keeps), *revision)) {
+      return exception_xstate_kernel_keeps;
+    }
+    if (exception_xstate_listed(exception_xstate_26100_gated, ARRAY_SIZE(exception_xstate_26100_gated), *revision)) {
+      *feature = os::win32::feature_configuration_state(exception_xstate_header_fix_feature);
+      return *feature == 1 ? exception_xstate_kernel_keeps : exception_xstate_kernel_loses;
+    }
+    newer = *revision > MAX3(exception_xstate_newest(exception_xstate_26100_loses, ARRAY_SIZE(exception_xstate_26100_loses)),
+                             exception_xstate_newest(exception_xstate_26100_gated, ARRAY_SIZE(exception_xstate_26100_gated)),
+                             exception_xstate_newest(exception_xstate_26100_keeps, ARRAY_SIZE(exception_xstate_26100_keeps)));
+  } else if (*build == 28000) {
+    if (exception_xstate_listed(exception_xstate_28000_keeps, ARRAY_SIZE(exception_xstate_28000_keeps), *revision)) {
+      return exception_xstate_kernel_keeps;
+    }
+    newer = *revision > exception_xstate_newest(exception_xstate_28000_keeps, ARRAY_SIZE(exception_xstate_28000_keeps));
+  } else {
+    newer = *build > 28000;
+  }
+  if (newer) {
+    // A kernel newer than every kernel examined: where the fix is gated and enabled, it keeps the
+    // state. Without that, only the startup check can tell (a kernel without the gate reports no
+    // configuration whether or not it has the fix).
+    *feature = os::win32::feature_configuration_state(exception_xstate_header_fix_feature);
+    if (*feature == 1) {
+      return exception_xstate_kernel_keeps;
+    }
+  }
+  return exception_xstate_kernel_unknown;
+}
+
+// The length L of the XSTATE part of an exception context: the compacted XSAVE layout of the user
+// components enabled in XCR0 (CPUID leaf 0xD), without the legacy area. It equals the length the
+// startup check measured on every native x64 system it ran on (320, 1920 and 10176 bytes), but not
+// under the x64 emulator of Windows on Arm64, which the table never classifies.
+static int exception_xstate_static_length(uint64_t xcr0) {
+  int offset = 512 + 64; // legacy area and header
+  for (int i = 2; i < 63; i++) {
+    if (((xcr0 >> i) & 1) == 0) {
+      continue;
+    }
+    int regs[4];
+    __cpuidex(regs, 0xD, i);
+    if (((regs[2] >> 1) & 1) != 0) {
+      offset = align_up(offset, 64);
+    }
+    offset += regs[0];
+  }
+  return offset - 512;
+}
+
 #endif // _WINDOWS
 
 // The components a short context can leave out and the JVM may use: AVX (the upper halves of
@@ -2497,12 +2646,37 @@ uint64_t VM_Version::exception_xstate_losable_components() {
 // a C call keeps r30 and r31 on Windows, so a value there can be live at a resumable fault in the
 // callee (an unsafe access in a copy stub), where no scrub of the caller can help.
 void VM_Version::set_exception_xstate_mitigation() {
+  // Whether the length comes from the startup check, which then also verifies the scrub.
+  bool measured = false;
 #ifdef _WINDOWS
   // Only AVX state is at risk: without AVX there is no AVX-512 and no APX (both need UseAVX 3).
-  // Builds before 22000 (Windows 10, Windows Server 2019 and 2022) predate the routine that trusts
-  // the stale header; the check would only cost startup time there.
-  if (UseAVX > 0 && os::win32::windows_build_number() >= 22000) {
-    check_exception_xstate();
+  if (UseAVX > 0) {
+    int build;
+    int revision;
+    int feature;
+    ExceptionXStateKernel kernel = classify_exception_xstate_kernel(&build, &revision, &feature);
+    static const char* const kernel_names[] = { "not in the table", "keeps the state", "can lose the state" };
+    log_info(os, cpu)("Windows kernel 10.0.%d.%d: %s (feature %u: %s)", build, revision, kernel_names[kernel],
+                      exception_xstate_header_fix_feature,
+                      feature == 1 ? "enabled" : (feature == 0 ? "disabled" : "not configured or not queried"));
+    if (kernel == exception_xstate_kernel_unknown || ExceptionXStateSelfTest) {
+      check_exception_xstate();
+      measured = true;
+      if (kernel != exception_xstate_kernel_unknown &&
+          (kernel == exception_xstate_kernel_loses) != _exception_resume_loses_xstate) {
+        warning("The startup check of exception contexts disagrees with the table of Windows kernels "
+                "(kernel 10.0.%d.%d); using the check", build, revision);
+      }
+    } else {
+      _exception_resume_loses_xstate = kernel == exception_xstate_kernel_loses;
+      log_info(os, cpu)("Resuming from an exception %s AVX state",
+                        _exception_resume_loses_xstate ? "can lose" : "keeps");
+      if (_exception_resume_loses_xstate) {
+        _exception_xstate_measured_length =
+            exception_xstate_static_length((uint64_t)_cpuid_info.xem_xcr0_eax.value);
+        log_info(os, cpu)("Exception context XSTATE length %d", _exception_xstate_measured_length);
+      }
+    }
   }
 #endif
   bool forced = ExceptionXStateLength > 0;
@@ -2516,7 +2690,7 @@ void VM_Version::set_exception_xstate_mitigation() {
     } else if (forced) {
       scrub = length;
 #ifdef _WINDOWS
-    } else if (!verify_exception_xstate_scrub(length)) {
+    } else if (measured && !verify_exception_xstate_scrub(length)) {
       log_info(os, cpu)("Clearing the stale XSAVE header does not keep AVX state");
 #endif
     } else {

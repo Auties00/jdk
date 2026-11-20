@@ -2762,6 +2762,95 @@ bool os::win32::run_on_native_thread(void (*fn)(void*), void* arg, size_t stack_
   return true;
 }
 
+bool os::win32::kernel_file_version(int* build, int* revision) {
+  char path[MAX_PATH];
+  UINT len = MAX_PATH - (UINT)strlen("\\ntoskrnl.exe") - 1;
+  UINT ret = GetSystemDirectory(path, len);
+  if (ret == 0 || ret > len) {
+    return false;
+  }
+  strncat(path, "\\ntoskrnl.exe", MAX_PATH - ret);
+  DWORD version_size = GetFileVersionInfoSize(path, nullptr);
+  if (version_size == 0) {
+    return false;
+  }
+  LPTSTR version_info = (LPTSTR)os::malloc(version_size, mtInternal);
+  if (version_info == nullptr) {
+    return false;
+  }
+  VS_FIXEDFILEINFO* file_info;
+  UINT info_len;
+  bool ok = GetFileVersionInfo(path, 0, version_size, version_info) != 0 &&
+            VerQueryValue(version_info, TEXT("\\"), (LPVOID*)&file_info, &info_len) != 0 &&
+            info_len >= sizeof(VS_FIXEDFILEINFO);
+  if (ok) {
+    *build = HIWORD(file_info->dwFileVersionLS);
+    *revision = LOWORD(file_info->dwFileVersionLS);
+  }
+  os::free(version_info);
+  return ok;
+}
+
+bool os::win32::runs_natively() {
+  typedef BOOL (WINAPI* IsWow64Process2_t)(HANDLE, USHORT*, USHORT*);
+  IsWow64Process2_t is_wow64_process2 =
+      (IsWow64Process2_t)(void*)GetProcAddress(GetModuleHandle(TEXT("kernel32.dll")), "IsWow64Process2");
+  USHORT process_machine;
+  USHORT native_machine;
+  if (is_wow64_process2 == nullptr ||
+      !is_wow64_process2(GetCurrentProcess(), &process_machine, &native_machine)) {
+    return true;
+  }
+  if (process_machine != IMAGE_FILE_MACHINE_UNKNOWN) {
+    return false; // a WOW64 process
+  }
+#if defined(_M_AMD64)
+  return native_machine == IMAGE_FILE_MACHINE_AMD64;
+#elif defined(_M_ARM64)
+  return native_machine == IMAGE_FILE_MACHINE_ARM64;
+#else
+  return true;
+#endif
+}
+
+int os::win32::feature_configuration_state(uint32_t feature_id) {
+  // The layout ntdll fills, which no Windows SDK header declares (it is the one of public
+  // reverse-engineered headers such as phnt): Flags holds Priority in bits 0-3 and EnabledState in
+  // bits 4-5 (0 default, 1 disabled, 2 enabled).
+  struct FeatureConfiguration {
+    ULONG FeatureId;
+    ULONG Flags;
+    ULONG VariantPayload;
+  };
+  typedef LONG (NTAPI* RtlQueryFeatureConfiguration_t)(ULONG, ULONG, ULONGLONG*, FeatureConfiguration*);
+  HMODULE ntdll = GetModuleHandle(TEXT("ntdll.dll"));
+  if (ntdll == nullptr) {
+    return -1;
+  }
+  RtlQueryFeatureConfiguration_t query =
+      (RtlQueryFeatureConfiguration_t)(void*)GetProcAddress(ntdll, "RtlQueryFeatureConfiguration");
+  if (query == nullptr) {
+    return -1;
+  }
+  // Enabled if the boot or the runtime configuration says so and neither says disabled.
+  int state = -1;
+  for (ULONG type = 0; type <= 1; type++) {
+    FeatureConfiguration config = { 0, 0, 0 };
+    ULONGLONG stamp = 0;
+    if (query(feature_id, type, &stamp, &config) < 0 || config.FeatureId != feature_id) {
+      continue;
+    }
+    int enabled_state = (int)((config.Flags >> 4) & 3);
+    if (enabled_state == 1) {
+      return 0;
+    }
+    if (enabled_state == 2) {
+      state = 1;
+    }
+  }
+  return state;
+}
+
 JNIEXPORT
 LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
   PreserveLastError ple;
