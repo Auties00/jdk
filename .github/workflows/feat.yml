@@ -1,0 +1,91 @@
+name: 'JDK-8365196 scrub10: feature 58474193 and static L'
+
+# Review-only. On many Windows runners: reads the state of feature 58474193 through ntdll's
+# RtlQueryFeatureConfiguration, the OS build and UBR, and computes L from CPUID 0xD (featprobe.c); and
+# records the ground truth: review6's native fault probe (affected yes/no, measured L) and the JVM
+# self-test of scrub8 (run PREV_RUN), which still runs on every build.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-scrub10-feat*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  PREV_RUN: 44637207461
+
+jobs:
+  feat:
+    name: feat (${{ matrix.os }}, ${{ matrix.slot }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-latest, windows-2022]
+        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        exclude:
+          - { os: windows-latest, slot: 9 }
+          - { os: windows-latest, slot: 10 }
+          - { os: windows-latest, slot: 11 }
+          - { os: windows-latest, slot: 12 }
+          - { os: windows-2022, slot: 5 }
+          - { os: windows-2022, slot: 6 }
+          - { os: windows-2022, slot: 7 }
+          - { os: windows-2022, slot: 8 }
+          - { os: windows-2022, slot: 9 }
+          - { os: windows-2022, slot: 10 }
+          - { os: windows-2022, slot: 11 }
+          - { os: windows-2022, slot: 12 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            review10
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-prev
+          run-id: ${{ env.PREV_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'Feature state, static L, and the measured truth'
+        run: |
+          set +e
+          mkdir -p out prev
+          unzip -q b-prev/jdk-windows-x64.zip -d prev
+          PREV=$(cd "$(dirname "$(find prev -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W)
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          cd review10
+          cat > fbuild.cmd <<'EOF'
+          @echo off
+          set "VSWHERE=C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          for /f "usebackq tokens=*" %%i in (`call "%%VSWHERE%%" -latest -products * -property installationPath`) do set "VSDIR=%%i"
+          call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" >nul
+          cl /nologo /O1 featprobe.c advapi32.lib /link /OUT:featprobe.exe
+          EOF
+          cmd //c "$(pwd -W)\\fbuild.cmd" > ../out/build-feat.txt 2>&1
+          cmd //c "$(pwd -W)\\build.cmd" > ../out/build-probe.txt 2>&1
+          ./featprobe.exe > ../out/feat.txt 2>&1
+          ./xprobe.exe > ../out/probe.txt 2>&1
+          cd ..
+          "$PREV/bin/java" -Xlog:os+cpu=info -version > out/jvm.txt 2>&1
+          {
+            echo "SUMMARY $(grep '^os ' out/feat.txt) | $(cat out/cpu.txt)"
+            grep -E '^(feature|xcr0|L_formula|InitializeContext2|GetEnabled)' out/feat.txt
+            grep -E '^A L=' out/probe.txt
+            grep -i -E 'Resuming from an exception|XSTATE length' out/jvm.txt
+          } | tee out/summary.txt
+          { echo "### ${{ matrix.os }} ${{ matrix.slot }}"; echo '```'; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: feat-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
