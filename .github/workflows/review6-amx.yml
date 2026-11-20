@@ -1,0 +1,151 @@
+name: 'JDK-8365196 review6: AMX hunt (native probe; R5Amx and StressStackOverflow on AMX hosts)'
+
+# Review-only (review6). Native probe of the Server 2025 exception context bug: scrub
+# sufficiency against arbitrary stale header contents, partial masks, every 8-byte alignment,
+# L per thread (AMX), and exceptions near the committed stack limit. On hosts with AMX in XCR0
+# it also runs a Java kernel in a thread that used AMX, and StressStackOverflow (base and fix).
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-review6-amx*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  NEW_RUN: 44637207461
+  OLD_RUN: 44637207461
+
+jobs:
+  probe:
+    name: probe (${{ matrix.os }}, ${{ matrix.slot }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2025, slot: 1 }
+          - { os: windows-2025, slot: 2 }
+          - { os: windows-2025, slot: 3 }
+          - { os: windows-2025, slot: 4 }
+          - { os: windows-2025, slot: 5 }
+          - { os: windows-2025, slot: 6 }
+          - { os: windows-2025, slot: 7 }
+          - { os: windows-2025, slot: 8 }
+          - { os: windows-2025, slot: 9 }
+          - { os: windows-2025, slot: 10 }
+          - { os: windows-2025, slot: 11 }
+          - { os: windows-2025, slot: 12 }
+          - { os: windows-2025, slot: 13 }
+          - { os: windows-2025, slot: 14 }
+          - { os: windows-2025, slot: 15 }
+          - { os: windows-2025, slot: 16 }
+          - { os: windows-latest, slot: 1 }
+          - { os: windows-latest, slot: 2 }
+          - { os: windows-latest, slot: 3 }
+          - { os: windows-latest, slot: 4 }
+          - { os: windows-latest, slot: 5 }
+          - { os: windows-latest, slot: 6 }
+          - { os: windows-latest, slot: 7 }
+          - { os: windows-latest, slot: 8 }
+          - { os: windows-2022, slot: 1 }
+          - { os: windows-2022, slot: 2 }
+          - { os: windows-2022, slot: 3 }
+          - { os: windows-2022, slot: 4 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            review6
+            test/jdk/java/lang/ScopedValue
+      - name: 'Build and run the probe'
+        id: probe
+        run: |
+          set +e
+          mkdir -p out
+          cd review6/probe
+          cmd //c "$(pwd -W)\\build.cmd" > ../../out/build.txt 2>&1
+          ./xprobe.exe > ../../out/probe.txt 2>&1
+          echo "probe exit=$?" >> ../../out/probe.txt
+          for d in 256 1024 2048 3072 4096 6144 8192 10240 12288 16384; do
+            ./xprobe.exe guard $d > g.txt 2>&1; rc=$?
+            grep '^H' g.txt >> ../../out/guard.txt
+            printf 'H d=%s exit=%d (0x%x)\n' $d $rc $rc >> ../../out/guard.txt
+          done
+          cd ../..
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" > out/build-os.txt
+          amx=$(grep -c 'amx=1' out/probe.txt)
+          affected=$(grep -c 'affected=1' out/probe.txt)
+          echo "amx=$amx" >> "$GITHUB_OUTPUT"
+          echo "affected=$affected" >> "$GITHUB_OUTPUT"
+          { echo "### ${{ matrix.os }} slot ${{ matrix.slot }}: $(head -1 out/probe.txt) | $(cat out/build-os.txt)"; echo '```';
+            grep -E '^(xcr0|cpuid|A L=|B |C total|C LOST|D m=|E random|F lost|G )' out/probe.txt; cat out/guard.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: steps.probe.outputs.amx == '1'
+        with:
+          name: bundles-jtreg-8.3+1
+          path: jtreg/installed
+          run-id: ${{ env.OLD_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: steps.probe.outputs.amx == '1'
+        with:
+          name: bundles-windows-x64
+          path: b-new
+          run-id: ${{ env.NEW_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: steps.probe.outputs.amx == '1'
+        with:
+          name: bundles-windows-x64-base
+          path: b-base
+          run-id: ${{ env.OLD_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'AMX host: Java kernel and StressStackOverflow'
+        if: steps.probe.outputs.amx == '1'
+        run: |
+          set +e
+          mkdir -p new base
+          unzip -q b-new/jdk-windows-x64.zip -d new; unzip -q b-base/jdk-windows-x64.zip -d base
+          home() { cd "$(dirname "$(find $1 -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W; }
+          NEW=$(home new); BASE=$(home base)
+          JT="$(pwd -W)/jtreg/installed"
+          : > test/jdk/TEST.groups  # sparse checkout: the groups name directories that are not checked out
+          LIB="$(pwd -W)/review6/probe/r5native.dll"
+          "$NEW/bin/java" -Xlog:os+cpu=info -version > out/new-oscpu.txt 2>&1
+          for jdk in NEW BASE; do
+            j=${!jdk}
+            for i in 1 2; do
+              "$j/bin/java" --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED -Dr5.lib="$LIB" \
+                -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 \
+                review6/java/R5Amx.java 8000 > out/r5amx-$jdk-$i.txt 2>&1
+              echo "R5AMX $jdk run $i exit=$?" >> out/r5amx.txt; grep R5AMX out/r5amx-$jdk-$i.txt >> out/r5amx.txt
+            done
+          done
+          run() {
+            local tag=$1 jdk=$2 fail=0
+            for i in 1 2 3 4; do
+              "$jdk/bin/java" -jar "$JT/lib/jtreg.jar" -jdk:"$jdk" -w "wk/$tag-$i" -r "rp/$tag-$i" -verbose:summary -timeoutFactor:4 \
+                -vmoptions:"-Xmx768m -XX:-CreateCoredumpOnCrash" 'test/jdk/java/lang/ScopedValue/StressStackOverflow.java' > "out/sso-$tag-$i.txt" 2>&1
+              n=$(grep -c -E '^(FAILED|Error): ' "out/sso-$tag-$i.txt"); fail=$((fail+n))
+              if [ "$n" -ne 0 ]; then mkdir -p "out/jtr/$tag-$i"; find "wk/$tag-$i" -name '*.jtr' -exec cp {} "out/jtr/$tag-$i/" \; ; fi
+            done
+            echo "SSO [$tag] runs=4 (x4 ids) failed=$fail" >> out/sso.txt
+          }
+          run new "$NEW"
+          run base "$BASE"
+          { echo '```'; cat out/r5amx.txt out/sso.txt; grep -i "xstate\|exception" out/new-oscpu.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: probe-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
