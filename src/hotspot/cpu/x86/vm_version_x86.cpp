@@ -2585,11 +2585,13 @@ static ExceptionXStateKernel classify_exception_xstate_26100(int revision, bool*
 // What the kernel of this system does, from the table above and, for a gated kernel or a server
 // kernel newer than every one examined, the state of feature 58474193.
 static ExceptionXStateKernel classify_exception_xstate_kernel(int* build, int* revision, int* feature) {
-  *build = 0;
-  *revision = 0;
+  // The build of kernel32.dll is the kernel's build. Only on 26100 does the decision need the
+  // kernel's own revision, whose read (the version resource of ntoskrnl.exe) costs about 0.2 ms.
+  *build = os::win32::windows_build_number();
+  *revision = -1;
   *feature = -1;
   // An emulator (x64 on Arm64) dispatches exceptions in code of its own.
-  if (!os::win32::runs_natively() || !os::win32::kernel_file_version(build, revision)) {
+  if (!os::win32::runs_natively()) {
     return exception_xstate_kernel_unknown;
   }
   for (size_t i = 0; i < ARRAY_SIZE(exception_xstate_clearing_builds); i++) {
@@ -2602,6 +2604,11 @@ static ExceptionXStateKernel classify_exception_xstate_kernel(int* build, int* r
     return exception_xstate_kernel_keeps;
   }
   if (*build != 26100) {
+    return exception_xstate_kernel_unknown;
+  }
+  int kernel_build;
+  if (!os::win32::kernel_file_version(&kernel_build, revision) || kernel_build != 26100) {
+    *revision = -1;
     return exception_xstate_kernel_unknown;
   }
   bool newest_server;
@@ -2663,21 +2670,26 @@ void VM_Version::set_exception_xstate_mitigation() {
 #ifdef _WINDOWS
   // Only AVX state is at risk: without AVX there is no AVX-512 and no APX (both need UseAVX 3).
   if (UseAVX > 0) {
+    jlong start = os::javaTimeNanos();
     int build;
     int revision;
     int feature;
     ExceptionXStateKernel kernel = classify_exception_xstate_kernel(&build, &revision, &feature);
     static const char* const kernel_names[] = { "not decided by its version", "keeps the state", "can lose the state" };
-    log_info(os, cpu)("Windows kernel 10.0.%d.%d: %s (feature %u: %s)", build, revision, kernel_names[kernel],
-                      exception_xstate_header_fix_feature,
-                      feature == 1 ? "enabled" : (feature == 0 ? "disabled" : "not configured or not queried"));
+    const char* feature_state = feature == 1 ? "enabled" : (feature == 0 ? "disabled" : "not configured or not queried");
+    if (revision >= 0) {
+      log_info(os, cpu)("Windows kernel 10.0.%d.%d: %s (feature %u: %s)", build, revision, kernel_names[kernel],
+                        exception_xstate_header_fix_feature, feature_state);
+    } else {
+      log_info(os, cpu)("Windows build %d: %s", build, kernel_names[kernel]);
+    }
     if (kernel == exception_xstate_kernel_unknown || ExceptionXStateSelfTest) {
       check_exception_xstate();
       measured = true;
       if (kernel != exception_xstate_kernel_unknown &&
           (kernel == exception_xstate_kernel_loses) != _exception_resume_loses_xstate) {
         warning("The startup check of exception contexts disagrees with the table of Windows kernels "
-                "(kernel 10.0.%d.%d); using the check", build, revision);
+                "(build %d, kernel revision %d); using the check", build, revision);
       }
     } else {
       _exception_resume_loses_xstate = kernel == exception_xstate_kernel_loses;
@@ -2689,6 +2701,7 @@ void VM_Version::set_exception_xstate_mitigation() {
         log_info(os, cpu)("Exception context XSTATE length %d", _exception_xstate_measured_length);
       }
     }
+    log_debug(os, cpu)("Exception XSTATE decision took " JLONG_FORMAT " us", (os::javaTimeNanos() - start) / 1000);
   }
 #endif
   bool forced = ExceptionXStateLength > 0;
