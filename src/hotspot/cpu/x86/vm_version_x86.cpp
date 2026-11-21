@@ -107,6 +107,10 @@ static detect_virt_stub_t detect_virt_stub = nullptr;
 static clear_apx_test_state_t clear_apx_test_state_stub = nullptr;
 static getCPUIDBrandString_stub_t getCPUIDBrandString_stub = nullptr;
 static exception_xstate_check_stub_t exception_xstate_check_stub = nullptr;
+// The faulting instruction of exception_xstate_check_stub and the one after it. Generating a stub
+// with a scrub (verify_exception_xstate_scrub()) points the exception handler at that stub's.
+static address exception_xstate_check_segv_addr = nullptr;
+static address exception_xstate_check_cont_addr = nullptr;
 
 #define CPUID_STANDARD_FN   0x0
 #define CPUID_STANDARD_FN_1 0x1
@@ -2410,6 +2414,8 @@ void VM_Version::check_exception_xstate() {
   ExceptionXStateProbe probe;
   probe.stub = exception_xstate_check_stub;
   probe.scrub_length = 0;
+  set_exception_xstate_segv_addr(exception_xstate_check_segv_addr);
+  set_exception_xstate_cont_addr(exception_xstate_check_cont_addr);
   if (!run_exception_xstate_probe(&probe)) {
     log_warning(os, cpu)("Could not check whether resuming from an exception keeps AVX state; "
                          "assuming it does not");
@@ -2923,6 +2929,8 @@ void VM_Version::initialize() {
                                      g.generate_getCPUIDBrandString());
   exception_xstate_check_stub = CAST_TO_FN_PTR(exception_xstate_check_stub_t,
                                      g.generate_exception_xstate_check(0));
+  exception_xstate_check_segv_addr = _exception_xstate_segv_addr;
+  exception_xstate_check_cont_addr = _exception_xstate_cont_addr;
   WINDOWS_ONLY(stub_generator = &g;)
   get_processor_features();
   WINDOWS_ONLY(stub_generator = nullptr;)
