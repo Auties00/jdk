@@ -2644,14 +2644,13 @@ int VM_Version::exception_xstate_kernel_line(int reported_build) {
   }
 }
 
-// What the kernel of this system does, or unknown. The table is keyed by the version of the
-// kernel's file, which is the running kernel's only where System32 is the host's and nothing has
-// replaced the file since boot, so the table is not used:
-// - inside a container (a server silo), whose System32 is the image's while the host kernel
-//   dispatches its exceptions;
-// - where the build the running kernel reports (in KUSER_SHARED_DATA, which no container
-//   changes) is not the line of the build of kernel32.dll: a container that neither the silo query
-//   nor the image's registry revealed, with an image of another build than its host;
+// What the kernel of this system does, or unknown. The line is the build the running kernel
+// reports in KUSER_SHARED_DATA, which a container does not change (unlike the version in the PEB),
+// and must be the line of kernel32.dll's build; a line decided by its build alone is decided there.
+// The revision comes from the version of ntoskrnl.exe, which is the running kernel's only where
+// System32 is the host's and nothing has replaced the file since boot, so the table is not used:
+// - inside a container, whose System32 is the image's while the host kernel dispatches its
+//   exceptions (an image of the host's build, or one the line check above did not catch);
 // - while an update waits for a reboot, which may already have replaced ntoskrnl.exe.
 VM_Version::ExceptionXStateKernel VM_Version::classify_exception_xstate_system(const ExceptionXStateSystem* system,
                                                                               ExceptionXStateDecision* decision) {
@@ -2665,10 +2664,6 @@ VM_Version::ExceptionXStateKernel VM_Version::classify_exception_xstate_system(c
     decision->reason = "emulated";
     return exception_xstate_kernel_unknown;
   }
-  if (system->in_container()) {
-    decision->reason = "in a container";
-    return exception_xstate_kernel_unknown;
-  }
   decision->running_build = system->running_build();
   if (exception_xstate_kernel_line(decision->running_build) != decision->build) {
     decision->reason = "the running kernel reports another build";
@@ -2676,7 +2671,13 @@ VM_Version::ExceptionXStateKernel VM_Version::classify_exception_xstate_system(c
   }
   bool server = system->is_server();
   if (!exception_xstate_kernel_needs_revision(decision->build)) {
+    // Decided by the running kernel's build alone, also in a container.
     return classify_exception_xstate_kernel(decision->build, -1, server);
+  }
+  // The revision comes from a file, which in a container is the image's.
+  if (system->in_container()) {
+    decision->reason = "in a container";
+    return exception_xstate_kernel_unknown;
   }
   if (system->reboot_pending()) {
     decision->reason = "an update waits for a reboot";

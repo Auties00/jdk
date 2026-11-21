@@ -249,23 +249,31 @@ TEST(ExceptionXStateKernels, system_paths) {
   EXPECT_EQ(XS_U, decide(&d));
   EXPECT_STREQ("emulated", d.reason);
   EXPECT_EQ(0, kernel_reads);
-  // In a container, whatever the image's files say: a Windows Server 2022 image on a Windows
-  // Server 2025 host, and a Windows Server 2025 image with a fixed kernel file.
+  // A Windows Server 2022 image on a Windows Server 2025 host, detected as a container or not:
+  // the running kernel's build is not the image's.
   reset_fake_system();
   fake_container = true;
   fake_file_build = 20348;
   EXPECT_EQ(XS_U, decide(&d));
-  EXPECT_STREQ("in a container", d.reason);
-  fake_file_build = 26100;
-  fake_kernel_revision = 9711;
-  EXPECT_EQ(XS_U, decide(&d));
-  EXPECT_EQ(0, kernel_reads);
-  // A container that was not detected, with an image of another build than its host's kernel.
-  reset_fake_system();
-  fake_file_build = 20348;
-  EXPECT_EQ(XS_U, decide(&d));
   EXPECT_STREQ("the running kernel reports another build", d.reason);
   EXPECT_EQ(26100, d.running_build);
+  fake_container = false;
+  EXPECT_EQ(XS_U, decide(&d));
+  EXPECT_STREQ("the running kernel reports another build", d.reason);
+  // A Windows Server 2025 image with a fixed kernel file on an affected host: never read.
+  reset_fake_system();
+  fake_container = true;
+  fake_kernel_revision = 9711;
+  EXPECT_EQ(XS_U, decide(&d));
+  EXPECT_STREQ("in a container", d.reason);
+  EXPECT_EQ(0, kernel_reads);
+  // A Windows Server 2022 image on a Windows Server 2022 host: decided by the running kernel's build.
+  reset_fake_system();
+  fake_container = true;
+  fake_file_build = 20348;
+  fake_running_build = 20348;
+  EXPECT_EQ(XS_K, decide(&d));
+  EXPECT_EQ(0, kernel_reads);
   // A kernel too old to report its build.
   reset_fake_system();
   fake_file_build = 17763;

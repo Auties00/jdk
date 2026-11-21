@@ -2810,10 +2810,21 @@ bool os::win32::in_container() {
       silo.IsInServerSilo) {
     return true;
   }
-  // The marker that container images carry in their registry, independent of the job hierarchy.
-  // Only its proven absence counts as no container.
+  // The query sees only the job of the process, which in a job nested inside the silo is not the
+  // silo. Then the image's registry tells: the marker that container images carry, and the
+  // service through which the host runs processes in a container (registered in containers only,
+  // although its executable can be on a host). Only their proven absence counts as no container.
   LSTATUS status = RegGetValue(HKEY_LOCAL_MACHINE, TEXT("SYSTEM\\CurrentControlSet\\Control"),
                                TEXT("ContainerType"), RRF_RT_ANY, nullptr, nullptr, nullptr);
+  if (status != ERROR_FILE_NOT_FOUND) {
+    return true;
+  }
+  HKEY key;
+  status = RegOpenKeyEx(HKEY_LOCAL_MACHINE, TEXT("SYSTEM\\CurrentControlSet\\Services\\cexecsvc"), 0,
+                        KEY_QUERY_VALUE, &key);
+  if (status == ERROR_SUCCESS) {
+    RegCloseKey(key);
+  }
   return status != ERROR_FILE_NOT_FOUND;
 }
 
