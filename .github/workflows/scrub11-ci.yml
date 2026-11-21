@@ -1,0 +1,664 @@
+name: 'JDK-8365196 scrub11 CI'
+
+# Review-only. scrub11 (review7 fixes) keeps scrub9's code generation. Builds the scrub11 branch
+# (windows-x64 and linux-x64, release and fastdebug), then: tier1 on linux-x64, windows-2022 and
+# windows-2025 (with the new gtest); the tier2 and tier3 compiler groups and the vector tests on
+# windows-2025 fastdebug with VerifyExceptionXStateScrub; the linux-x64 compiler groups with the scrub
+# forced, verified and planted; TestExceptionXStateScrub under every collector and
+# TestExceptionXStateDefaults on Server 2025 and 2022 VMs; the connector kernels of review5 and the
+# kernels of review6 (scrub11, scrub10 and base release, scrub11 fastdebug with the check and the plant);
+# Windows startup (base, scrub10, scrub11, scrub11 with the check forced); the JVM and the native probe in
+# process-isolated containers (servercore and nanoserver, ltsc2022 and ltsc2025) on windows-2025; and the
+# x64 JVM under emulation on windows-11-arm.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-scrub11-final*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  BASE_REF: 2b376fb353cf051331016423c80aaf7963149796
+  # The unpatched base, as built by run 44266958063 and copied by runs 44285424680 and 44343210778.
+  BASE_RUN: 44343210778
+  # scrub10 (fb326eb1df6), as built by run 44830244649.
+  PREV_RUN: 44830244649
+
+jobs:
+  prepare:
+    name: 'Prepare'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+      - name: 'Build JTReg'
+        uses: ./.github/actions/build-jtreg
+
+  build-windows-x64:
+    name: windows-x64
+    needs: prepare
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      platform: windows-x64
+      runs-on: windows-2022
+      architecture: 'x86.x64'
+      msvc-toolset-version: '14.44'
+
+  build-windows-x64-base:
+    name: 'Copy the unpatched base bundle'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-base
+          path: bundle
+          run-id: ${{ env.BASE_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bundles-windows-x64-base
+          path: bundle
+          retention-days: 5
+          compression-level: 0
+
+  build-linux-x64:
+    name: linux-x64
+    needs: prepare
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      platform: linux-x64
+      gcc-major-version: '10'
+
+  tier1-linux-x64:
+    name: 'tier1 linux-x64'
+    needs: [prepare, build-linux-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: linux-x64
+      bootjdk-platform: linux-x64
+      runs-on: ubuntu-24.04
+      debug-suffix: -debug
+      tag: tier1
+      tests: '[{"test-name": "jdk/tier1 part 1", "test-suite": "test/jdk/:tier1_part1"}, {"test-name": "jdk/tier1 part 2", "test-suite": "test/jdk/:tier1_part2"}, {"test-name": "jdk/tier1 part 3", "test-suite": "test/jdk/:tier1_part3"}, {"test-name": "langtools/tier1", "test-suite": "test/langtools/:tier1"}, {"test-name": "hs/tier1 common", "test-suite": "test/hotspot/jtreg/:tier1_common", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 gc", "test-suite": "test/hotspot/jtreg/:tier1_gc", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 runtime", "test-suite": "test/hotspot/jtreg/:tier1_runtime", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 serviceability", "test-suite": "test/hotspot/jtreg/:tier1_serviceability", "debug-suffix": "-debug"}, {"test-name": "lib-test/tier1", "test-suite": "test/lib-test/:tier1", "debug-suffix": "-debug"}]'
+
+  compiler-forced-linux-x64:
+    name: 'compiler, scrub forced and planted, linux-x64'
+    needs: [prepare, build-linux-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: linux-x64
+      bootjdk-platform: linux-x64
+      runs-on: ubuntu-24.04
+      debug-suffix: -debug
+      tag: forced
+      java-options: '-XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920 -XX:+VerifyExceptionXStateScrub -XX:+PlantExceptionXStateHeader'
+      tests: '[{"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}, {"test-name": "hs/tier2 compiler", "test-suite": "test/hotspot/jtreg/:tier2_compiler", "debug-suffix": "-debug"}]'
+
+  compiler-attraps-linux-x64:
+    name: 'compiler, scrub forced and planted, before traps, linux-x64'
+    needs: [prepare, build-linux-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: linux-x64
+      bootjdk-platform: linux-x64
+      runs-on: ubuntu-24.04
+      debug-suffix: -debug
+      tag: forced-attraps
+      java-options: '-XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920 -XX:+VerifyExceptionXStateScrub -XX:+PlantExceptionXStateHeader -XX:+ScrubExceptionXStateHeaderAtTraps'
+      tests: '[{"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}]'
+
+  tier1-windows-2022:
+    name: 'tier1 windows-2022'
+    needs: [prepare, build-windows-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: windows-x64
+      bootjdk-platform: windows-x64
+      architecture: 'x86.x64'
+      runs-on: windows-2022
+      debug-suffix: -debug
+      tag: tier1-2022
+      tests: '[{"test-name": "jdk/tier1 part 1", "test-suite": "test/jdk/:tier1_part1"}, {"test-name": "jdk/tier1 part 2", "test-suite": "test/jdk/:tier1_part2"}, {"test-name": "jdk/tier1 part 3", "test-suite": "test/jdk/:tier1_part3"}, {"test-name": "langtools/tier1", "test-suite": "test/langtools/:tier1"}, {"test-name": "hs/tier1 common", "test-suite": "test/hotspot/jtreg/:tier1_common", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 gc", "test-suite": "test/hotspot/jtreg/:tier1_gc", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 runtime", "test-suite": "test/hotspot/jtreg/:tier1_runtime", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 serviceability", "test-suite": "test/hotspot/jtreg/:tier1_serviceability", "debug-suffix": "-debug"}, {"test-name": "lib-test/tier1", "test-suite": "test/lib-test/:tier1", "debug-suffix": "-debug"}]'
+
+  tier1-windows-2025:
+    name: 'tier1 windows-2025'
+    needs: [prepare, build-windows-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: windows-x64
+      bootjdk-platform: windows-x64
+      architecture: 'x86.x64'
+      runs-on: windows-2025
+      debug-suffix: -debug
+      tag: tier1-2025
+      tests: '[{"test-name": "jdk/tier1 part 1", "test-suite": "test/jdk/:tier1_part1"}, {"test-name": "jdk/tier1 part 2", "test-suite": "test/jdk/:tier1_part2"}, {"test-name": "jdk/tier1 part 3", "test-suite": "test/jdk/:tier1_part3"}, {"test-name": "langtools/tier1", "test-suite": "test/langtools/:tier1"}, {"test-name": "hs/tier1 common", "test-suite": "test/hotspot/jtreg/:tier1_common", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 gc", "test-suite": "test/hotspot/jtreg/:tier1_gc", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 runtime", "test-suite": "test/hotspot/jtreg/:tier1_runtime", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 serviceability", "test-suite": "test/hotspot/jtreg/:tier1_serviceability", "debug-suffix": "-debug"}, {"test-name": "lib-test/tier1", "test-suite": "test/lib-test/:tier1", "debug-suffix": "-debug"}]'
+
+  compiler-windows-2025:
+    name: 'compiler tier2-3 windows-2025'
+    needs: [prepare, build-windows-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: windows-x64
+      bootjdk-platform: windows-x64
+      architecture: 'x86.x64'
+      runs-on: windows-2025
+      debug-suffix: -debug
+      tag: compiler-2025
+      java-options: '-XX:+VerifyExceptionXStateScrub'
+      tests: '[{"test-name": "hs/tier2 compiler", "test-suite": "test/hotspot/jtreg/:tier2_compiler", "debug-suffix": "-debug"}, {"test-name": "hs/tier3 compiler", "test-suite": "test/hotspot/jtreg/:tier3_compiler", "debug-suffix": "-debug"}, {"test-name": "hs/vectorapi", "test-suite": "test/hotspot/jtreg/compiler/vectorapi", "debug-suffix": "-debug"}, {"test-name": "hs/vectorization", "test-suite": "test/hotspot/jtreg/compiler/vectorization", "debug-suffix": "-debug"}]'
+
+  repro:
+    name: repro (${{ matrix.os }}, ${{ matrix.slot }})
+    needs: [prepare, build-windows-x64, build-windows-x64-base]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-2022]
+        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        exclude:
+          - { os: windows-2022, slot: 3 }
+          - { os: windows-2022, slot: 4 }
+          - { os: windows-2022, slot: 5 }
+          - { os: windows-2022, slot: 6 }
+          - { os: windows-2022, slot: 7 }
+          - { os: windows-2022, slot: 8 }
+          - { os: windows-2022, slot: 9 }
+          - { os: windows-2022, slot: 10 }
+          - { os: windows-2022, slot: 11 }
+          - { os: windows-2022, slot: 12 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - id: jtreg
+        uses: ./.github/actions/get-jtreg
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: bundles
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-base
+          path: bundles-base
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Auties00/jdk-c2-avx512-windows-repro
+          path: xstate-repro
+      - name: 'TestExceptionXStateScrub under every collector'
+        run: |
+          set +e
+          mkdir -p out jdk base tests
+          unzip -q bundles/jdk-windows-x64.zip -d jdk
+          unzip -q bundles-base/jdk-windows-x64.zip -d base
+          tar -xzf bundles/tests-windows-x64.tar.gz -C tests
+          JDK=$(cd "$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W)
+          BASE=$(cd "$(dirname "$(find base -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W)
+          NAT=$(cd "$(dirname "$(find tests -name ExceptionXState.dll | head -1)")" && pwd -W)
+          JT='${{ steps.jtreg.outputs.path }}'
+          echo "JDK=$JDK BASE=$BASE NAT=$NAT JT=$JT"
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" | tee out/build.txt
+          "$JDK/bin/java" -Xlog:os+cpu=info -version 2>&1 | grep -i -E "kernel|exception|xsave|xstate|capped" | tee out/jvm-detect.txt
+          "$JDK/bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|UseAPX|ExceptionXStateLength|ScrubExceptionXStateHeader|UseUpperXMMRegistersInC1) ' | tee out/flags.txt
+          clang -O2 -mxsave -o c_detect.exe xstate-repro/native/xstate_detect.c -ladvapi32
+          ./c_detect.exe > out/c-detect.txt 2>&1
+          grep '^geometry: L = ' out/c-detect.txt | sed 's/.*= //' | tee out/L.txt
+          jvmL=$(grep ExceptionXStateLength out/flags.txt | awk '{print $4}')
+          echo "SUMMARY detection: $(cat out/jvm-detect.txt | head -1 | sed 's/.*\] //') | JVM L=$jvmL | C L=$(cat out/L.txt)" | tee out/summary.txt
+          test=test/hotspot/jtreg/compiler/runtime/safepoints/TestExceptionXStateScrub.java
+          run() {
+            local tag=$1 jdk=$2 opts=$3
+            "$JDK/bin/java" -jar "$JT/lib/jtreg.jar" -jdk:"$jdk" -nativepath:"$NAT" -w "wk/$tag" -r "rp/$tag" \
+              -timeoutFactor:4 -verbose:summary -vmoptions:"-XX:-CreateCoredumpOnCrash $opts" $test > "out/jtreg-$tag.txt" 2>&1
+            local pass=$(grep -c '^Passed: ' "out/jtreg-$tag.txt")
+            local fail=$(grep -c -E '^(FAILED|Error): ' "out/jtreg-$tag.txt")
+            mkdir -p "out/jtr/$tag"; find "wk/$tag" -name '*.jtr' -exec cp {} "out/jtr/$tag/" \; 2>/dev/null
+            local wrong=$(cat out/jtr/$tag/*.jtr 2>/dev/null | grep -o 'calls=[0-9]* wrong=[0-9]*' | tr '\n' ' ')
+            echo "SUMMARY [$tag] passed=$pass failed=$fail $(grep -E '^(FAILED|Error): ' "out/jtreg-$tag.txt" | sed 's/.*#//' | tr '\n' ' ') :: $wrong" | tee -a out/summary.txt
+          }
+          CAP="-XX:+UnlockDiagnosticVMOptions -XX:-ScrubExceptionXStateHeader"
+          for r in 1 2 3; do
+            run "fix-$r" "$JDK" ""
+            [ $r -le 2 ] && run "base-$r" "$BASE" ""
+            [ $r -le 1 ] && run "capped-$r" "$JDK" "$CAP"
+          done
+          "$JDK/bin/java" -jar "$JT/lib/jtreg.jar" -jdk:"$JDK" -nativepath:"$NAT" -w wk/default -r rp/default -verbose:summary \
+            test/hotspot/jtreg/compiler/runtime/safepoints/TestExceptionXStateDefaults.java > out/jtreg-default.txt 2>&1
+          find wk/default -name '*.jtr' -exec cp {} out/ \;
+          echo "SUMMARY [default-flags oracle] $(grep -E '^(Passed|FAILED|Error): ' out/jtreg-default.txt | tr '\n' ' ') $(grep -h 'Native probe' out/*.jtr | head -1)" | tee -a out/summary.txt
+          { echo "### $(cat out/cpu.txt) | $(cat out/build.txt)"; echo '```'; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: repro-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
+
+  conn:
+    name: conn (${{ matrix.os }}, ${{ matrix.slot }})
+    needs: [build-windows-x64]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2025, slot: 1 }
+          - { os: windows-2025, slot: 2 }
+          - { os: windows-2025, slot: 3 }
+          - { os: windows-2025, slot: 4 }
+          - { os: windows-2025, slot: 5 }
+          - { os: windows-2025, slot: 6 }
+          - { os: windows-2025, slot: 7 }
+          - { os: windows-2025, slot: 8 }
+          - { os: windows-2022, slot: 1 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review9
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-new
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-debug
+          path: b-dbg
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-prev
+          run-id: ${{ env.PREV_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-base
+          path: b-base
+          run-id: ${{ env.BASE_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'Connector kernels: scrub8, scrub7, base, and the scrub8 check'
+        run: |
+          set +e
+          mkdir -p out new prev base dbg
+          unzip -q b-new/jdk-windows-x64.zip -d new; unzip -q b-prev/jdk-windows-x64.zip -d prev; unzip -q b-base/jdk-windows-x64.zip -d base
+          unzip -q "$(ls b-dbg/jdk-windows-x64*debug*.zip | grep -v symbols | head -1)" -d dbg
+          home() { cd "$(dirname "$(find $1 -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W; }
+          NEW=$(home new); PREV=$(home prev); BASE=$(home base); DBG=$(home dbg)
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" | tee out/build.txt
+          "$NEW/bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|ExceptionXStateLength) ' | tee out/flags.txt
+          cd src/review9
+          cat > jbuild.cmd <<EOF
+          @echo off
+          set "VSWHERE=C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          for /f "usebackq tokens=*" %%i in (\`call "%%VSWHERE%%" -latest -products * -property installationPath\`) do set "VSDIR=%%i"
+          call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" >nul
+          cl /nologo /O2 /LD /I"$NEW\include" /I"$NEW\include\win32" r5jni.c /link /OUT:r5jni.dll
+          cl /nologo /O2 /LD /I"$NEW\include" /I"$NEW\include\win32" r6jni.c /link /OUT:r6jni.dll
+          EOF
+          cmd //c "$(pwd -W)\\jbuild.cmd" > ../../out/build-jni.txt 2>&1
+          JNI="$(pwd -W)/r5jni.dll"
+          JNI6="$(pwd -W)/r6jni.dll"
+          cd ../..
+          common="--add-modules jdk.incubator.vector -Dr5.jni=$JNI -XX:-TieredCompilation -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1"
+          for k in both one sw inloop; do
+            for tag in NEW PREV BASE; do
+              j=${!tag}
+              "$j/bin/java" $common src/review9/R5Conn.java $k 10000 > out/$k-$tag.txt 2>&1
+              echo "SUMMARY [$k $tag] exit=$? $(grep R5CONN out/$k-$tag.txt)" | tee -a out/summary.txt
+            done
+            "$DBG/bin/java" $common -XX:+VerifyExceptionXStateScrub -XX:-CreateCoredumpOnCrash src/review9/R5Conn.java $k 10000 > out/$k-DBG.txt 2>&1
+            echo "SUMMARY [$k DBG-verify] exit=$? $(grep R5CONN out/$k-DBG.txt) $(grep -o 'stale XSAVE header[^:]*' out/$k-DBG.txt | head -1)" | tee -a out/summary.txt
+            "$DBG/bin/java" $common -XX:+PlantExceptionXStateHeader -XX:+VerifyExceptionXStateScrub -XX:-CreateCoredumpOnCrash src/review9/R5Conn.java $k 10000 > out/$k-DBGP.txt 2>&1
+            echo "SUMMARY [$k DBG-plant] exit=$? $(grep R5CONN out/$k-DBGP.txt) $(grep -o 'stale XSAVE header[^:]*' out/$k-DBGP.txt | head -1)" | tee -a out/summary.txt
+            "$DBG/bin/java" $common -XX:+Verbose -XX:CompileCommand=quiet -XX:CompileCommand=option,R5Conn::$( [ $k = inloop ] && echo inLoop || echo $k ),PrintOptoAssembly src/review9/R5Conn.java $k 3000 > out/$k-opto.txt 2>&1
+          done
+          common6="--add-modules jdk.incubator.vector -Dr6.jni=$JNI6 -XX:-TieredCompilation -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1"
+          for k in ecatch hcatch barrier osr; do
+            for tag in NEW PREV BASE; do
+              j=${!tag}
+              "$j/bin/java" $common6 src/review9/R6.java $k 10000 > out/r6-$k-$tag.txt 2>&1
+              echo "SUMMARY [r6-$k $tag] exit=$? $(grep '^R6 ' out/r6-$k-$tag.txt)" | tee -a out/summary.txt
+            done
+            for mode in verify plant; do
+              o="-XX:+VerifyExceptionXStateScrub"; [ $mode = plant ] && o="$o -XX:+PlantExceptionXStateHeader"
+              "$DBG/bin/java" $common6 $o -XX:-CreateCoredumpOnCrash src/review9/R6.java $k 10000 > out/r6-$k-DBG-$mode.txt 2>&1
+              echo "SUMMARY [r6-$k DBG-$mode] exit=$? $(grep '^R6 ' out/r6-$k-DBG-$mode.txt) $(grep -o 'stale XSAVE header[^:]*' out/r6-$k-DBG-$mode.txt | head -1)" | tee -a out/summary.txt
+            done
+            "$DBG/bin/java" $common6 -XX:+Verbose -XX:CompileCommand=quiet -XX:CompileCommand=option,R6::$k,PrintOptoAssembly src/review9/R6.java $k 3000 > out/r6-$k-opto.txt 2>&1
+          done
+          { echo "### ${{ matrix.os }} slot ${{ matrix.slot }}: $(cat out/cpu.txt) | $(cat out/build.txt)"; echo '```'; cat out/flags.txt out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: conn-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
+
+  conn-linux:
+    name: conn (linux)
+    needs: [build-linux-x64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review9
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64-debug
+          path: b-dbg
+      - name: 'Connector kernels with the length forced and the check on'
+        run: |
+          set +e
+          mkdir -p out dbg
+          tar -xzf "$(ls b-dbg/jdk-linux-x64*debug*.tar.gz | grep -v symbols | head -1)" -C dbg
+          DBG=$(cd "$(dirname "$(find dbg -name java -path '*/bin/*' -type f | head -1)")/.." && pwd)
+          gcc -O2 -shared -fPIC -I"$DBG/include" -I"$DBG/include/linux" -o src/review9/libr5jni.so src/review9/r5jni.c 2> out/build-jni.txt
+          gcc -O2 -shared -fPIC -I"$DBG/include" -I"$DBG/include/linux" -o src/review9/libr6jni.so src/review9/r6jni.c 2>> out/build-jni.txt
+          grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //' > out/cpu.txt
+          common="--add-modules jdk.incubator.vector -Dr5.jni=$(pwd)/src/review9/libr5jni.so -XX:-TieredCompilation -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920 -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1"
+          for k in both one sw inloop; do
+            "$DBG/bin/java" $common -XX:+VerifyExceptionXStateScrub -XX:-CreateCoredumpOnCrash src/review9/R5Conn.java $k 8000 > out/$k-verify.txt 2>&1
+            echo "SUMMARY [$k verify] exit=$? $(grep R5CONN out/$k-verify.txt) $(grep -o 'stale XSAVE header[^:]*' out/$k-verify.txt | head -1)" | tee -a out/summary.txt
+            "$DBG/bin/java" $common -XX:+PlantExceptionXStateHeader -XX:+VerifyExceptionXStateScrub -XX:-CreateCoredumpOnCrash src/review9/R5Conn.java $k 8000 > out/$k-plant.txt 2>&1
+            echo "SUMMARY [$k plant] exit=$? $(grep R5CONN out/$k-plant.txt) $(grep -o 'stale XSAVE header[^:]*' out/$k-plant.txt | head -1)" | tee -a out/summary.txt
+            "$DBG/bin/java" $common -XX:+Verbose -XX:CompileCommand=quiet -XX:CompileCommand=option,R5Conn::$( [ $k = inloop ] && echo inLoop || echo $k ),PrintOptoAssembly src/review9/R5Conn.java $k 3000 > out/$k-opto.txt 2>&1
+          done
+          common6="--add-modules jdk.incubator.vector -Dr6.jni=$(pwd)/src/review9/libr6jni.so -XX:-TieredCompilation -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920 -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1"
+          for k in ecatch hcatch barrier osr; do
+            for mode in verify plant; do
+              o="-XX:+VerifyExceptionXStateScrub"; [ $mode = plant ] && o="$o -XX:+PlantExceptionXStateHeader"
+              "$DBG/bin/java" $common6 $o -XX:-CreateCoredumpOnCrash src/review9/R6.java $k 8000 > out/r6-$k-$mode.txt 2>&1
+              echo "SUMMARY [r6-$k $mode] exit=$? $(grep '^R6 ' out/r6-$k-$mode.txt) $(grep -o 'stale XSAVE header[^:]*' out/r6-$k-$mode.txt | head -1)" | tee -a out/summary.txt
+            done
+            "$DBG/bin/java" $common6 -XX:+Verbose -XX:CompileCommand=quiet -XX:CompileCommand=option,R6::$k,PrintOptoAssembly src/review9/R6.java $k 3000 > out/r6-$k-opto.txt 2>&1
+          done
+          { echo "### linux: $(cat out/cpu.txt)"; echo '```'; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: conn-linux
+          path: out
+          retention-days: 30
+
+  startup:
+    name: startup (${{ matrix.os }}, ${{ matrix.slot }})
+    needs: [build-windows-x64]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2025, slot: 1 }
+          - { os: windows-2025, slot: 2 }
+          - { os: windows-2025, slot: 3 }
+          - { os: windows-2025, slot: 4 }
+          - { os: windows-2025, slot: 5 }
+          - { os: windows-2025, slot: 6 }
+          - { os: windows-2022, slot: 1 }
+          - { os: windows-2022, slot: 2 }
+          - { os: windows-2022, slot: 3 }
+          - { os: windows-2022, slot: 4 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-new
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-prev
+          run-id: ${{ env.PREV_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-base
+          path: b-base
+          run-id: ${{ env.BASE_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-debug
+          path: b-dbg
+      - name: 'java -version, 40 interleaved runs per build (review6 method)'
+        run: |
+          set +e
+          mkdir -p out new prev base
+          unzip -q b-new/jdk-windows-x64.zip -d new; unzip -q b-prev/jdk-windows-x64.zip -d prev; unzip -q b-base/jdk-windows-x64.zip -d base
+          mkdir -p dbg; unzip -q "$(ls b-dbg/jdk-windows-x64*debug*.zip | grep -v symbols | head -1)" -d dbg
+          home() { cd "$(dirname "$(find $1 -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W; }
+          NEW=$(home new); PREV=$(home prev); BASE=$(home base); DBG=$(home dbg)
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" | tee out/build.txt
+          NEWST=$NEW
+          declare -A OPTS=([NEW]="" [PREV]="" [BASE]="" [NEWST]="-XX:+UnlockDiagnosticVMOptions -XX:+ExceptionXStateSelfTest")
+          for tag in NEW PREV BASE NEWST; do j=${!tag}; "$j/bin/java" ${OPTS[$tag]} -Xshare:auto -version > /dev/null 2>&1; done
+          for i in $(seq 1 60); do
+            for tag in NEW PREV BASE NEWST; do
+              j=${!tag}
+              s=$(date +%s%N); "$j/bin/java" ${OPTS[$tag]} -Xshare:auto -version >/dev/null 2>&1; e=$(date +%s%N)
+              echo "$tag $(( (e - s) / 1000 ))" >> out/startup.txt
+            done
+          done
+          for tag in NEW PREV BASE NEWST; do
+            echo "SUMMARY $tag median_us=$(grep "^$tag " out/startup.txt | awk '{print $2}' | sort -n | awk '{a[NR]=$1} END {print a[int((NR+1)/2)]}')" | tee -a out/summary.txt
+          done
+          "$NEW/bin/java" -Xlog:os+cpu=info -version > out/oscpu-full.txt 2>&1
+          "$NEW/bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+ExceptionXStateSelfTest -Xlog:os+cpu=info -version > out/oscpu-selftest.txt 2>&1
+          for i in $(seq 1 20); do
+            "$NEW/bin/java" -Xlog:os+cpu=debug -version 2>&1 | grep -o 'decision took [0-9]* us' | awk '{print "NEW", $3}' >> out/decision.txt
+            "$NEW/bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+ExceptionXStateSelfTest -Xlog:os+cpu=debug -version 2>&1 | grep -o 'decision took [0-9]* us' | awk '{print "NEWST", $3}' >> out/decision.txt
+            "$PREV/bin/java" -Xlog:os+cpu=debug -version 2>&1 | grep -o 'decision took [0-9]* us' | awk '{print "PREV", $3}' >> out/decision.txt
+          done
+          "$NEW/bin/java" -Xlog:os+cpu=debug -version > out/oscpu-debug.txt 2>&1
+          "$DBG/bin/java" -Xlog:os+cpu=debug -version > out/oscpu-fastdebug.txt 2>&1
+          "$DBG/bin/java" -XX:ExceptionXStateStaticLengthError=128 -Xlog:os+cpu=info -XX:+PrintFlagsFinal -version > out/oscpu-fastdebug-wrongL.txt 2>&1
+          echo "SUMMARY fastdebug static L +128: exit=$? $(grep -i -E 'XSTATE length|does not keep|Compiled code clears|cannot be cleared|disagrees' out/oscpu-fastdebug-wrongL.txt | sed 's/.*\] //' | tr '\n' ' ') $(grep -E ' ExceptionXStateLength ' out/oscpu-fastdebug-wrongL.txt | awk '{print "final L=" $4}')" | tee -a out/summary.txt
+          echo "SUMMARY fastdebug exit=$? $(grep -c 'keeps AVX state in four traps' out/oscpu-fastdebug.txt) verification(s) passed; $(grep -i -E 'Resuming|Compiled code clears' out/oscpu-fastdebug.txt | sed 's/.*\] //' | tr '\n' ' ')" | tee -a out/summary.txt
+          for tag in NEW NEWST PREV; do
+            echo "SUMMARY decision $tag median_us=$(grep "^$tag " out/decision.txt | awk '{print $2}' | sort -n | awk '{a[NR]=$1} END {print a[int((NR+1)/2)]}')" | tee -a out/summary.txt
+          done
+          "$NEW/bin/java" -Xlog:os+cpu=info -version 2>&1 | grep -i -E "kernel|exception|xstate" | tee out/oscpu.txt
+          { echo "### ${{ matrix.os }}: $(cat out/cpu.txt) | $(cat out/build.txt)"; echo '```'; cat out/summary.txt out/oscpu.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: startup-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
+
+  container:
+    name: container (${{ matrix.image }})
+    needs: [build-windows-x64]
+    runs-on: windows-2025
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['servercore:ltsc2022', 'servercore:ltsc2025', 'nanoserver:ltsc2022', 'nanoserver:ltsc2025']
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review9
+            review10
+            review11
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-new
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-prev
+          run-id: ${{ env.PREV_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'Probes, JNI libraries and JDKs on the host'
+        run: |
+          set +e
+          mkdir -p out /c/w/new /c/w/prev /c/w/probe
+          unzip -q b-new/jdk-windows-x64.zip -d /c/w/new; unzip -q b-prev/jdk-windows-x64.zip -d /c/w/prev
+          cp src/review9/* src/review10/* src/review11/* /c/w/probe/
+          NEWD=$(basename "$(dirname "$(dirname "$(find /c/w/new -name java.exe -path '*/bin/*' | head -1)")")")
+          PREVD=$(basename "$(dirname "$(dirname "$(find /c/w/prev -name java.exe -path '*/bin/*' | head -1)")")")
+          echo "NEWD=$NEWD" >> $GITHUB_ENV; echo "PREVD=$PREVD" >> $GITHUB_ENV
+          NEW=$(cd /c/w/new/$NEWD && pwd -W)
+          cd /c/w/probe
+          cat > cbuild.cmd <<EOF
+          @echo off
+          set "VSWHERE=C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          for /f "usebackq tokens=*" %%i in (\`call "%%VSWHERE%%" -latest -products * -property installationPath\`) do set "VSDIR=%%i"
+          call "%VSDIR%\VC\Auxiliary\Build\vcvarsall.bat" x64 >nul
+          cl /nologo /O1 /MT kprobe.c advapi32.lib version.lib /link /OUT:kprobe.exe
+          cl /nologo /O1 /MT jobrun.c /link /OUT:jobrun.exe
+          cl /nologo /O2 /MT /LD /I"$NEW\include" /I"$NEW\include\win32" r5jni.c /link /OUT:r5jni.dll
+          cl /nologo /O2 /MT /LD /I"$NEW\include" /I"$NEW\include\win32" r6jni.c /link /OUT:r6jni.dll
+          EOF
+          cmd //c "$(pwd -W)\\cbuild.cmd" > $GITHUB_WORKSPACE/out/build-c.txt 2>&1
+          cmd //c "$(pwd -W)\\build.cmd" > $GITHUB_WORKSPACE/out/build-x.txt 2>&1
+          ls -la /c/w/probe >> $GITHUB_WORKSPACE/out/build-c.txt
+          s=$(date +%s); docker pull -q mcr.microsoft.com/windows/${{ matrix.image }} > $GITHUB_WORKSPACE/out/pull.txt 2>&1
+          echo "pull exit=$? $(( $(date +%s) - s ))s" | tee -a $GITHUB_WORKSPACE/out/pull.txt
+      - name: 'The JVM in a process-isolated container'
+        run: |
+          set +e
+          img=mcr.microsoft.com/windows/${{ matrix.image }}
+          run() { docker run --rm --isolation=process -v 'C:\w:C:\w' $img "$@"; }
+          NEWJ="C:\\w\\new\\$NEWD\\bin\\java.exe"
+          PREVJ="C:\\w\\prev\\$PREVD\\bin\\java.exe"
+          /c/w/probe/kprobe.exe > out/host-kprobe.txt 2>&1
+          run 'C:\w\probe\kprobe.exe' > out/kprobe.txt 2>&1
+          run 'C:\w\probe\xprobe.exe' > out/xprobe.txt 2>&1
+          run "$NEWJ" -Xlog:os+cpu=debug -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version > out/jvm-new.txt 2>&1
+          run "$NEWJ" -Xlog:os+cpu=info -XX:+UnlockDiagnosticVMOptions -XX:+ExceptionXStateSelfTest -XX:+PrintFlagsFinal -version > out/jvm-new-st.txt 2>&1
+          run "$PREVJ" -Xlog:os+cpu=info -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version > out/jvm-prev.txt 2>&1
+          run 'C:\w\probe\jobrun.exe' "$NEWJ" -Xlog:os+cpu=info -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version > out/jvm-new-nested.txt 2>&1
+          run 'C:\w\probe\jobrun.exe' 'C:\w\probe\kprobe.exe' > out/kprobe-nested.txt 2>&1
+          common="--add-modules jdk.incubator.vector -XX:-TieredCompilation -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1"
+          for k in both one sw inloop; do
+            for tag in new prev; do
+              j=$NEWJ; [ $tag = prev ] && j=$PREVJ
+              run "$j" $common -Dr5.jni='C:\w\probe\r5jni.dll' 'C:\w\probe\R5Conn.java' $k 10000 > out/r5-$k-$tag.txt 2>&1
+              echo "SUMMARY [r5-$k $tag] exit=$? $(grep R5CONN out/r5-$k-$tag.txt)" | tee -a out/summary.txt
+            done
+          done
+          for k in ecatch hcatch barrier osr; do
+            for tag in new prev; do
+              j=$NEWJ; [ $tag = prev ] && j=$PREVJ
+              run "$j" $common -Dr6.jni='C:\w\probe\r6jni.dll' 'C:\w\probe\R6.java' $k 10000 > out/r6-$k-$tag.txt 2>&1
+              echo "SUMMARY [r6-$k $tag] exit=$? $(grep '^R6 ' out/r6-$k-$tag.txt)" | tee -a out/summary.txt
+            done
+          done
+          flag() { grep -E "^ *[a-z]+ +$1 +=" "$2" | awk '{print $4}'; }
+          fail=0
+          affected=$(grep -c 'affected=1' out/xprobe.txt)
+          newloses=$(grep -c 'Resuming from an exception can lose AVX state' out/jvm-new.txt)
+          newlen=$(flag ExceptionXStateLength out/jvm-new.txt)
+          newavx=$(flag UseAVX out/jvm-new.txt)
+          newvec=$(flag MaxVectorSize out/jvm-new.txt)
+          incontainer=$(grep -c -E 'in a container|reports another build' out/jvm-new.txt)
+          nested=$(grep -c -E 'in a container|reports another build' out/jvm-new-nested.txt)
+          nestedjob=$(grep -c 'child in the nested job: 1' out/jvm-new-nested.txt)
+          newwrong=$(grep -h -o 'wrong=[0-9]*' out/r5-*-new.txt out/r6-*-new.txt | awk -F= '{s+=$2} END {print s+0}')
+          prevwrong=$(grep -h -o 'wrong=[0-9]*' out/r5-*-prev.txt out/r6-*-prev.txt | awk -F= '{s+=$2} END {print s+0}')
+          newruns=$(grep -h -c -E 'R5CONN|^R6 ' out/r5-*-new.txt out/r6-*-new.txt | awk '{s+=$1} END {print s+0}')
+          echo "SUMMARY probe affected=$affected | new: in-container=$incontainer loses=$newloses L=$newlen UseAVX=$newavx MaxVectorSize=$newvec wrong=$newwrong (runs $newruns) | prev: $(grep -E 'Windows (build|kernel)' out/jvm-prev.txt | sed 's/.*\] //') wrong=$prevwrong" | tee -a out/summary.txt
+          [ "$affected" -ge 1 ] || { echo "FAIL: the native probe does not find the host affected"; fail=1; }
+          [ "$incontainer" -ge 1 ] || { echo "FAIL: the JVM did not detect the container"; fail=1; }
+          echo "SUMMARY nested job: child-in-job=$nestedjob detected=$nested $(grep -E 'SiloBasicInformation:|nested job:' out/kprobe-nested.txt | tr '\n' ' ')" | tee -a out/summary.txt
+          [ "$nestedjob" -ge 1 ] && [ "$nested" -ge 1 ] || { echo "FAIL: the JVM in a nested job did not detect the container"; fail=1; }
+          [ "$newloses" -ge 1 ] || { echo "FAIL: the JVM does not protect the state"; fail=1; }
+          if [ "${newlen:-0}" -le 0 ] && { [ "${newavx:-3}" -gt 2 ] || [ "${newvec:-64}" -gt 16 ]; }; then echo "FAIL: neither the scrub nor the cap"; fail=1; fi
+          [ "$newwrong" -eq 0 ] || { echo "FAIL: wrong results with scrub11"; fail=1; }
+          [ "$newruns" -ge 8 ] || { echo "FAIL: the kernels did not run"; fail=1; }
+          grep -q 'disagrees' out/jvm-new-st.txt && { echo "FAIL: scrub11 self-test disagreement"; fail=1; }
+          { echo "### ${{ matrix.image }} on windows-2025"; echo '```'; grep -E 'RtlGetVersion|KUSER|SiloBasic|nested|ContainerType|file ntoskrnl|file kernel32' out/kprobe.txt; grep -E '^A L=' out/xprobe.txt; grep -i -E 'Windows (build|kernel)|Resuming|length|Compiled code|decision took|keeps AVX state in four' out/jvm-new.txt | sed 's/.*\] //'; cat out/summary.txt; echo "fail=$fail"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $fail
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: container-${{ strategy.job-index }}
+          path: out
+          retention-days: 30
+
+  emulated:
+    name: emulated (windows-11-arm, ${{ matrix.slot }})
+    needs: [build-windows-x64]
+    runs-on: windows-11-arm
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            review10
+            review11
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-new
+      - name: 'The x64 JVM under emulation'
+        run: |
+          set +e
+          mkdir -p out new
+          unzip -q b-new/jdk-windows-x64.zip -d new
+          NEW=$(cd "$(dirname "$(find new -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W)
+          cd review10
+          cmd //c "$(pwd -W)\\build.cmd" > ../out/build-probe.txt 2>&1
+          ./xprobe.exe > ../out/probe.txt 2>&1
+          cd ..
+          "$NEW/bin/java" -Xlog:os+cpu=debug -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version > out/jvm.txt 2>&1
+          affected=$(grep -c 'affected=1' out/probe.txt)
+          emulated=$(grep -c ': emulated' out/jvm.txt)
+          loses=$(grep -c 'Resuming from an exception can lose AVX state' out/jvm.txt)
+          echo "SUMMARY probe affected=$affected | $(grep -E '^A L=' out/probe.txt) | JVM: $(grep -E 'Windows (build|kernel)|Resuming|decision took' out/jvm.txt | sed 's/.*\] //' | tr '\n' ' ')" | tee out/summary.txt
+          fail=0
+          [ "$emulated" -ge 1 ] || { echo "FAIL: emulation not detected"; fail=1; }
+          [ "$(grep -c 'A L=' out/probe.txt)" -ge 1 ] || { echo "FAIL: the probe did not run"; fail=1; }
+          [ $(( loses > 0 )) -eq $(( affected > 0 )) ] || { echo "FAIL: the JVM disagrees with the probe"; fail=1; }
+          { echo '```'; cat out/summary.txt; echo "fail=$fail"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $fail
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: emulated-${{ matrix.slot }}
+          path: out
+          retention-days: 30
