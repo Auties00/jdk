@@ -2791,6 +2791,44 @@ bool os::win32::kernel_file_version(int* build, int* revision) {
   return ok;
 }
 
+int os::win32::running_kernel_build() {
+  // The NtBuildNumber field of KUSER_SHARED_DATA, the page the kernel maps read-only at 0x7FFE0000
+  // into every process (ntddk.h). Unlike the version in the PEB (RtlGetVersion,
+  // RtlGetNtVersionNumbers), which a container of an older image (a Windows Server 2022 image on a
+  // Windows Server 2025 host) sees as the image's, it is always the running kernel's. Kernels that
+  // predate the field leave 0 there.
+  const ULONG nt_build_number = *(volatile ULONG*)(uintptr_t)(0x7FFE0000 + 0x260);
+  return (int)(nt_build_number & 0xFFFF);
+}
+
+bool os::win32::in_container() {
+  // A process-isolated container is a server silo: a job whose processes see a System32 and a
+  // registry of their own (the image's) and share the host's kernel.
+  SILOOBJECT_BASIC_INFORMATION silo;
+  memset(&silo, 0, sizeof(silo));
+  if (QueryInformationJobObject(nullptr, JobObjectSiloBasicInformation, &silo, sizeof(silo), nullptr) &&
+      silo.IsInServerSilo) {
+    return true;
+  }
+  // The marker that container images carry in their registry, independent of the job hierarchy.
+  DWORD type = 0;
+  DWORD size = sizeof(type);
+  return RegGetValue(HKEY_LOCAL_MACHINE, TEXT("SYSTEM\\CurrentControlSet\\Control"), TEXT("ContainerType"),
+                     RRF_RT_REG_DWORD, nullptr, &type, &size) == ERROR_SUCCESS;
+}
+
+bool os::win32::reboot_pending() {
+  // Set by the servicing stack from the installation of an update to the reboot that completes it.
+  HKEY key;
+  if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+                   TEXT("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending"),
+                   0, KEY_READ, &key) != ERROR_SUCCESS) {
+    return false;
+  }
+  RegCloseKey(key);
+  return true;
+}
+
 bool os::win32::runs_natively() {
   typedef BOOL (WINAPI* IsWow64Process2_t)(HANDLE, USHORT*, USHORT*);
   IsWow64Process2_t is_wow64_process2 =

@@ -782,6 +782,7 @@ private:
   static int  exception_xstate_check_fill_size();
   static void check_exception_xstate();
   static bool verify_exception_xstate_scrub(int length);
+  static int  verified_exception_xstate_scrub_length(bool measured);
 #endif
   static void set_exception_xstate_mitigation();
   static void get_processor_features();
@@ -872,6 +873,52 @@ public:
   // The XSAVE state components a short context can leave out that the JVM may use: the ones
   // VerifyExceptionXStateScrub requires in a compacted header.
   static uint64_t exception_xstate_losable_components();
+
+#ifdef _WINDOWS
+  // What a native x64 Windows kernel does with a stale XSAVE header below the stack pointer of a
+  // user-mode exception (JDK-8365196): unknown, keeps the state, loses it, or, where the fix is
+  // gated by a feature of the Windows feature configuration, gated.
+  enum ExceptionXStateKernel {
+    exception_xstate_kernel_unknown,
+    exception_xstate_kernel_keeps,
+    exception_xstate_kernel_loses,
+    exception_xstate_kernel_gated
+  };
+  // The build line of a kernel that reports this build: the build itself, or for an enablement
+  // package (which raises the reported build and keeps the kernel of its line) the line it enables.
+  static int exception_xstate_kernel_line(int reported_build);
+  // Whether the decision for a kernel of this build line needs the kernel's revision.
+  static bool exception_xstate_kernel_needs_revision(int build);
+  // The decision for the kernel with this file version (build line and revision, or -1 for the
+  // revision when it is not needed) on a client or a server installation, from the table of
+  // examined kernels in vm_version_x86.cpp.
+  static ExceptionXStateKernel classify_exception_xstate_kernel(int build, int revision, bool server);
+  // The decision for a gated kernel, from the state of its feature (1 enabled, 0 disabled, -1 not
+  // configured or not queried): only the startup check can tell whether an enabled fix applies.
+  static ExceptionXStateKernel decide_gated_exception_xstate_kernel(int feature);
+  // Where the decision for the running system comes from (os::win32 on a real system).
+  struct ExceptionXStateSystem {
+    bool (*runs_natively)();
+    bool (*in_container)();
+    int  (*file_build)();                                 // the build of kernel32.dll
+    int  (*running_build)();                              // the build the running kernel reports
+    bool (*is_server)();
+    bool (*reboot_pending)();
+    bool (*kernel_file_version)(int* build, int* revision); // ntoskrnl.exe's
+    int  (*feature_state)(uint32_t feature_id);
+  };
+  struct ExceptionXStateDecision {
+    int build;          // the build line of the system's files
+    int running_build;  // the build the running kernel reports, or -1 if not read
+    int revision;       // the revision of ntoskrnl.exe, or -1 if not read
+    int feature;        // the state of the gating feature, or -1 if not queried
+    const char* reason; // why the table was not used, or nullptr
+  };
+  // The decision for a system: from the table where the system's files are the running kernel's,
+  // else unknown with the reason. Reads only what the decision needs.
+  static ExceptionXStateKernel classify_exception_xstate_system(const ExceptionXStateSystem* system,
+                                                                ExceptionXStateDecision* decision);
+#endif
 
   static void set_cpuinfo_segv_addr_apx(address pc) { _cpuinfo_segv_addr_apx = pc; }
   static bool  is_cpuinfo_segv_addr_apx(address pc) { return _cpuinfo_segv_addr_apx == pc; }

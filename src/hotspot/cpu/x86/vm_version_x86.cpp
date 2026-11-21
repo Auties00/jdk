@@ -80,7 +80,7 @@ int VM_Version::_exception_xstate_scrub_length = 0;
 bool VM_Version::_exception_xstate_capped = false;
 
 static BufferBlob* stub_blob;
-static const int stub_size = 3300;
+static const int stub_size = 4400;
 
 #ifdef _WINDOWS
 // Argument of the exception XSTATE check stub.
@@ -2463,7 +2463,8 @@ void VM_Version::check_exception_xstate() {
 // context of that trap still has its XSTATE part where the scrub assumed.
 bool VM_Version::verify_exception_xstate_scrub(int length) {
   // The stub with the scrub at this length, generated here (the probe's thread has no Thread) into
-  // the VM_Version stub blob, whose size leaves room for it.
+  // the VM_Version stub blob, whose size leaves room for two: the length from CPUID, then a
+  // measured one.
   assert(stub_generator != nullptr, "only during VM_Version::initialize()");
   ExceptionXStateProbe probe;
   probe.stub = CAST_TO_FN_PTR(exception_xstate_check_stub_t, stub_generator->generate_exception_xstate_check(length));
@@ -2482,6 +2483,8 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
       return false;
     }
   }
+  log_debug(os, cpu)("Clearing the stale XSAVE header %d bytes below the stack pointer keeps AVX state in four traps",
+                     length);
   return true;
 }
 
@@ -2494,19 +2497,16 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
 //   first revisions do nothing about it (they lose the state); then KiDispatchException copies the
 //   kernel's own header to the destination first, at first only when feature 58474193 (0x037C3AD1,
 //   Feature_Servicing_ExceptionDispatchUninitializedUserXStateHeaderFix) is enabled (gated), and
-//   from client revision 7920 unconditionally (fixed), as in every revision of build 28000.
-// A revision that was not examined is judged by its place relative to the fix: on a line whose
-// examined revisions all keep the state, and above the fixed ones of 26100, it keeps the state;
-// between two examined revisions of one class, it takes that class. Where that does not decide,
-// the startup check does (check_exception_xstate()). The one case this gets wrong is a later
-// revision of a line that keeps the state bringing the defect back, which nothing at startup but
-// the check can see (ExceptionXStateSelfTest forces it).
-enum ExceptionXStateKernel {
-  exception_xstate_kernel_unknown,
-  exception_xstate_kernel_keeps,
-  exception_xstate_kernel_loses,
-  exception_xstate_kernel_gated
-};
+//   from client revision 7920 unconditionally (fixed), as in every examined revision of build 28000.
+// A revision that was not examined is judged only from inside the examined range of its branch:
+// between two examined revisions of one class it takes that class. Above the newest examined
+// revision, only the client branch of a line whose newest examined revisions keep the state, on a
+// client installation, is judged to keep it (server revisions are serviced apart and can lag).
+// Anything else, a line that was not examined, and every case where the files of System32 might
+// not be the running kernel's (a container, a pending reboot) are left to the startup check
+// (check_exception_xstate()). The one case this gets wrong is a later revision of a line that
+// keeps the state bringing the defect back, which nothing at startup but the check can see
+// (ExceptionXStateSelfTest forces it).
 
 // The builds before 26100. Every revision examined clears the header: 17763 (Windows 10 1809,
 // Windows Server 2019) 155 revisions from 1 to 9479, 18362 (1903, 1909) 67 from 30 to 2274, 19041
@@ -2514,16 +2514,19 @@ enum ExceptionXStateKernel {
 // from 194 to 3260, 22621 (Windows 11 22H2, 23H2) 90 from 382 to 7714.
 static const int exception_xstate_clearing_builds[] = { 17763, 18362, 19041, 20348, 22000, 22621 };
 
-// Build 26100 (Windows 11 24H2 and 25H2, Windows Server 2025): the revisions examined, in ascending
-// order, with what each does. Server revisions are numbered from 30000, apart from the client ones.
+// The revisions examined of the builds that need one, in ascending order, with what each does.
+// Revisions from 30000 are a branch of their own: the Windows Server 2025 hotpatch kernels since
+// February 2026. Server revisions below 30000 (earlier hotpatches, and the standard updates, which
+// share the client binaries) are numbered among the client ones.
 struct ExceptionXStateRevision {
   int revision;
-  ExceptionXStateKernel kernel;
+  VM_Version::ExceptionXStateKernel kernel;
 };
 
-#define XS_L exception_xstate_kernel_loses
-#define XS_G exception_xstate_kernel_gated
-#define XS_K exception_xstate_kernel_keeps
+#define XS_L VM_Version::exception_xstate_kernel_loses
+#define XS_G VM_Version::exception_xstate_kernel_gated
+#define XS_K VM_Version::exception_xstate_kernel_keeps
+// Build 26100: Windows 11 24H2 and 25H2, Windows Server 2025.
 static const ExceptionXStateRevision exception_xstate_26100[] = {
   {     1, XS_L }, {   863, XS_L }, {  1000, XS_L }, {  1150, XS_L }, {  1301, XS_L }, {  1455, XS_L },
   {  1591, XS_L }, {  1742, XS_L }, {  1882, XS_L }, {  2033, XS_L }, {  2161, XS_L }, {  2314, XS_L },
@@ -2539,24 +2542,40 @@ static const ExceptionXStateRevision exception_xstate_26100[] = {
   {  9711, XS_K }, {  9818, XS_K }, {  9974, XS_K },
   { 33828, XS_G }
 };
+// Build 28000: Windows 11 26H1.
+static const ExceptionXStateRevision exception_xstate_28000[] = {
+  {  1575, XS_K }, {  1643, XS_K }, {  1719, XS_K }, {  1761, XS_K }, {  1830, XS_K }, {  2113, XS_K },
+  {  2269, XS_K }, {  2336, XS_K }, {  2525, XS_K }, {  2605, XS_K }, {  2704, XS_K }, {  2804, XS_K },
+  {  2952, XS_K }, {  3086, XS_K }, {  3231, XS_K }, {  3365, XS_K }
+};
 #undef XS_L
 #undef XS_G
 #undef XS_K
 
-static const int exception_xstate_server_revisions = 30000;
+static const int exception_xstate_hotpatch_revisions = 30000;
 
 static const uint32_t exception_xstate_header_fix_feature = 58474193;
 
-// What a 26100 revision does: an examined one by the table, one between two examined revisions of
-// its branch by them if they agree, a client one above every examined client revision as fixed.
-static ExceptionXStateKernel classify_exception_xstate_26100(int revision, bool* newest_server) {
-  *newest_server = false;
-  bool server = revision >= exception_xstate_server_revisions;
+bool VM_Version::exception_xstate_kernel_needs_revision(int build) {
+  return build == 26100 || build == 28000;
+}
+
+// What a revision of a line with a table does: an examined one by the table; one between two
+// examined revisions of its branch by them if they agree; one above every examined revision of its
+// branch as the newest examined one if that keeps the state, on a client installation of the client
+// branch only; anything else unknown.
+static VM_Version::ExceptionXStateKernel classify_exception_xstate_revision(const ExceptionXStateRevision* table,
+                                                                            size_t length, int revision, bool server) {
+  if (revision < 0) {
+    return VM_Version::exception_xstate_kernel_unknown;
+  }
+  bool hotpatch = revision >= exception_xstate_hotpatch_revisions;
   const ExceptionXStateRevision* below = nullptr;
   const ExceptionXStateRevision* above = nullptr;
-  for (size_t i = 0; i < ARRAY_SIZE(exception_xstate_26100); i++) {
-    const ExceptionXStateRevision* r = &exception_xstate_26100[i];
-    if ((r->revision >= exception_xstate_server_revisions) != server) {
+  for (size_t i = 0; i < length; i++) {
+    const ExceptionXStateRevision* r = &table[i];
+    assert(i == 0 || table[i - 1].revision < r->revision, "the table is in ascending order");
+    if ((r->revision >= exception_xstate_hotpatch_revisions) != hotpatch) {
       continue;
     }
     if (r->revision == revision) {
@@ -2568,65 +2587,124 @@ static ExceptionXStateKernel classify_exception_xstate_26100(int revision, bool*
       above = r;
     }
   }
-  if (above == nullptr) {
-    if (!server && below != nullptr && below->kernel == exception_xstate_kernel_keeps) {
-      return exception_xstate_kernel_keeps;
-    }
-    // A server revision newer than every one examined: still gated, or fixed without the gate.
-    *newest_server = server;
-    return exception_xstate_kernel_unknown;
+  if (below == nullptr) {
+    // Below the oldest examined revision of its branch, or a branch with none.
+    return VM_Version::exception_xstate_kernel_unknown;
   }
-  if (below != nullptr && below->kernel == above->kernel) {
+  if (above == nullptr) {
+    if (!server && !hotpatch && below->kernel == VM_Version::exception_xstate_kernel_keeps) {
+      return VM_Version::exception_xstate_kernel_keeps;
+    }
+    return VM_Version::exception_xstate_kernel_unknown;
+  }
+  if (below->kernel == above->kernel) {
     return below->kernel;
   }
+  return VM_Version::exception_xstate_kernel_unknown;
+}
+
+VM_Version::ExceptionXStateKernel VM_Version::classify_exception_xstate_kernel(int build, int revision, bool server) {
+  for (size_t i = 0; i < ARRAY_SIZE(exception_xstate_clearing_builds); i++) {
+    if (build == exception_xstate_clearing_builds[i]) {
+      return exception_xstate_kernel_keeps;
+    }
+  }
+  if (build == 26100) {
+    return classify_exception_xstate_revision(exception_xstate_26100, ARRAY_SIZE(exception_xstate_26100),
+                                              revision, server);
+  }
+  if (build == 28000) {
+    return classify_exception_xstate_revision(exception_xstate_28000, ARRAY_SIZE(exception_xstate_28000),
+                                              revision, server);
+  }
+  // A line that was not examined: one between those above (Windows Server 23H2, 25398), or newer.
   return exception_xstate_kernel_unknown;
 }
 
-// What the kernel of this system does, from the table above and, for a gated kernel or a server
-// kernel newer than every one examined, the state of feature 58474193.
-static ExceptionXStateKernel classify_exception_xstate_kernel(int* build, int* revision, int* feature) {
-  // The build of kernel32.dll is the kernel's build. Only on 26100 does the decision need the
-  // kernel's own revision, whose read (the version resource of ntoskrnl.exe) costs about 0.2 ms.
-  *build = os::win32::windows_build_number();
-  *revision = -1;
-  *feature = -1;
+VM_Version::ExceptionXStateKernel VM_Version::decide_gated_exception_xstate_kernel(int feature) {
+  // Whether the kernel applies a configuration that says enabled (a runtime configuration may not
+  // have reached it, and the layout of the query is undocumented) is left to the startup check.
+  return feature == 1 ? exception_xstate_kernel_unknown : exception_xstate_kernel_loses;
+}
+
+int VM_Version::exception_xstate_kernel_line(int reported_build) {
+  switch (reported_build) {
+    case 18363: return 18362;                                         // Windows 10 1909
+    case 19042: case 19043: case 19044: case 19045: return 19041;     // Windows 10 20H2 to 22H2
+    case 22631: return 22621;                                         // Windows 11 23H2
+    case 26200: return 26100;                                         // Windows 11 25H2
+    default: return reported_build;
+  }
+}
+
+// What the kernel of this system does, or unknown. The table is keyed by the version of the
+// kernel's file, which is the running kernel's only where System32 is the host's and nothing has
+// replaced the file since boot, so the table is not used:
+// - inside a container (a server silo), whose System32 is the image's while the host kernel
+//   dispatches its exceptions;
+// - where the build the running kernel reports (in KUSER_SHARED_DATA, which no container
+//   changes) is not the line of the build of kernel32.dll: a container that neither the silo query
+//   nor the image's registry revealed, with an image of another build than its host;
+// - while an update waits for a reboot, which may already have replaced ntoskrnl.exe.
+VM_Version::ExceptionXStateKernel VM_Version::classify_exception_xstate_system(const ExceptionXStateSystem* system,
+                                                                              ExceptionXStateDecision* decision) {
+  decision->build = exception_xstate_kernel_line(system->file_build());
+  decision->running_build = -1;
+  decision->revision = -1;
+  decision->feature = -1;
+  decision->reason = nullptr;
   // An emulator (x64 on Arm64) dispatches exceptions in code of its own.
-  if (!os::win32::runs_natively()) {
+  if (!system->runs_natively()) {
+    decision->reason = "emulated";
     return exception_xstate_kernel_unknown;
   }
-  for (size_t i = 0; i < ARRAY_SIZE(exception_xstate_clearing_builds); i++) {
-    if (*build == exception_xstate_clearing_builds[i]) {
-      return exception_xstate_kernel_keeps;
-    }
-  }
-  if (*build >= 28000) {
-    // Every revision of 28000 examined (16, from 1575 to 3365) is fixed, and later builds follow it.
-    return exception_xstate_kernel_keeps;
-  }
-  if (*build != 26100) {
+  if (system->in_container()) {
+    decision->reason = "in a container";
     return exception_xstate_kernel_unknown;
   }
-  int kernel_build;
-  if (!os::win32::kernel_file_version(&kernel_build, revision) || kernel_build != 26100) {
-    *revision = -1;
+  decision->running_build = system->running_build();
+  if (exception_xstate_kernel_line(decision->running_build) != decision->build) {
+    decision->reason = "the running kernel reports another build";
     return exception_xstate_kernel_unknown;
   }
-  bool newest_server;
-  ExceptionXStateKernel kernel = classify_exception_xstate_26100(*revision, &newest_server);
+  bool server = system->is_server();
+  if (!exception_xstate_kernel_needs_revision(decision->build)) {
+    return classify_exception_xstate_kernel(decision->build, -1, server);
+  }
+  if (system->reboot_pending()) {
+    decision->reason = "an update waits for a reboot";
+    return exception_xstate_kernel_unknown;
+  }
+  int kernel_build = -1;
+  int revision = -1;
+  if (!system->kernel_file_version(&kernel_build, &revision) || kernel_build != decision->build) {
+    decision->reason = "ntoskrnl.exe has no readable version of this build";
+    return exception_xstate_kernel_unknown;
+  }
+  decision->revision = revision;
+  ExceptionXStateKernel kernel = classify_exception_xstate_kernel(decision->build, revision, server);
   if (kernel == exception_xstate_kernel_gated) {
-    *feature = os::win32::feature_configuration_state(exception_xstate_header_fix_feature);
-    return *feature == 1 ? exception_xstate_kernel_keeps : exception_xstate_kernel_loses;
-  }
-  if (newest_server) {
-    // Where the fix is gated and enabled, the state is kept; a kernel without the gate reports no
-    // configuration whether or not it has the fix, so otherwise only the startup check can tell.
-    *feature = os::win32::feature_configuration_state(exception_xstate_header_fix_feature);
-    if (*feature == 1) {
-      return exception_xstate_kernel_keeps;
-    }
+    decision->feature = system->feature_state(exception_xstate_header_fix_feature);
+    kernel = decide_gated_exception_xstate_kernel(decision->feature);
   }
   return kernel;
 }
+
+static int exception_xstate_file_build() {
+  return os::win32::windows_build_number();
+}
+
+// The sources of the decision on this system.
+static const VM_Version::ExceptionXStateSystem exception_xstate_this_system = {
+  os::win32::runs_natively,
+  os::win32::in_container,
+  exception_xstate_file_build,
+  os::win32::running_kernel_build,
+  os::win32::is_windows_server,
+  os::win32::reboot_pending,
+  os::win32::kernel_file_version,
+  os::win32::feature_configuration_state
+};
 
 // The length L of the XSTATE part of an exception context: the compacted XSAVE layout of the user
 // components enabled in XCR0 (CPUID leaf 0xD), without the legacy area. It equals the length the
@@ -2664,25 +2742,74 @@ uint64_t VM_Version::exception_xstate_losable_components() {
 // allocates xmm0-xmm15 only on such systems. APX is turned off on such systems in either case:
 // a C call keeps r30 and r31 on Windows, so a value there can be live at a resumable fault in the
 // callee (an unsafe access in a copy stub), where no scrub of the caller can help.
+#ifdef _WINDOWS
+// Whether compiled code can clear the stale header length bytes below the stack pointer: the scrub
+// stores at most 64 + length bytes below the stack pointer of a compiled frame, which must be in
+// the stack shadow zone that the frame's stack bang has made accessible.
+static bool exception_xstate_scrub_fits(int length) {
+  if ((size_t)length + 64 + 4 * K > StackOverflow::stack_shadow_zone_size()) {
+    log_info(os, cpu)("Exception context XSTATE length %d exceeds the stack shadow zone", length);
+    return false;
+  }
+  return true;
+}
+
+// The length at which compiled code clears the stale header where resuming from an exception can
+// lose the state: L, once four traps with a stale header planted show that the scrub at L keeps
+// the state and that the kernel placed the context at L. A length from CPUID that fails is measured
+// by the startup check instead (the kernel may leave out components that XCR0 enables, such as
+// MPX). 0 where no length passes, which caps the vectors instead.
+int VM_Version::verified_exception_xstate_scrub_length(bool measured) {
+  while (true) {
+    int length = _exception_xstate_measured_length;
+    if (length > 0) {
+      if (!exception_xstate_scrub_fits(length)) {
+        return 0;
+      }
+      if (verify_exception_xstate_scrub(length)) {
+        return length;
+      }
+      log_info(os, cpu)("Clearing the stale XSAVE header %d bytes below the stack pointer does not keep AVX state",
+                        length);
+    }
+    if (measured) {
+      return 0;
+    }
+    check_exception_xstate();
+    measured = true;
+    if (!_exception_resume_loses_xstate) {
+      warning("The startup check of exception contexts disagrees with the table of Windows kernels; using the check");
+      return 0;
+    }
+  }
+}
+#endif // _WINDOWS
+
 void VM_Version::set_exception_xstate_mitigation() {
-  // Whether the length comes from the startup check, which then also verifies the scrub.
-  bool measured = false;
+  bool forced = ExceptionXStateLength > 0;
+  int scrub = 0;
 #ifdef _WINDOWS
   // Only AVX state is at risk: without AVX there is no AVX-512 and no APX (both need UseAVX 3).
   if (UseAVX > 0) {
     jlong start = os::javaTimeNanos();
-    int build;
-    int revision;
-    int feature;
-    ExceptionXStateKernel kernel = classify_exception_xstate_kernel(&build, &revision, &feature);
+    ExceptionXStateDecision decision;
+    ExceptionXStateKernel kernel = classify_exception_xstate_system(&exception_xstate_this_system, &decision);
+    int build = decision.build;
+    int revision = decision.revision;
     static const char* const kernel_names[] = { "not decided by its version", "keeps the state", "can lose the state" };
-    const char* feature_state = feature == 1 ? "enabled" : (feature == 0 ? "disabled" : "not configured or not queried");
+    guarantee(kernel >= exception_xstate_kernel_unknown && kernel <= exception_xstate_kernel_loses, "decided");
+    const char* feature_state = decision.feature == 1 ? "enabled" :
+                                (decision.feature == 0 ? "disabled" : "not configured or not queried");
     if (revision >= 0) {
       log_info(os, cpu)("Windows kernel 10.0.%d.%d: %s (feature %u: %s)", build, revision, kernel_names[kernel],
                         exception_xstate_header_fix_feature, feature_state);
     } else {
-      log_info(os, cpu)("Windows build %d: %s", build, kernel_names[kernel]);
+      log_info(os, cpu)("Windows build %d (running kernel build %d): %s%s%s", build, decision.running_build,
+                        kernel_names[kernel], decision.reason != nullptr ? ": " : "",
+                        decision.reason != nullptr ? decision.reason : "");
     }
+    // Whether the length comes from the startup check.
+    bool measured = false;
     if (kernel == exception_xstate_kernel_unknown || ExceptionXStateSelfTest) {
       check_exception_xstate();
       measured = true;
@@ -2698,28 +2825,22 @@ void VM_Version::set_exception_xstate_mitigation() {
       if (_exception_resume_loses_xstate) {
         _exception_xstate_measured_length =
             exception_xstate_static_length((uint64_t)_cpuid_info.xem_xcr0_eax.value);
-        log_info(os, cpu)("Exception context XSTATE length %d", _exception_xstate_measured_length);
+        log_info(os, cpu)("Exception context XSTATE length %d (from CPUID)", _exception_xstate_measured_length);
       }
+    }
+    if (ScrubExceptionXStateHeader && !forced && _exception_resume_loses_xstate) {
+      scrub = verified_exception_xstate_scrub_length(measured);
     }
     log_debug(os, cpu)("Exception XSTATE decision took " JLONG_FORMAT " us", (os::javaTimeNanos() - start) / 1000);
   }
 #endif
-  bool forced = ExceptionXStateLength > 0;
-  int length = forced ? ExceptionXStateLength : _exception_xstate_measured_length;
-  int scrub = 0;
-  if (ScrubExceptionXStateHeader && length > 0 && (forced || _exception_resume_loses_xstate)) {
+  if (ScrubExceptionXStateHeader && forced) {
     // The scrub stores at most 64 + L bytes below the stack pointer of a compiled frame, which
     // must be in the stack shadow zone that the frame's stack bang has made accessible.
-    if ((size_t)length + 64 + 4 * K > StackOverflow::stack_shadow_zone_size()) {
-      log_info(os, cpu)("Exception context XSTATE length %d exceeds the stack shadow zone", length);
-    } else if (forced) {
-      scrub = length;
-#ifdef _WINDOWS
-    } else if (measured && !verify_exception_xstate_scrub(length)) {
-      log_info(os, cpu)("Clearing the stale XSAVE header does not keep AVX state");
-#endif
+    if ((size_t)ExceptionXStateLength + 64 + 4 * K > StackOverflow::stack_shadow_zone_size()) {
+      log_info(os, cpu)("Exception context XSTATE length %d exceeds the stack shadow zone", ExceptionXStateLength);
     } else {
-      scrub = length;
+      scrub = ExceptionXStateLength;
     }
   }
   _exception_xstate_scrub_length = scrub;

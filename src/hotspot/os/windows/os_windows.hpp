@@ -73,6 +73,15 @@ class os::win32 {
   // The file version of ntoskrnl.exe, which a monthly update changes with the kernel: the build
   // number and the revision (UBR) of the kernel itself. Returns false if it cannot be read.
   static bool   kernel_file_version(int* build, int* revision);
+  // The build number the running kernel reports (an enablement package raises it above the build
+  // of its files, 26200 on Windows 11 25H2), also inside a container, or 0 on kernels that do not
+  // report it there.
+  static int    running_kernel_build();
+  // Whether this process runs in a Windows container (a server silo), where System32 holds the
+  // files of the container image, not of the kernel that runs it.
+  static bool   in_container();
+  // Whether an update waits for the reboot that completes it.
+  static bool   reboot_pending();
   // Whether the machine runs this process's instruction set natively, rather than through an
   // emulator (an x64 process on an Arm64 machine). Assumes native where it cannot be told.
   static bool   runs_natively();

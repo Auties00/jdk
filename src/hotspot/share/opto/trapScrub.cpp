@@ -359,10 +359,6 @@ bool TrapScrubs::insert(Compile* C, const TrapScrubPlatform* platform, GrowableA
   }
   const bool verify = platform->verify();
 
-  // Room for the scrubs (a call's Catch can have several successors) in the register allocation
-  // table; they get no register.
-  ra->grow_node_regs(C->unique() + (uint)(2 * after.length() + 2 * hot_traps.length()) + 1);
-
   // A call whose block ends in a Catch must be followed only by its projections and the Catch
   // (the exception table is built from the call's return): the scrub then goes at the start of
   // each block the Catch leads to that needs it, other than the exception handlers (they start
@@ -394,6 +390,12 @@ bool TrapScrubs::insert(Compile* C, const TrapScrubPlatform* platform, GrowableA
       free_scratch.append(writer->is_MachCall() && only_reached_from_call(cfg, target, block));
     }
   }
+  // Room in the register allocation table for every node inserted below (they get no register):
+  // one at the start of each target, at most one after each other writer, and at each hot trap a
+  // scrub before traps and a check.
+  uint inserted = (uint)(targets.length() + after.length()) +
+                  (uint)hot_traps.length() * ((at_traps ? 1 : 0) + (verify ? 1 : 0));
+  ra->grow_node_regs(C->unique() + inserted);
   for (int i = 0; i < targets.length(); i++) {
     MachTrapScrubNode* scrub = new MachTrapScrubNode(false /* check */, free_scratch.at(i));
     targets.at(i)->insert_node(scrub, first_after_phis(targets.at(i)));
@@ -429,6 +431,8 @@ bool TrapScrubs::insert(Compile* C, const TrapScrubPlatform* platform, GrowableA
       cfg->map_node_to_block(check, block);
     }
   }
+  // Emission reads the register of every inserted node from the table.
+  guarantee(C->unique() <= ra->node_regs_max_index(), "register allocation table too small for the scrubs");
   if (hot_traps_out != nullptr) {
     hot_traps_out->appendAll(&hot_traps);
   }
