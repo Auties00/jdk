@@ -1,0 +1,101 @@
+name: 'JDK-8365196 scrub11: version sources and containers'
+
+# Review-only (review7 R1). On windows-2025 and windows-2022 runners, on the host and inside
+# process-isolated Windows containers (servercore and nanoserver, ltsc2022 and ltsc2025): every source of
+# the Windows version a process can read and every server-silo signal (kprobe.c), the native fault probe
+# (xprobe.c: affected or not, measured L), and what the scrub10 JVM decides there.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-scrub11-kprobe*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  # scrub10 (fb326eb1df6), as built by run 44830244649.
+  S10_RUN: 44830244649
+
+jobs:
+  kprobe:
+    name: kprobe (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-2022]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            review10
+            review11
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-s10
+          run-id: ${{ env.S10_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'Build the probes'
+        run: |
+          set +e
+          mkdir -p out
+          unzip -q b-s10/jdk-windows-x64.zip -d /c/s10
+          ls /c/s10
+          mkdir -p /c/probe
+          cp review10/* review11/* /c/probe/
+          cd /c/probe
+          cat > kbuild.cmd <<'EOF'
+          @echo off
+          set "VSWHERE=C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          for /f "usebackq tokens=*" %%i in (`call "%%VSWHERE%%" -latest -products * -property installationPath`) do set "VSDIR=%%i"
+          call "%VSDIR%\VC\Auxiliary\Build\vcvarsall.bat" x64 >nul
+          cl /nologo /O1 /MT kprobe.c advapi32.lib version.lib /link /OUT:kprobe.exe
+          cl /nologo /O1 /MT featprobe.c advapi32.lib /link /OUT:featprobe.exe
+          EOF
+          cmd //c "$(pwd -W)\\kbuild.cmd" > $GITHUB_WORKSPACE/out/build-k.txt 2>&1
+          cmd //c "$(pwd -W)\\build.cmd" > $GITHUB_WORKSPACE/out/build-x.txt 2>&1
+          ls -la /c/probe | tee -a $GITHUB_WORKSPACE/out/build-k.txt
+      - name: 'Host'
+        run: |
+          set +e
+          J=$(cd "$(dirname "$(find /c/s10 -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W)
+          echo "J=$J" > out/jhome.txt
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          /c/probe/kprobe.exe > out/host-kprobe.txt 2>&1
+          /c/probe/xprobe.exe > out/host-xprobe.txt 2>&1
+          "$J/bin/java" -Xlog:os+cpu=info -version > out/host-jvm.txt 2>&1
+          cat out/host-kprobe.txt; grep -E '^A L=' out/host-xprobe.txt; grep -i -E 'kernel|build|Resuming|length' out/host-jvm.txt
+          powershell -NoProfile -Command "Get-WindowsFeature Containers,Hyper-V | Format-Table -AutoSize | Out-String -Width 200; docker version; docker info; docker images" > out/docker.txt 2>&1
+          cat out/docker.txt
+      - name: 'Containers (process isolation)'
+        run: |
+          set +e
+          J=$(cd "$(dirname "$(find /c/s10 -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W)
+          JD=$(basename "$J")
+          for img in servercore:ltsc2022 servercore:ltsc2025 nanoserver:ltsc2022 nanoserver:ltsc2025; do
+            tag=$(echo $img | tr ':' '-')
+            s=$(date +%s)
+            docker pull -q mcr.microsoft.com/windows/$img > out/pull-$tag.txt 2>&1
+            echo "pull $img exit=$? $(( $(date +%s) - s ))s" | tee -a out/containers.txt
+            run() { docker run --rm --isolation=process -v 'C:\probe:C:\probe' -v 'C:\s10:C:\s10' mcr.microsoft.com/windows/$img "$@"; }
+            run 'C:\probe\kprobe.exe' > out/c-$tag-kprobe.txt 2>&1; echo "kprobe $img exit=$?" | tee -a out/containers.txt
+            run 'C:\probe\xprobe.exe' > out/c-$tag-xprobe.txt 2>&1; echo "xprobe $img exit=$?" | tee -a out/containers.txt
+            run "C:\\s10\\$JD\\bin\\java.exe" -Xlog:os+cpu=info -version > out/c-$tag-jvm.txt 2>&1; echo "jvm $img exit=$?" | tee -a out/containers.txt
+            run "C:\\s10\\$JD\\bin\\java.exe" -XX:+UnlockDiagnosticVMOptions -XX:+ExceptionXStateSelfTest -Xlog:os+cpu=info -version > out/c-$tag-jvmst.txt 2>&1
+            { echo "=== $img"; cat out/c-$tag-kprobe.txt; grep -E '^(os:|A L=)' out/c-$tag-xprobe.txt; grep -i -E 'kernel|build|Resuming|length|disagree' out/c-$tag-jvm.txt out/c-$tag-jvmst.txt; } | tee -a out/containers.txt
+          done
+          { echo '```'; cat out/host-kprobe.txt; grep -E '^A L=' out/host-xprobe.txt; cat out/containers.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: kprobe-${{ matrix.os }}
+          path: out
+          retention-days: 30
