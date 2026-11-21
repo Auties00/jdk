@@ -152,6 +152,12 @@ define_pd_global(bool, ValueTypeReturnedAsFields, true);
           "Testing: do not clear the stale XSAVE header after calls, so "   \
           "that VerifyExceptionXStateScrub can be seen to fail")            \
                                                                             \
+  develop(int, ExceptionXStateStaticLengthError, 0,                         \
+          "Testing: add this many bytes to the length of the exception "    \
+          "context that the JVM computes from CPUID, so that the startup "  \
+          "verification of the scrub can be seen to reject it")             \
+          range(-1024, 1024)                                                \
+                                                                            \
   product(bool, UseKNLSetting, false, DIAGNOSTIC,                           \
           "Control whether Knights platform setting should be used")        \
                                                                             \

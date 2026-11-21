@@ -29,10 +29,10 @@
 // The table of Windows kernels that decides whether resuming from an exception can lose AVX state
 // (JDK-8365196), at every boundary of every rule.
 
-static const VM_Version::ExceptionXStateKernel U = VM_Version::exception_xstate_kernel_unknown;
-static const VM_Version::ExceptionXStateKernel K = VM_Version::exception_xstate_kernel_keeps;
-static const VM_Version::ExceptionXStateKernel L = VM_Version::exception_xstate_kernel_loses;
-static const VM_Version::ExceptionXStateKernel G = VM_Version::exception_xstate_kernel_gated;
+static const VM_Version::ExceptionXStateKernel XS_U = VM_Version::exception_xstate_kernel_unknown;
+static const VM_Version::ExceptionXStateKernel XS_K = VM_Version::exception_xstate_kernel_keeps;
+static const VM_Version::ExceptionXStateKernel XS_L = VM_Version::exception_xstate_kernel_loses;
+static const VM_Version::ExceptionXStateKernel XS_G = VM_Version::exception_xstate_kernel_gated;
 
 struct ExceptionXStateCase {
   int build;
@@ -54,14 +54,14 @@ static void check_cases(const ExceptionXStateCase* cases, size_t count) {
 TEST(ExceptionXStateKernels, lines_before_26100) {
   static const ExceptionXStateCase cases[] = {
     // Every revision of the lines whose routine clears the header, examined or not.
-    { 17763, -1, K, K }, { 17763, 1, K, K }, { 17763, 9479, K, K }, { 17763, 9999, K, K },
-    { 18362, -1, K, K }, { 19041, -1, K, K }, { 19041, 7844, K, K },
-    { 20348, -1, K, K }, { 20348, 5866, K, K }, { 20348, 5870, K, K },
-    { 22000, -1, K, K }, { 22621, -1, K, K }, { 22621, 7714, K, K },
+    { 17763, -1, XS_K, XS_K }, { 17763, 1, XS_K, XS_K }, { 17763, 9479, XS_K, XS_K }, { 17763, 9999, XS_K, XS_K },
+    { 18362, -1, XS_K, XS_K }, { 19041, -1, XS_K, XS_K }, { 19041, 7844, XS_K, XS_K },
+    { 20348, -1, XS_K, XS_K }, { 20348, 5866, XS_K, XS_K }, { 20348, 5870, XS_K, XS_K },
+    { 22000, -1, XS_K, XS_K }, { 22621, -1, XS_K, XS_K }, { 22621, 7714, XS_K, XS_K },
     // Builds that were not examined.
-    { 0, -1, U, U }, { 10240, -1, U, U }, { 14393, -1, U, U }, { 17134, -1, U, U },
-    { 18363, -1, U, U }, { 19045, -1, U, U }, { 20349, -1, U, U }, { 22631, -1, U, U },
-    { 25398, -1, U, U }, { 26099, -1, U, U }
+    { 0, -1, XS_U, XS_U }, { 10240, -1, XS_U, XS_U }, { 14393, -1, XS_U, XS_U }, { 17134, -1, XS_U, XS_U },
+    { 18363, -1, XS_U, XS_U }, { 19045, -1, XS_U, XS_U }, { 20349, -1, XS_U, XS_U }, { 22631, -1, XS_U, XS_U },
+    { 25398, -1, XS_U, XS_U }, { 26099, -1, XS_U, XS_U }
   };
   check_cases(cases, ARRAY_SIZE(cases));
 }
@@ -69,22 +69,24 @@ TEST(ExceptionXStateKernels, lines_before_26100) {
 TEST(ExceptionXStateKernels, build_26100) {
   static const ExceptionXStateCase cases[] = {
     // No revision, or below the oldest examined.
-    { 26100, -1, U, U }, { 26100, 0, U, U },
+    { 26100, -1, XS_U, XS_U }, { 26100, 0, XS_U, XS_U },
     // Affected, examined and between examined.
-    { 26100, 1, L, L }, { 26100, 2, L, L }, { 26100, 4946, L, L }, { 26100, 5000, L, L }, { 26100, 6584, L, L },
+    { 26100, 1, XS_L, XS_L }, { 26100, 2, XS_L, XS_L }, { 26100, 4946, XS_L, XS_L }, { 26100, 5000, XS_L, XS_L }, { 26100, 6584, XS_L, XS_L },
     // The gap to the gated class.
-    { 26100, 6585, U, U }, { 26100, 6724, U, U },
+    { 26100, 6585, XS_U, XS_U }, { 26100, 6724, XS_U, XS_U },
     // Gated.
-    { 26100, 6725, G, G }, { 26100, 7000, G, G }, { 26100, 7824, G, G },
+    { 26100, 6725, XS_G, XS_G }, { 26100, 7000, XS_G, XS_G }, { 26100, 7824, XS_G, XS_G },
     // The gap to the fixed class.
-    { 26100, 7825, U, U }, { 26100, 7919, U, U },
+    { 26100, 7825, XS_U, XS_U }, { 26100, 7919, XS_U, XS_U },
     // Fixed.
-    { 26100, 7920, K, K }, { 26100, 9000, K, K }, { 26100, 9711, K, K }, { 26100, 9974, K, K },
+    { 26100, 7920, XS_K, XS_K }, { 26100, 9000, XS_K, XS_K }, { 26100, 9711, XS_K, XS_K }, { 26100, 9974, XS_K, XS_K },
     // Above every examined client revision: client installations only.
-    { 26100, 9975, K, U }, { 26100, 10068, K, U }, { 26100, 29999, K, U },
+    { 26100, 9975, XS_K, XS_U }, { 26100, 10068, XS_K, XS_U }, { 26100, 12974, XS_K, XS_U },
+    // Too far above it.
+    { 26100, 12975, XS_U, XS_U }, { 26100, 29999, XS_U, XS_U },
     // The hotpatch branch: only the examined revision.
-    { 26100, 30000, U, U }, { 26100, 32313, U, U }, { 26100, 33827, U, U },
-    { 26100, 33828, G, G }, { 26100, 33829, U, U }, { 26100, 65535, U, U }
+    { 26100, 30000, XS_U, XS_U }, { 26100, 32313, XS_U, XS_U }, { 26100, 33827, XS_U, XS_U },
+    { 26100, 33828, XS_G, XS_G }, { 26100, 33829, XS_U, XS_U }, { 26100, 65535, XS_U, XS_U }
   };
   check_cases(cases, ARRAY_SIZE(cases));
 }
@@ -92,15 +94,15 @@ TEST(ExceptionXStateKernels, build_26100) {
 TEST(ExceptionXStateKernels, build_28000_and_later) {
   static const ExceptionXStateCase cases[] = {
     // Below the oldest examined revision.
-    { 28000, -1, U, U }, { 28000, 0, U, U }, { 28000, 1, U, U }, { 28000, 1574, U, U },
+    { 28000, -1, XS_U, XS_U }, { 28000, 0, XS_U, XS_U }, { 28000, 1, XS_U, XS_U }, { 28000, 1574, XS_U, XS_U },
     // Examined and between examined.
-    { 28000, 1575, K, K }, { 28000, 1576, K, K }, { 28000, 2000, K, K }, { 28000, 3365, K, K },
+    { 28000, 1575, XS_K, XS_K }, { 28000, 1576, XS_K, XS_K }, { 28000, 2000, XS_K, XS_K }, { 28000, 3365, XS_K, XS_K },
     // Above every examined revision: client installations only.
-    { 28000, 3366, K, U }, { 28000, 29999, K, U },
+    { 28000, 3366, XS_K, XS_U }, { 28000, 6365, XS_K, XS_U }, { 28000, 6366, XS_U, XS_U }, { 28000, 29999, XS_U, XS_U },
     // A hotpatch branch, of which none was examined.
-    { 28000, 30000, U, U }, { 28000, 40000, U, U },
+    { 28000, 30000, XS_U, XS_U }, { 28000, 40000, XS_U, XS_U },
     // Later builds.
-    { 28001, 1, U, U }, { 28001, -1, U, U }, { 29000, 1, U, U }, { 30000, 1, U, U }
+    { 28001, 1, XS_U, XS_U }, { 28001, -1, XS_U, XS_U }, { 29000, 1, XS_U, XS_U }, { 30000, 1, XS_U, XS_U }
   };
   check_cases(cases, ARRAY_SIZE(cases));
 }
@@ -116,10 +118,10 @@ TEST(ExceptionXStateKernels, needs_revision) {
 
 TEST(ExceptionXStateKernels, gated_feature) {
   // Enabled is left to the startup check; disabled, not configured, or no query loses the state.
-  EXPECT_EQ(U, VM_Version::decide_gated_exception_xstate_kernel(1));
-  EXPECT_EQ(L, VM_Version::decide_gated_exception_xstate_kernel(0));
-  EXPECT_EQ(L, VM_Version::decide_gated_exception_xstate_kernel(-1));
-  EXPECT_EQ(L, VM_Version::decide_gated_exception_xstate_kernel(2));
+  EXPECT_EQ(XS_U, VM_Version::decide_gated_exception_xstate_kernel(1));
+  EXPECT_EQ(XS_L, VM_Version::decide_gated_exception_xstate_kernel(0));
+  EXPECT_EQ(XS_L, VM_Version::decide_gated_exception_xstate_kernel(-1));
+  EXPECT_EQ(XS_L, VM_Version::decide_gated_exception_xstate_kernel(2));
 }
 
 // A system whose sources the test sets, and which counts the reads the decision makes.
@@ -185,27 +187,27 @@ static VM_Version::ExceptionXStateKernel decide(VM_Version::ExceptionXStateDecis
 TEST(ExceptionXStateKernels, system_gated_feature) {
   VM_Version::ExceptionXStateDecision d;
   reset_fake_system();
-  EXPECT_EQ(L, decide(&d));
+  EXPECT_EQ(XS_L, decide(&d));
   EXPECT_EQ(33828, d.revision);
   EXPECT_EQ(-1, d.feature);
   EXPECT_EQ(1, feature_reads);
   EXPECT_EQ(nullptr, d.reason);
   reset_fake_system();
   fake_feature = 0;
-  EXPECT_EQ(L, decide(&d));
+  EXPECT_EQ(XS_L, decide(&d));
   EXPECT_EQ(0, d.feature);
   reset_fake_system();
   fake_feature = 1;
-  EXPECT_EQ(U, decide(&d));
+  EXPECT_EQ(XS_U, decide(&d));
   EXPECT_EQ(1, d.feature);
   // A gated client revision.
   reset_fake_system();
   fake_server = false;
   fake_kernel_revision = 7705;
   fake_feature = 1;
-  EXPECT_EQ(U, decide(&d));
+  EXPECT_EQ(XS_U, decide(&d));
   fake_feature = 0;
-  EXPECT_EQ(L, decide(&d));
+  EXPECT_EQ(XS_L, decide(&d));
 }
 
 TEST(ExceptionXStateKernels, system_paths) {
@@ -214,37 +216,37 @@ TEST(ExceptionXStateKernels, system_paths) {
   reset_fake_system();
   fake_server = false;
   fake_kernel_revision = 4946;
-  EXPECT_EQ(L, decide(&d));
+  EXPECT_EQ(XS_L, decide(&d));
   EXPECT_EQ(0, feature_reads);
   fake_kernel_revision = 9711;
-  EXPECT_EQ(K, decide(&d));
+  EXPECT_EQ(XS_K, decide(&d));
   fake_kernel_revision = 9975;
-  EXPECT_EQ(K, decide(&d));
+  EXPECT_EQ(XS_K, decide(&d));
   fake_server = true;
-  EXPECT_EQ(U, decide(&d));
+  EXPECT_EQ(XS_U, decide(&d));
   // Windows 11 25H2: the kernel reports 26200, the files are of 26100.
   reset_fake_system();
   fake_server = false;
   fake_running_build = 26200;
   fake_kernel_revision = 9974;
-  EXPECT_EQ(K, decide(&d));
+  EXPECT_EQ(XS_K, decide(&d));
   EXPECT_EQ(26100, d.build);
   // A line before 26100 never reads ntoskrnl.exe.
   reset_fake_system();
   fake_file_build = 20348;
   fake_running_build = 20348;
-  EXPECT_EQ(K, decide(&d));
+  EXPECT_EQ(XS_K, decide(&d));
   EXPECT_EQ(0, kernel_reads);
   EXPECT_EQ(-1, d.revision);
   fake_file_build = 22621;
   fake_running_build = 22631;
   fake_server = false;
-  EXPECT_EQ(K, decide(&d));
+  EXPECT_EQ(XS_K, decide(&d));
   EXPECT_EQ(0, kernel_reads);
   // Emulated.
   reset_fake_system();
   fake_native = false;
-  EXPECT_EQ(U, decide(&d));
+  EXPECT_EQ(XS_U, decide(&d));
   EXPECT_STREQ("emulated", d.reason);
   EXPECT_EQ(0, kernel_reads);
   // In a container, whatever the image's files say: a Windows Server 2022 image on a Windows
@@ -252,37 +254,37 @@ TEST(ExceptionXStateKernels, system_paths) {
   reset_fake_system();
   fake_container = true;
   fake_file_build = 20348;
-  EXPECT_EQ(U, decide(&d));
+  EXPECT_EQ(XS_U, decide(&d));
   EXPECT_STREQ("in a container", d.reason);
   fake_file_build = 26100;
   fake_kernel_revision = 9711;
-  EXPECT_EQ(U, decide(&d));
+  EXPECT_EQ(XS_U, decide(&d));
   EXPECT_EQ(0, kernel_reads);
   // A container that was not detected, with an image of another build than its host's kernel.
   reset_fake_system();
   fake_file_build = 20348;
-  EXPECT_EQ(U, decide(&d));
+  EXPECT_EQ(XS_U, decide(&d));
   EXPECT_STREQ("the running kernel reports another build", d.reason);
   EXPECT_EQ(26100, d.running_build);
   // A kernel too old to report its build.
   reset_fake_system();
   fake_file_build = 17763;
   fake_running_build = 0;
-  EXPECT_EQ(U, decide(&d));
+  EXPECT_EQ(XS_U, decide(&d));
   // A pending reboot.
   reset_fake_system();
   fake_reboot_pending = true;
-  EXPECT_EQ(U, decide(&d));
+  EXPECT_EQ(XS_U, decide(&d));
   EXPECT_STREQ("an update waits for a reboot", d.reason);
   EXPECT_EQ(0, kernel_reads);
   // ntoskrnl.exe unreadable, or of another build.
   reset_fake_system();
   fake_kernel_readable = false;
-  EXPECT_EQ(U, decide(&d));
+  EXPECT_EQ(XS_U, decide(&d));
   EXPECT_EQ(-1, d.revision);
   reset_fake_system();
   fake_kernel_build = 20348;
-  EXPECT_EQ(U, decide(&d));
+  EXPECT_EQ(XS_U, decide(&d));
   EXPECT_EQ(-1, d.revision);
   // 28000, a later build, a build between the lines.
   reset_fake_system();
@@ -291,15 +293,15 @@ TEST(ExceptionXStateKernels, system_paths) {
   fake_running_build = 28000;
   fake_kernel_build = 28000;
   fake_kernel_revision = 1000;
-  EXPECT_EQ(U, decide(&d));
+  EXPECT_EQ(XS_U, decide(&d));
   fake_kernel_revision = 3365;
-  EXPECT_EQ(K, decide(&d));
+  EXPECT_EQ(XS_K, decide(&d));
   fake_file_build = 28001;
   fake_running_build = 28001;
-  EXPECT_EQ(U, decide(&d));
+  EXPECT_EQ(XS_U, decide(&d));
   fake_file_build = 25398;
   fake_running_build = 25398;
-  EXPECT_EQ(U, decide(&d));
+  EXPECT_EQ(XS_U, decide(&d));
 }
 
 TEST(ExceptionXStateKernels, kernel_line) {

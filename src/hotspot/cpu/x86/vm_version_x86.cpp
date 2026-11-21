@@ -2501,7 +2501,8 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
 // A revision that was not examined is judged only from inside the examined range of its branch:
 // between two examined revisions of one class it takes that class. Above the newest examined
 // revision, only the client branch of a line whose newest examined revisions keep the state, on a
-// client installation, is judged to keep it (server revisions are serviced apart and can lag).
+// client installation, and for about a year of updates, is judged to keep it (server revisions are
+// serviced apart and can lag).
 // Anything else, a line that was not examined, and every case where the files of System32 might
 // not be the running kernel's (a container, a pending reboot) are left to the startup check
 // (check_exception_xstate()). The one case this gets wrong is a later revision of a line that
@@ -2554,6 +2555,11 @@ static const ExceptionXStateRevision exception_xstate_28000[] = {
 
 static const int exception_xstate_hotpatch_revisions = 30000;
 
+// How far above the newest examined revision of a fixed client line a revision is still judged by
+// it: about a year of monthly updates at the pace of 26100 (2054 revisions from February to
+// November 2026), a JDK update's time to refresh the table. Further revisions run the check.
+static const int exception_xstate_newer_revisions = 3000;
+
 static const uint32_t exception_xstate_header_fix_feature = 58474193;
 
 bool VM_Version::exception_xstate_kernel_needs_revision(int build) {
@@ -2561,9 +2567,9 @@ bool VM_Version::exception_xstate_kernel_needs_revision(int build) {
 }
 
 // What a revision of a line with a table does: an examined one by the table; one between two
-// examined revisions of its branch by them if they agree; one above every examined revision of its
-// branch as the newest examined one if that keeps the state, on a client installation of the client
-// branch only; anything else unknown.
+// examined revisions of its branch by them if they agree; one at most exception_xstate_newer_revisions
+// above every examined revision of its branch as the newest examined one if that keeps the state,
+// on a client installation of the client branch only; anything else unknown.
 static VM_Version::ExceptionXStateKernel classify_exception_xstate_revision(const ExceptionXStateRevision* table,
                                                                             size_t length, int revision, bool server) {
   if (revision < 0) {
@@ -2592,7 +2598,8 @@ static VM_Version::ExceptionXStateKernel classify_exception_xstate_revision(cons
     return VM_Version::exception_xstate_kernel_unknown;
   }
   if (above == nullptr) {
-    if (!server && !hotpatch && below->kernel == VM_Version::exception_xstate_kernel_keeps) {
+    if (!server && !hotpatch && below->kernel == VM_Version::exception_xstate_kernel_keeps &&
+        revision - below->revision <= exception_xstate_newer_revisions) {
       return VM_Version::exception_xstate_kernel_keeps;
     }
     return VM_Version::exception_xstate_kernel_unknown;
@@ -2778,7 +2785,12 @@ int VM_Version::verified_exception_xstate_scrub_length(bool measured) {
     check_exception_xstate();
     measured = true;
     if (!_exception_resume_loses_xstate) {
-      warning("The startup check of exception contexts disagrees with the table of Windows kernels; using the check");
+      // The table, from the kernel's code, says the state can be lost, and the length from CPUID
+      // was not where this kernel put the context: a check that sees the state kept is not trusted
+      // over both, and the vectors are capped.
+      warning("The startup check of exception contexts disagrees with the table of Windows kernels; "
+              "using no state that can be lost");
+      _exception_resume_loses_xstate = true;
       return 0;
     }
   }
@@ -2804,9 +2816,11 @@ void VM_Version::set_exception_xstate_mitigation() {
       log_info(os, cpu)("Windows kernel 10.0.%d.%d: %s (feature %u: %s)", build, revision, kernel_names[kernel],
                         exception_xstate_header_fix_feature, feature_state);
     } else {
-      log_info(os, cpu)("Windows build %d (running kernel build %d): %s%s%s", build, decision.running_build,
-                        kernel_names[kernel], decision.reason != nullptr ? ": " : "",
-                        decision.reason != nullptr ? decision.reason : "");
+      log_info(os, cpu)("Windows build %d: %s%s%s", build, kernel_names[kernel],
+                        decision.reason != nullptr ? ": " : "", decision.reason != nullptr ? decision.reason : "");
+      if (decision.running_build >= 0 && exception_xstate_kernel_line(decision.running_build) != build) {
+        log_info(os, cpu)("The running kernel reports build %d", decision.running_build);
+      }
     }
     // Whether the length comes from the startup check.
     bool measured = false;
@@ -2824,7 +2838,8 @@ void VM_Version::set_exception_xstate_mitigation() {
                         _exception_resume_loses_xstate ? "can lose" : "keeps");
       if (_exception_resume_loses_xstate) {
         _exception_xstate_measured_length =
-            exception_xstate_static_length((uint64_t)_cpuid_info.xem_xcr0_eax.value);
+            exception_xstate_static_length((uint64_t)_cpuid_info.xem_xcr0_eax.value) +
+            ExceptionXStateStaticLengthError;
         log_info(os, cpu)("Exception context XSTATE length %d (from CPUID)", _exception_xstate_measured_length);
       }
     }

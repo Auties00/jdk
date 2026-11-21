@@ -2811,22 +2811,23 @@ bool os::win32::in_container() {
     return true;
   }
   // The marker that container images carry in their registry, independent of the job hierarchy.
-  DWORD type = 0;
-  DWORD size = sizeof(type);
-  return RegGetValue(HKEY_LOCAL_MACHINE, TEXT("SYSTEM\\CurrentControlSet\\Control"), TEXT("ContainerType"),
-                     RRF_RT_REG_DWORD, nullptr, &type, &size) == ERROR_SUCCESS;
+  // Only its proven absence counts as no container.
+  LSTATUS status = RegGetValue(HKEY_LOCAL_MACHINE, TEXT("SYSTEM\\CurrentControlSet\\Control"),
+                               TEXT("ContainerType"), RRF_RT_ANY, nullptr, nullptr, nullptr);
+  return status != ERROR_FILE_NOT_FOUND;
 }
 
 bool os::win32::reboot_pending() {
   // Set by the servicing stack from the installation of an update to the reboot that completes it.
+  // Only its proven absence counts as no reboot pending.
   HKEY key;
-  if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
-                   TEXT("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending"),
-                   0, KEY_READ, &key) != ERROR_SUCCESS) {
-    return false;
+  LSTATUS status = RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+                                TEXT("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending"),
+                                0, KEY_READ, &key);
+  if (status == ERROR_SUCCESS) {
+    RegCloseKey(key);
   }
-  RegCloseKey(key);
-  return true;
+  return status != ERROR_FILE_NOT_FOUND;
 }
 
 bool os::win32::runs_natively() {
