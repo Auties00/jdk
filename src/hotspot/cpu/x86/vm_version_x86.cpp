@@ -2830,8 +2830,14 @@ void VM_Version::set_exception_xstate_mitigation() {
       measured = true;
       if (kernel != exception_xstate_kernel_unknown &&
           (kernel == exception_xstate_kernel_loses) != _exception_resume_loses_xstate) {
+        // Where the kernel's code says the state can be lost, a check that sees it kept does not
+        // turn the protection off.
+        bool table_loses = kernel == exception_xstate_kernel_loses;
         warning("The startup check of exception contexts disagrees with the table of Windows kernels "
-                "(build %d, kernel revision %d); using the check", build, revision);
+                "(build %d, kernel revision %d); using %s", build, revision, table_loses ? "the table" : "the check");
+        if (table_loses) {
+          _exception_resume_loses_xstate = true;
+        }
       }
     } else {
       _exception_resume_loses_xstate = kernel == exception_xstate_kernel_loses;

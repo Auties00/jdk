@@ -2834,7 +2834,7 @@ bool os::win32::reboot_pending() {
   HKEY key;
   LSTATUS status = RegOpenKeyEx(HKEY_LOCAL_MACHINE,
                                 TEXT("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending"),
-                                0, KEY_READ, &key);
+                                0, KEY_QUERY_VALUE, &key);
   if (status == ERROR_SUCCESS) {
     RegCloseKey(key);
   }
