@@ -2423,9 +2423,11 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
 // What the Windows kernel does with the XSAVE header of a user-mode exception context, as found by
 // disassembling KiDispatchException and RtlpCopyXStateChunk of 604 x64 ntoskrnl.exe revisions with
 // their public symbols from the Microsoft symbol server (JDK-8365196):
-// - before build 26100, RtlpCopyXStateChunk clears the header at the destination before it copies
-//   the state, in every revision examined (builds 17763 to 22621): a stale header on the stack is
-//   never read. The routine that trusts the header first shipped in build 26100;
+// - up to Windows 11 23H2, RtlpCopyXStateChunk clears the header at the destination before it
+//   copies the state, in every revision examined (builds 17763 to 22621): a stale header on the
+//   stack is never read. The first examined kernel with the routine that trusts the header is the
+//   first of build 26100. The builds between them (Windows Server 23H2, 25398, and the Insider
+//   builds that led to 26100) were not examined;
 // - build 26100 changed RtlpCopyXStateChunk to trust a header already at the destination. Its
 //   first revisions do nothing about it (they lose the state); then KiDispatchException copies the
 //   kernel's own header to the destination first, at first only when feature 58474193 (0x037C3AD1,
@@ -2439,21 +2441,28 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
 
 // The revision of a line with a table is the QFE the running kernel reports: the revision of the
 // update the machine booted with (its OS revision), not the one of ntoskrnl.exe. The tables list
-// the QFE of every released cumulative update of the line whose kernel was examined, with the
-// class of the kernel that the update ships: the same revision, or an earlier one for an update
-// that did not rebuild the kernel (26100.7922 ships kernel 7920, 26100.9725 kernel 9711). A QFE
-// is matched exactly. One that is not an entry protects the state, whatever its neighbours,
-// because a revision does not tell what runs by its position: a hotpatch update (Windows 11
-// Enterprise, Windows Server 2025 Datacenter: Azure Edition or with Azure Arc) ships patch images
-// only (ntkrnlmp_hotpatch.exe, no ntoskrnl.exe), so a machine at a hotpatch revision runs the
-// kernel of its baseline update, patched in memory, a combination that was not examined. The
-// hotpatches 26100.7979 to 7985 (March 2026) are numbered between the fixed updates 7922 and 8037
-// and patch the gated kernel 7623. No hotpatch revision is an entry, nor are the kernels that
-// could not be examined (26100.10075, with kernel 10068) or the Windows Server 2025 updates other
-// than the one examined (they use the client revisions up to 7462 and from January 2026
-// revisions from 32230, the branch of 33828). The QFE is recorded when the kernel boots: a
-// hotpatch applied later, without a reboot, does not change it, and no unprivileged query tells
-// that one is applied (NtManageHotPatch refuses its queries of loaded patches without privilege).
+// the QFE of every released cumulative update of the line whose kernel was examined (and the base
+// image 26100.1, and the examined Windows Server 2025 update), with the class of the kernel that
+// the update ships: the same revision, or an earlier one for an update that did not rebuild the
+// kernel (26100.7922 ships kernel 7920, 26100.9725 kernel 9711). A QFE is matched exactly. One
+// that is not an entry protects the state, whatever its neighbours, because a revision does not
+// tell what runs by its position: a hotpatch update (Windows 11 Enterprise, Windows Server 2025
+// Datacenter: Azure Edition or with Azure Arc) ships patch images only (ntkrnlmp_hotpatch.exe, no
+// ntoskrnl.exe), so a machine at a hotpatch revision runs the kernel of its baseline update,
+// patched in memory, a combination that was not examined. The hotpatches 26100.7979 to 7985 (March
+// 2026) are numbered between the fixed updates 7922 and 8037, and their baseline is the January
+// 2026 update, the gated kernel 7623. No hotpatch revision is an entry, nor are the kernels that
+// could not be examined (26100.10075, with kernel 10068) or the Windows Server 2025 updates since
+// January 2026 other than the one examined (revisions from 32230, the branch of 33828; the earlier
+// ones are the client revisions up to 7462).
+//
+// Not covered: the QFE is recorded when the kernel boots. A hotpatch applied later without a
+// reboot does not change it, so a machine booted with a fixed baseline update and hotpatched since
+// is judged by the baseline. The patch images are builds of later revisions of the same branch,
+// all after the fix became unconditional, but what they change was not examined. No unprivileged
+// query tells that a hotpatch is applied: NtManageHotPatch refuses its queries of loaded patches
+// without SeLoadDriverPrivilege, and that the hotpatch engine is enabled does not tell that a
+// patch is applied.
 struct ExceptionXStateRevision {
   int revision;
   VM_Version::ExceptionXStateKernel kernel;
@@ -2463,7 +2472,8 @@ struct ExceptionXStateRevision {
 #define XS_G VM_Version::exception_xstate_kernel_gated
 #define XS_K VM_Version::exception_xstate_kernel_keeps
 // Build 26100: Windows 11 24H2, Windows Server 2025, and the enablement build 26200 (Windows 11
-// 25H2), whose updates share its revisions and its kernel. 26300 is not mapped: Insider builds of
+// 25H2), whose updates share its revisions and its kernel. 26300 is not mapped, so it protects
+// the state: it shares the line's updates since September 2026 (26300.9550), but Insider builds of
 // it carry revisions of their own, from a branch that was not examined.
 static const ExceptionXStateRevision exception_xstate_26100[] = {
   {     1, XS_L }, {   863, XS_L }, {  1000, XS_L }, {  1150, XS_L }, {  1301, XS_L }, {  1457, XS_L },
@@ -2507,8 +2517,8 @@ static VM_Version::ExceptionXStateKernel classify_exception_xstate_revision(cons
 }
 
 VM_Version::ExceptionXStateKernel VM_Version::classify_exception_xstate_kernel(int line, int revision) {
-  if (line >= 10240 && line < 26100) {
-    // Windows 10 and Windows Server 2016 to Windows 11 23H2 and Windows Server 23H2, any revision.
+  if (line >= 10240 && line <= 22631) {
+    // Windows 10 and Windows Server 2016 to Windows 11 23H2, any revision.
     return exception_xstate_kernel_keeps;
   }
   if (line == 26100) {
@@ -2517,8 +2527,9 @@ VM_Version::ExceptionXStateKernel VM_Version::classify_exception_xstate_kernel(i
   if (line == 28000) {
     return classify_exception_xstate_revision(exception_xstate_28000, ARRAY_SIZE(exception_xstate_28000), revision);
   }
-  // No valid build, or a line that was not examined: 26101 to 27999 but 26200, the enablement
-  // build of 26100 (Insider builds such as 26120, 26220 and 26300), or newer than 28000.
+  // No valid build, or a line that was not examined: 22632 to 26099 (Windows Server 23H2, 25398,
+  // and the Insider builds that led to 26100), 26101 to 27999 but 26200, the enablement build of
+  // 26100 (Insider builds such as 26120 and 26220, and 26300), or newer than 28000.
   return exception_xstate_kernel_unknown;
 }
 
