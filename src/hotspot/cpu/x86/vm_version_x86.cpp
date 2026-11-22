@@ -75,7 +75,6 @@ address VM_Version::_exception_xstate_trap_sp = nullptr;
 address VM_Version::_exception_xstate_chunk = nullptr;
 int VM_Version::_exception_xstate_chunk_length = 0;
 bool VM_Version::_exception_resume_loses_xstate = false;
-int VM_Version::_exception_xstate_measured_length = 0;
 int VM_Version::_exception_xstate_scrub_length = 0;
 bool VM_Version::_exception_xstate_capped = false;
 
@@ -106,11 +105,6 @@ static get_cpu_info_stub_t get_cpu_info_stub = nullptr;
 static detect_virt_stub_t detect_virt_stub = nullptr;
 static clear_apx_test_state_t clear_apx_test_state_stub = nullptr;
 static getCPUIDBrandString_stub_t getCPUIDBrandString_stub = nullptr;
-static exception_xstate_check_stub_t exception_xstate_check_stub = nullptr;
-// The faulting instruction of exception_xstate_check_stub and the one after it. Generating a stub
-// with a scrub (verify_exception_xstate_scrub()) points the exception handler at that stub's.
-static address exception_xstate_check_segv_addr = nullptr;
-static address exception_xstate_check_cont_addr = nullptr;
 
 #define CPUID_STANDARD_FN   0x0
 #define CPUID_STANDARD_FN_1 0x1
@@ -2394,83 +2388,11 @@ static bool run_exception_xstate_probe(ExceptionXStateProbe* probe) {
 // The generator of the VM_Version stubs, while VM_Version::initialize() runs.
 static VM_Version_StubGenerator* stub_generator = nullptr;
 
-// Distance from the stack pointer of a check's trap down to the XSTATE part of its context, or
-// -1 if the context had none where expected.
-static int exception_xstate_distance(address trap_sp, address area, int area_length) {
-  if (trap_sp == nullptr || area == nullptr || area_length <= 0 || area >= trap_sp ||
-      trap_sp - area > 64 * K || !is_aligned(area, 64)) {
-    return -1;
-  }
-  return checked_cast<int>(trap_sp - area);
-}
-
-// Sets _exception_resume_loses_xstate and, when the contexts of the four traps put their XSTATE
-// chunk at (sp - L) & -64 for a single L, sets _exception_xstate_measured_length to the largest
-// such L (they all place it alike), else to 0. If the traps cannot run, assumes the state can be
-// lost and leaves the length 0, so that the JVM uses no such state (see
-// set_exception_xstate_mitigation()).
-void VM_Version::check_exception_xstate() {
-  _exception_xstate_measured_length = 0;
-  ExceptionXStateProbe probe;
-  probe.stub = exception_xstate_check_stub;
-  probe.scrub_length = 0;
-  set_exception_xstate_segv_addr(exception_xstate_check_segv_addr);
-  set_exception_xstate_cont_addr(exception_xstate_check_cont_addr);
-  if (!run_exception_xstate_probe(&probe)) {
-    log_warning(os, cpu)("Could not check whether resuming from an exception keeps AVX state; "
-                         "assuming it does not");
-    _exception_resume_loses_xstate = true;
-    return;
-  }
-  int distance[4];
-  int sp_mod[4];
-  int lost = 0;
-  bool layout = true;
-  for (int i = 0; i < 4; i++) {
-    if (probe.lost[i]) {
-      lost++;
-    }
-    distance[i] = exception_xstate_distance(probe.trap_sp[i], probe.chunk[i], probe.chunk_length[i]);
-    sp_mod[i] = (int)((uintptr_t)probe.trap_sp[i] & 63);
-    log_debug(os, cpu)("Exception XSTATE check: sp %% 64 = %d, XSTATE at sp - %d, length %d, %s",
-                       sp_mod[i], distance[i], probe.chunk_length[i], probe.lost[i] ? "lost" : "kept");
-    if (distance[i] < 0) {
-      layout = false;
-    }
-  }
-  // A system that loses the state in any of the traps is treated as affected.
-  _exception_resume_loses_xstate = lost > 0;
-  log_info(os, cpu)("Resuming from an exception %s AVX state",
-                    _exception_resume_loses_xstate ? "can lose" : "keeps");
-  if (!layout) {
-    log_info(os, cpu)("Exception context XSTATE: not the expected layout");
-    return;
-  }
-  int min_distance = MIN2(MIN2(distance[0], distance[1]), MIN2(distance[2], distance[3]));
-  int max_distance = MAX2(MAX2(distance[0], distance[1]), MAX2(distance[2], distance[3]));
-  for (int length = min_distance; length >= max_distance - 63 && length > 0; length--) {
-    bool fits = true;
-    for (int i = 0; i < 4; i++) {
-      if (length + ((sp_mod[i] - length) & 63) != distance[i]) {
-        fits = false;
-      }
-    }
-    if (fits) {
-      _exception_xstate_measured_length = length;
-      log_info(os, cpu)("Exception context XSTATE length %d", length);
-      return;
-    }
-  }
-  log_info(os, cpu)("Exception context XSTATE: no single length places it (distances %d, %d, %d, %d)",
-                    distance[0], distance[1], distance[2], distance[3]);
-}
-
 // Whether, for each value of sp modulo 64, the scrub at length keeps the AVX state, and the
 // context of that trap still has its XSTATE part where the scrub assumed.
 bool VM_Version::verify_exception_xstate_scrub(int length) {
   // The stub with the scrub at this length, generated here (the probe's thread has no Thread) into
-  // the VM_Version stub blob, whose size leaves room for two: the length from CPUID, then a
-  // measured one.
+  // the VM_Version stub blob. Generating it points the exception handler at its trap.
   assert(stub_generator != nullptr, "only during VM_Version::initialize()");
   ExceptionXStateProbe probe;
   probe.stub = CAST_TO_FN_PTR(exception_xstate_check_stub_t, stub_generator->generate_exception_xstate_check(length));
@@ -2498,42 +2420,42 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
 // disassembling KiDispatchException and RtlpCopyXStateChunk of 604 x64 ntoskrnl.exe revisions with
 // their public symbols from the Microsoft symbol server (JDK-8365196):
 // - before build 26100, RtlpCopyXStateChunk clears the header at the destination before it copies
-//   the state, in every revision examined: a stale header on the stack is never read;
+//   the state, in every revision examined (builds 17763 to 22621): a stale header on the stack is
+//   never read. The routine that trusts the header first shipped in build 26100;
 // - build 26100 changed RtlpCopyXStateChunk to trust a header already at the destination. Its
 //   first revisions do nothing about it (they lose the state); then KiDispatchException copies the
 //   kernel's own header to the destination first, at first only when feature 58474193 (0x037C3AD1,
 //   Feature_Servicing_ExceptionDispatchUninitializedUserXStateHeaderFix) is enabled (gated), and
 //   from client revision 7920 unconditionally (fixed), as in every examined revision of build 28000.
-// A revision that was not examined is judged only from inside the examined range of its branch:
-// between two examined revisions of one class it takes that class. Above the newest examined
-// revision, only the client branch of a line whose newest examined revisions keep the state, on a
-// client installation, and for about a year of updates, is judged to keep it (server revisions are
-// serviced apart and can lag).
-// Anything else, a line that was not examined, and every case where the files of System32 might
-// not be the running kernel's (a container, a pending reboot) are left to the startup check
-// (check_exception_xstate()). The one case this gets wrong is a later revision of a line that
-// keeps the state bringing the defect back, which nothing at startup but the check can see
-// (ExceptionXStateSelfTest forces it).
+// The decision uses only what the running kernel reports about itself, never files, which in a
+// container are the image's: its build line (KUSER_SHARED_DATA), and on 26100 and 28000 the
+// revision of the update it booted with (the QFE of SystemBuildVersionInformation). The state is
+// left unprotected only where that kernel is known to keep it; anything else protects it, gated
+// kernels included, whatever their feature configuration.
 
-// The builds before 26100. Every revision examined clears the header: 17763 (Windows 10 1809,
-// Windows Server 2019) 155 revisions from 1 to 9479, 18362 (1903, 1909) 67 from 30 to 2274, 19041
-// (2004 to 22H2) 151 from 264 to 7844, 20348 (Windows Server 2022) 5866, 22000 (Windows 11 21H2) 60
-// from 194 to 3260, 22621 (Windows 11 22H2, 23H2) 90 from 382 to 7714.
-static const int exception_xstate_clearing_builds[] = { 17763, 18362, 19041, 20348, 22000, 22621 };
-
-// The revisions examined of the builds that need one, in ascending order, with what each does.
-// Revisions from 30000 are a branch of their own: the Windows Server 2025 hotpatch kernels since
-// February 2026. Server revisions below 30000 (earlier hotpatches, and the standard updates, which
-// share the client binaries) are numbered among the client ones.
+// The revision of a line with a table, as the QFE the running kernel reports, is the revision of
+// the cumulative update the machine booted with. That update's ntoskrnl.exe has the same revision
+// or an earlier one (an update that did not rebuild the kernel: 26100.7922 runs kernel 7920,
+// 20348.5870 kernel 5866), never a later one, and every later update has a kernel at least as new.
+// So the kernel that runs is the newest one at or below the QFE: a QFE is judged by the newest
+// entry at or below it, and only where the next entry above it, if the QFE is not an entry itself,
+// has the same class, so that nothing in between can differ. Checked against the 87 updates of
+// 26100 and 28000 that winbindex lists (no QFE judged to keep the state runs a kernel that does
+// not), and against the Windows Server 2025 updates, which use the client revisions up to 7462 and
+// from January 2026 revisions from 32230, the branch of 33828. Kernels of the line that are known
+// but could not be examined are entries of their own, unknown. Below the oldest entry, above the
+// newest, or next to an entry of another class, a QFE protects the state.
 struct ExceptionXStateRevision {
   int revision;
   VM_Version::ExceptionXStateKernel kernel;
 };
 
+#define XS_U VM_Version::exception_xstate_kernel_unknown
 #define XS_L VM_Version::exception_xstate_kernel_loses
 #define XS_G VM_Version::exception_xstate_kernel_gated
 #define XS_K VM_Version::exception_xstate_kernel_keeps
-// Build 26100: Windows 11 24H2 and 25H2, Windows Server 2025.
+// Build 26100: Windows 11 24H2, Windows Server 2025, and the enablement builds 26200 (Windows 11
+// 25H2) and 26300, whose updates share its revisions and its kernel.
 static const ExceptionXStateRevision exception_xstate_26100[] = {
   {     1, XS_L }, {   863, XS_L }, {  1000, XS_L }, {  1150, XS_L }, {  1301, XS_L }, {  1455, XS_L },
   {  1591, XS_L }, {  1742, XS_L }, {  1882, XS_L }, {  2033, XS_L }, {  2161, XS_L }, {  2314, XS_L },
@@ -2547,97 +2469,64 @@ static const ExceptionXStateRevision exception_xstate_26100[] = {
   {  8457, XS_K }, {  8521, XS_K }, {  8655, XS_K }, {  8737, XS_K }, {  8875, XS_K }, {  8894, XS_K },
   {  8972, XS_K }, {  9168, XS_K }, {  9278, XS_K }, {  9444, XS_K }, {  9457, XS_K }, {  9549, XS_K },
   {  9711, XS_K }, {  9818, XS_K }, {  9974, XS_K },
-  { 33828, XS_G }
+  { 10068, XS_U }, // KB5132057, not on the symbol server
+  { 33828, XS_G }  // Windows Server 2025, November 2026
 };
 // Build 28000: Windows 11 26H1.
 static const ExceptionXStateRevision exception_xstate_28000[] = {
-  {  1575, XS_K }, {  1643, XS_K }, {  1719, XS_K }, {  1761, XS_K }, {  1830, XS_K }, {  2113, XS_K },
+  {  1575, XS_K }, {  1643, XS_K }, {  1719, XS_K }, {  1761, XS_K }, {  1830, XS_K },
+  {  1896, XS_U }, // KB5083806, not examined: winbindex has no file data
+  {  2113, XS_K },
+  {  2179, XS_U }, // KB5089570, not examined: winbindex has no file data
   {  2269, XS_K }, {  2336, XS_K }, {  2525, XS_K }, {  2605, XS_K }, {  2704, XS_K }, {  2804, XS_K },
-  {  2952, XS_K }, {  3086, XS_K }, {  3231, XS_K }, {  3365, XS_K }
+  {  2952, XS_K }, {  3086, XS_K }, {  3231, XS_K }, {  3365, XS_K },
+  {  3501, XS_U }, {  3614, XS_U } // KB5132059, KB5132265, not examined
 };
+#undef XS_U
 #undef XS_L
 #undef XS_G
 #undef XS_K
 
-static const int exception_xstate_hotpatch_revisions = 30000;
-
-// How far above the newest examined revision of a fixed client line a revision is still judged by
-// it: about a year of monthly updates at the pace of 26100 (2054 revisions from February to
-// November 2026), a JDK update's time to refresh the table. Further revisions run the check.
-static const int exception_xstate_newer_revisions = 3000;
-
-static const uint32_t exception_xstate_header_fix_feature = 58474193;
-
-bool VM_Version::exception_xstate_kernel_needs_revision(int build) {
-  return build == 26100 || build == 28000;
+bool VM_Version::exception_xstate_kernel_needs_revision(int line) {
+  return line == 26100 || line == 28000;
 }
 
-// What a revision of a line with a table does: an examined one by the table; one between two
-// examined revisions of its branch by them if they agree; one at most exception_xstate_newer_revisions
-// above every examined revision of its branch as the newest examined one if that keeps the state,
-// on a client installation of the client branch only; anything else unknown.
 static VM_Version::ExceptionXStateKernel classify_exception_xstate_revision(const ExceptionXStateRevision* table,
-                                                                            size_t length, int revision, bool server) {
+                                                                            size_t length, int revision) {
   if (revision < 0) {
     return VM_Version::exception_xstate_kernel_unknown;
   }
-  bool hotpatch = revision >= exception_xstate_hotpatch_revisions;
-  const ExceptionXStateRevision* below = nullptr;
-  const ExceptionXStateRevision* above = nullptr;
   for (size_t i = 0; i < length; i++) {
-    const ExceptionXStateRevision* r = &table[i];
-    assert(i == 0 || table[i - 1].revision < r->revision, "the table is in ascending order");
-    if ((r->revision >= exception_xstate_hotpatch_revisions) != hotpatch) {
-      continue;
+    assert(i == 0 || table[i - 1].revision < table[i].revision, "the table is in ascending order");
+    if (table[i].revision == revision) {
+      return table[i].kernel;
     }
-    if (r->revision == revision) {
-      return r->kernel;
-    }
-    if (r->revision < revision) {
-      below = r;
-    } else if (above == nullptr) {
-      above = r;
+    if (table[i].revision > revision) {
+      // Between the entries i - 1 and i: their class if they agree.
+      if (i > 0 && table[i - 1].kernel == table[i].kernel) {
+        return table[i].kernel;
+      }
+      return VM_Version::exception_xstate_kernel_unknown;
     }
   }
-  if (below == nullptr) {
-    // Below the oldest examined revision of its branch, or a branch with none.
-    return VM_Version::exception_xstate_kernel_unknown;
-  }
-  if (above == nullptr) {
-    if (!server && !hotpatch && below->kernel == VM_Version::exception_xstate_kernel_keeps &&
-        revision - below->revision <= exception_xstate_newer_revisions) {
-      return VM_Version::exception_xstate_kernel_keeps;
-    }
-    return VM_Version::exception_xstate_kernel_unknown;
-  }
-  if (below->kernel == above->kernel) {
-    return below->kernel;
-  }
+  // Above the newest entry.
   return VM_Version::exception_xstate_kernel_unknown;
 }
 
-VM_Version::ExceptionXStateKernel VM_Version::classify_exception_xstate_kernel(int build, int revision, bool server) {
-  for (size_t i = 0; i < ARRAY_SIZE(exception_xstate_clearing_builds); i++) {
-    if (build == exception_xstate_clearing_builds[i]) {
-      return exception_xstate_kernel_keeps;
-    }
+VM_Version::ExceptionXStateKernel VM_Version::classify_exception_xstate_kernel(int line, int revision) {
+  if (line >= 10240 && line < 26100) {
+    // Windows 10 and Windows Server 2016 to Windows 11 23H2 and Windows Server 23H2, any revision.
+    return exception_xstate_kernel_keeps;
   }
-  if (build == 26100) {
-    return classify_exception_xstate_revision(exception_xstate_26100, ARRAY_SIZE(exception_xstate_26100),
-                                              revision, server);
+  if (line == 26100) {
+    return classify_exception_xstate_revision(exception_xstate_26100, ARRAY_SIZE(exception_xstate_26100), revision);
   }
-  if (build == 28000) {
-    return classify_exception_xstate_revision(exception_xstate_28000, ARRAY_SIZE(exception_xstate_28000),
-                                              revision, server);
+  if (line == 28000) {
+    return classify_exception_xstate_revision(exception_xstate_28000, ARRAY_SIZE(exception_xstate_28000), revision);
   }
-  // A line that was not examined: one between those above (Windows Server 23H2, 25398), or newer.
+  // No valid build, or a line that was not examined: 26101 to 27999 but the enablement builds of
+  // 26100 (Insider builds), or newer than 28000.
   return exception_xstate_kernel_unknown;
-}
-
-VM_Version::ExceptionXStateKernel VM_Version::decide_gated_exception_xstate_kernel(int feature) {
-  // Whether the kernel applies a configuration that says enabled (a runtime configuration may not
-  // have reached it, and the layout of the query is undocumented) is left to the startup check.
-  return feature == 1 ? exception_xstate_kernel_unknown : exception_xstate_kernel_loses;
 }
 
 int VM_Version::exception_xstate_kernel_line(int reported_build) {
@@ -2645,85 +2534,58 @@ int VM_Version::exception_xstate_kernel_line(int reported_build) {
     case 18363: return 18362;                                         // Windows 10 1909
     case 19042: case 19043: case 19044: case 19045: return 19041;     // Windows 10 20H2 to 22H2
     case 22631: return 22621;                                         // Windows 11 23H2
-    case 26200: return 26100;                                         // Windows 11 25H2
+    case 26200: case 26300: return 26100;                             // Windows 11 25H2, 26300
     default: return reported_build;
   }
 }
 
-// What the kernel of this system does, or unknown. The line is the build the running kernel
-// reports in KUSER_SHARED_DATA, which a container does not change (unlike the version in the PEB),
-// and must be the line of kernel32.dll's build; a line decided by its build alone is decided there.
-// The revision comes from the version of ntoskrnl.exe, which is the running kernel's only where
-// System32 is the host's and nothing has replaced the file since boot, so the table is not used:
-// - inside a container, whose System32 is the image's while the host kernel dispatches its
-//   exceptions (an image of the host's build, or one the line check above did not catch);
-// - while an update waits for a reboot, which may already have replaced ntoskrnl.exe.
 VM_Version::ExceptionXStateKernel VM_Version::classify_exception_xstate_system(const ExceptionXStateSystem* system,
                                                                               ExceptionXStateDecision* decision) {
-  decision->build = exception_xstate_kernel_line(system->file_build());
   decision->running_build = -1;
+  decision->line = -1;
   decision->revision = -1;
-  decision->feature = -1;
   decision->reason = nullptr;
-  // An emulator (x64 on Arm64) dispatches exceptions in code of its own.
+  // An emulator (x64 on Arm64) dispatches exceptions in code of its own, which was not examined.
   if (!system->runs_natively()) {
-    decision->reason = "emulated";
+    decision->reason = "emulated, or not known to run natively";
     return exception_xstate_kernel_unknown;
   }
   decision->running_build = system->running_build();
-  if (exception_xstate_kernel_line(decision->running_build) != decision->build) {
-    decision->reason = "the running kernel reports another build";
-    return exception_xstate_kernel_unknown;
+  decision->line = exception_xstate_kernel_line(decision->running_build);
+  if (!exception_xstate_kernel_needs_revision(decision->line)) {
+    // Decided by the line alone, also in a container: the line is the running kernel's.
+    ExceptionXStateKernel kernel = classify_exception_xstate_kernel(decision->line, -1);
+    if (kernel != exception_xstate_kernel_keeps) {
+      decision->reason = "a build that was not examined";
+    }
+    return kernel;
   }
-  bool server = system->is_server();
-  if (!exception_xstate_kernel_needs_revision(decision->build)) {
-    // Decided by the running kernel's build alone, also in a container.
-    return classify_exception_xstate_kernel(decision->build, -1, server);
-  }
-  // The revision comes from a file, which in a container is the image's.
-  if (system->in_container()) {
-    decision->reason = "in a container";
-    return exception_xstate_kernel_unknown;
-  }
-  if (system->reboot_pending()) {
-    decision->reason = "an update waits for a reboot";
-    return exception_xstate_kernel_unknown;
-  }
-  int kernel_build = -1;
+  int build = -1;
   int revision = -1;
-  if (!system->kernel_file_version(&kernel_build, &revision) || kernel_build != decision->build) {
-    decision->reason = "ntoskrnl.exe has no readable version of this build";
+  if (!system->running_version(&build, &revision)) {
+    decision->reason = "the running kernel's revision could not be read";
+    return exception_xstate_kernel_unknown;
+  }
+  if (exception_xstate_kernel_line(build) != decision->line) {
+    decision->reason = "the running kernel reports two builds";
     return exception_xstate_kernel_unknown;
   }
   decision->revision = revision;
-  ExceptionXStateKernel kernel = classify_exception_xstate_kernel(decision->build, revision, server);
-  if (kernel == exception_xstate_kernel_gated) {
-    decision->feature = system->feature_state(exception_xstate_header_fix_feature);
-    kernel = decide_gated_exception_xstate_kernel(decision->feature);
-  }
-  return kernel;
-}
-
-static int exception_xstate_file_build() {
-  return os::win32::windows_build_number();
+  return classify_exception_xstate_kernel(decision->line, revision);
 }
 
 // The sources of the decision on this system.
 static const VM_Version::ExceptionXStateSystem exception_xstate_this_system = {
   os::win32::runs_natively,
-  os::win32::in_container,
-  exception_xstate_file_build,
   os::win32::running_kernel_build,
-  os::win32::is_windows_server,
-  os::win32::reboot_pending,
-  os::win32::kernel_file_version,
-  os::win32::feature_configuration_state
+  os::win32::running_kernel_version
 };
 
 // The length L of the XSTATE part of an exception context: the compacted XSAVE layout of the user
-// components enabled in XCR0 (CPUID leaf 0xD), without the legacy area. It equals the length the
-// startup check measured on every native x64 system it ran on (320, 1920 and 10176 bytes), but not
-// under the x64 emulator of Windows on Arm64, which the table never classifies.
+// components enabled in XCR0 (CPUID leaf 0xD), without the legacy area. It equals the
+// length measured from exception traps on every native x64 system measured (320, 1920 and 10176
+// bytes), but not under the x64 emulator of Windows on Arm64 (1616 for 320), where the
+// verification rejects it.
 static int exception_xstate_static_length(uint64_t xcr0) {
   int offset = 512 + 64; // legacy area and header
   for (int i = 2; i < 63; i++) {
@@ -2769,38 +2631,20 @@ static bool exception_xstate_scrub_fits(int length) {
 }
 
 // The length at which compiled code clears the stale header where resuming from an exception can
-// lose the state: L, once four traps with a stale header planted show that the scrub at L keeps
-// the state and that the kernel placed the context at L. A length from CPUID that fails is measured
-// by the startup check instead (the kernel may leave out components that XCR0 enables, such as
-// MPX). 0 where no length passes, which caps the vectors instead.
-int VM_Version::verified_exception_xstate_scrub_length(bool measured) {
-  while (true) {
-    int length = _exception_xstate_measured_length;
-    if (length > 0) {
-      if (!exception_xstate_scrub_fits(length)) {
-        return 0;
-      }
-      if (verify_exception_xstate_scrub(length)) {
-        return length;
-      }
-      log_info(os, cpu)("Clearing the stale XSAVE header %d bytes below the stack pointer does not keep AVX state",
-                        length);
-    }
-    if (measured) {
-      return 0;
-    }
-    check_exception_xstate();
-    measured = true;
-    if (!_exception_resume_loses_xstate) {
-      // The table, from the kernel's code, says the state can be lost, and the length from CPUID
-      // was not where this kernel put the context: a check that sees the state kept is not trusted
-      // over both, and the vectors are capped.
-      warning("The startup check of exception contexts disagrees with the table of Windows kernels; "
-              "using no state that can be lost");
-      _exception_resume_loses_xstate = true;
-      return 0;
-    }
+// lose the state: the length from CPUID, once four traps with a stale header planted show that the
+// scrub there keeps the state and that the kernel placed the context there. The placement depends
+// on what the kernel puts in the context (it may leave out components that XCR0 enables, such as
+// MPX), which no interface states. 0 where the length fails, which caps the vectors instead.
+int VM_Version::verified_exception_xstate_scrub_length(int length) {
+  if (length <= 0 || !exception_xstate_scrub_fits(length)) {
+    return 0;
   }
+  if (!verify_exception_xstate_scrub(length)) {
+    log_info(os, cpu)("Clearing the stale XSAVE header %d bytes below the stack pointer does not keep AVX state",
+                      length);
+    return 0;
+  }
+  return length;
 }
 #endif // _WINDOWS
 
@@ -2812,52 +2656,34 @@ void VM_Version::set_exception_xstate_mitigation() {
   if (UseAVX > 0) {
     jlong start = os::javaTimeNanos();
     ExceptionXStateDecision decision;
-    ExceptionXStateKernel kernel = classify_exception_xstate_system(&exception_xstate_this_system, &decision);
-    int build = decision.build;
-    int revision = decision.revision;
-    static const char* const kernel_names[] = { "not decided by its version", "keeps the state", "can lose the state" };
-    guarantee(kernel >= exception_xstate_kernel_unknown && kernel <= exception_xstate_kernel_loses, "decided");
-    const char* feature_state = decision.feature == 1 ? "enabled" :
-                                (decision.feature == 0 ? "disabled" : "not configured or not queried");
-    if (revision >= 0) {
-      log_info(os, cpu)("Windows kernel 10.0.%d.%d: %s (feature %u: %s)", build, revision, kernel_names[kernel],
-                        exception_xstate_header_fix_feature, feature_state);
+    ExceptionXStateKernel kernel = exception_xstate_kernel_unknown;
+    if (ForceExceptionXStateProtection) {
+      log_info(os, cpu)("Windows kernel not classified: ForceExceptionXStateProtection");
     } else {
-      log_info(os, cpu)("Windows build %d: %s%s%s", build, kernel_names[kernel],
-                        decision.reason != nullptr ? ": " : "", decision.reason != nullptr ? decision.reason : "");
-      if (decision.running_build >= 0 && exception_xstate_kernel_line(decision.running_build) != build) {
-        log_info(os, cpu)("The running kernel reports build %d", decision.running_build);
+      kernel = classify_exception_xstate_system(&exception_xstate_this_system, &decision);
+      static const char* const kernel_names[] = { "not known to keep the state", "keeps the state",
+                                                  "can lose the state", "can lose the state (gated fix)" };
+      guarantee(kernel >= exception_xstate_kernel_unknown && kernel <= exception_xstate_kernel_gated, "classified");
+      const char* reason = decision.reason != nullptr ? decision.reason : "";
+      const char* separator = decision.reason != nullptr ? ": " : "";
+      if (decision.revision >= 0) {
+        log_info(os, cpu)("Windows kernel 10.0.%d.%d (build %d): %s", decision.line, decision.revision,
+                          decision.running_build, kernel_names[kernel]);
+      } else if (decision.running_build >= 0) {
+        log_info(os, cpu)("Windows build %d: %s%s%s", decision.running_build, kernel_names[kernel], separator, reason);
+      } else {
+        log_info(os, cpu)("Windows kernel not classified: %s", reason);
       }
     }
-    // Whether the length comes from the startup check.
-    bool measured = false;
-    if (kernel == exception_xstate_kernel_unknown || ExceptionXStateSelfTest) {
-      check_exception_xstate();
-      measured = true;
-      if (kernel != exception_xstate_kernel_unknown &&
-          (kernel == exception_xstate_kernel_loses) != _exception_resume_loses_xstate) {
-        // Where the kernel's code says the state can be lost, a check that sees it kept does not
-        // turn the protection off.
-        bool table_loses = kernel == exception_xstate_kernel_loses;
-        warning("The startup check of exception contexts disagrees with the table of Windows kernels "
-                "(build %d, kernel revision %d); using %s", build, revision, table_loses ? "the table" : "the check");
-        if (table_loses) {
-          _exception_resume_loses_xstate = true;
-        }
-      }
-    } else {
-      _exception_resume_loses_xstate = kernel == exception_xstate_kernel_loses;
-      log_info(os, cpu)("Resuming from an exception %s AVX state",
-                        _exception_resume_loses_xstate ? "can lose" : "keeps");
-      if (_exception_resume_loses_xstate) {
-        _exception_xstate_measured_length =
-            exception_xstate_static_length((uint64_t)_cpuid_info.xem_xcr0_eax.value) +
-            ExceptionXStateStaticLengthError;
-        log_info(os, cpu)("Exception context XSTATE length %d (from CPUID)", _exception_xstate_measured_length);
-      }
-    }
+    // Where the running kernel is not known to keep the state, it is protected.
+    _exception_resume_loses_xstate = kernel != exception_xstate_kernel_keeps;
+    log_info(os, cpu)("Resuming from an exception %s AVX state",
+                      _exception_resume_loses_xstate ? "can lose" : "keeps");
     if (ScrubExceptionXStateHeader && !forced && _exception_resume_loses_xstate) {
-      scrub = verified_exception_xstate_scrub_length(measured);
+      int length = exception_xstate_static_length((uint64_t)_cpuid_info.xem_xcr0_eax.value) +
+                   ExceptionXStateStaticLengthError;
+      log_info(os, cpu)("Exception context XSTATE length %d (from CPUID)", length);
+      scrub = verified_exception_xstate_scrub_length(length);
     }
     log_debug(os, cpu)("Exception XSTATE decision took " JLONG_FORMAT " us", (os::javaTimeNanos() - start) / 1000);
   }
@@ -2927,10 +2753,6 @@ void VM_Version::initialize() {
                                      g.clear_apx_test_state());
   getCPUIDBrandString_stub = CAST_TO_FN_PTR(getCPUIDBrandString_stub_t,
                                      g.generate_getCPUIDBrandString());
-  exception_xstate_check_stub = CAST_TO_FN_PTR(exception_xstate_check_stub_t,
-                                     g.generate_exception_xstate_check(0));
-  exception_xstate_check_segv_addr = _exception_xstate_segv_addr;
-  exception_xstate_check_cont_addr = _exception_xstate_cont_addr;
   WINDOWS_ONLY(stub_generator = &g;)
   get_processor_features();
   WINDOWS_ONLY(stub_generator = nullptr;)

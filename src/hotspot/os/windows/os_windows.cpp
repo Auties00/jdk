@@ -2762,35 +2762,6 @@ bool os::win32::run_on_native_thread(void (*fn)(void*), void* arg, size_t stack_
   return true;
 }
 
-bool os::win32::kernel_file_version(int* build, int* revision) {
-  char path[MAX_PATH];
-  UINT len = MAX_PATH - (UINT)strlen("\\ntoskrnl.exe") - 1;
-  UINT ret = GetSystemDirectory(path, len);
-  if (ret == 0 || ret > len) {
-    return false;
-  }
-  strncat(path, "\\ntoskrnl.exe", MAX_PATH - ret);
-  DWORD version_size = GetFileVersionInfoSize(path, nullptr);
-  if (version_size == 0) {
-    return false;
-  }
-  LPTSTR version_info = (LPTSTR)os::malloc(version_size, mtInternal);
-  if (version_info == nullptr) {
-    return false;
-  }
-  VS_FIXEDFILEINFO* file_info;
-  UINT info_len;
-  bool ok = GetFileVersionInfo(path, 0, version_size, version_info) != 0 &&
-            VerQueryValue(version_info, TEXT("\\"), (LPVOID*)&file_info, &info_len) != 0 &&
-            info_len >= sizeof(VS_FIXEDFILEINFO);
-  if (ok) {
-    *build = HIWORD(file_info->dwFileVersionLS);
-    *revision = LOWORD(file_info->dwFileVersionLS);
-  }
-  os::free(version_info);
-  return ok;
-}
-
 int os::win32::running_kernel_build() {
   // The NtBuildNumber field of KUSER_SHARED_DATA, the page the kernel maps read-only at 0x7FFE0000
   // into every process (ntddk.h). Unlike the version in the PEB (RtlGetVersion,
@@ -2801,55 +2772,67 @@ int os::win32::running_kernel_build() {
   return (int)(nt_build_number & 0xFFFF);
 }
 
-bool os::win32::in_container() {
-  // A process-isolated container is a server silo: a job whose processes see a System32 and a
-  // registry of their own (the image's) and share the host's kernel.
-  SILOOBJECT_BASIC_INFORMATION silo;
-  memset(&silo, 0, sizeof(silo));
-  if (QueryInformationJobObject(nullptr, JobObjectSiloBasicInformation, &silo, sizeof(silo), nullptr) &&
-      silo.IsInServerSilo) {
-    return true;
+bool os::win32::running_kernel_version(int* build, int* revision) {
+  // SystemBuildVersionInformation (222), an undocumented class of NtQuerySystemInformationEx whose
+  // input is the index of a build layer; its output layout is the one of public reverse-engineered
+  // headers such as phnt. Layer 0 holds the build and the QFE (the revision of the update) that the
+  // kernel recorded when it booted. A container does not change it (it is the host's), nor does a
+  // later change of the registry, and it needs no privilege. Anything unexpected is a failure.
+  struct BuildVersionInformation {
+    USHORT LayerNumber;
+    USHORT LayerCount;
+    ULONG  OsMajorVersion;
+    ULONG  OsMinorVersion;
+    ULONG  NtBuildNumber;
+    ULONG  NtBuildQfe;
+    UCHAR  LayerName[128];
+    UCHAR  NtBuildBranch[128];
+    UCHAR  NtBuildLab[128];
+    UCHAR  NtBuildLabEx[128];
+    UCHAR  NtBuildStamp[26];
+    UCHAR  NtBuildArch[16];
+    ULONG  Flags;
+  };
+  static_assert(sizeof(BuildVersionInformation) == 580, "the layout of SYSTEM_BUILD_VERSION_INFORMATION");
+  typedef LONG (NTAPI* NtQuerySystemInformationEx_t)(ULONG, PVOID, ULONG, PVOID, ULONG, PULONG);
+  HMODULE ntdll = GetModuleHandle(TEXT("ntdll.dll"));
+  if (ntdll == nullptr) {
+    return false;
   }
-  // The query sees only the job of the process, which in a job nested inside the silo is not the
-  // silo. Then the image's registry tells: the marker that container images carry, and the
-  // service through which the host runs processes in a container (registered in containers only,
-  // although its executable can be on a host). Only their proven absence counts as no container.
-  LSTATUS status = RegGetValue(HKEY_LOCAL_MACHINE, TEXT("SYSTEM\\CurrentControlSet\\Control"),
-                               TEXT("ContainerType"), RRF_RT_ANY, nullptr, nullptr, nullptr);
-  if (status != ERROR_FILE_NOT_FOUND) {
-    return true;
+  NtQuerySystemInformationEx_t query =
+      (NtQuerySystemInformationEx_t)(void*)GetProcAddress(ntdll, "NtQuerySystemInformationEx");
+  if (query == nullptr) {
+    return false;
   }
-  HKEY key;
-  status = RegOpenKeyEx(HKEY_LOCAL_MACHINE, TEXT("SYSTEM\\CurrentControlSet\\Services\\cexecsvc"), 0,
-                        KEY_QUERY_VALUE, &key);
-  if (status == ERROR_SUCCESS) {
-    RegCloseKey(key);
+  const ULONG system_build_version_information = 222;
+  ULONG layer = 0;
+  BuildVersionInformation info;
+  memset(&info, 0, sizeof(info));
+  ULONG returned = 0;
+  LONG status = query(system_build_version_information, &layer, sizeof(layer), &info, sizeof(info), &returned);
+  if (status < 0 || returned < offset_of(BuildVersionInformation, NtBuildQfe) + sizeof(ULONG) ||
+      returned > sizeof(info) || info.LayerCount == 0 || info.OsMajorVersion != 10 ||
+      info.OsMinorVersion != 0 || info.NtBuildNumber == 0 || info.NtBuildNumber > 0xFFFF ||
+      info.NtBuildQfe > 0xFFFF) {
+    return false;
   }
-  return status != ERROR_FILE_NOT_FOUND;
-}
-
-bool os::win32::reboot_pending() {
-  // Set by the servicing stack from the installation of an update to the reboot that completes it.
-  // Only its proven absence counts as no reboot pending.
-  HKEY key;
-  LSTATUS status = RegOpenKeyEx(HKEY_LOCAL_MACHINE,
-                                TEXT("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending"),
-                                0, KEY_QUERY_VALUE, &key);
-  if (status == ERROR_SUCCESS) {
-    RegCloseKey(key);
-  }
-  return status != ERROR_FILE_NOT_FOUND;
+  *build = (int)info.NtBuildNumber;
+  *revision = (int)info.NtBuildQfe;
+  return true;
 }
 
 bool os::win32::runs_natively() {
   typedef BOOL (WINAPI* IsWow64Process2_t)(HANDLE, USHORT*, USHORT*);
   IsWow64Process2_t is_wow64_process2 =
       (IsWow64Process2_t)(void*)GetProcAddress(GetModuleHandle(TEXT("kernel32.dll")), "IsWow64Process2");
+  if (is_wow64_process2 == nullptr) {
+    // Windows 10 before 1709, which predates the x64 emulation of Windows on Arm64.
+    return true;
+  }
   USHORT process_machine;
   USHORT native_machine;
-  if (is_wow64_process2 == nullptr ||
-      !is_wow64_process2(GetCurrentProcess(), &process_machine, &native_machine)) {
-    return true;
+  if (!is_wow64_process2(GetCurrentProcess(), &process_machine, &native_machine)) {
+    return false;
   }
   if (process_machine != IMAGE_FILE_MACHINE_UNKNOWN) {
     return false; // a WOW64 process
@@ -2861,44 +2844,6 @@ bool os::win32::runs_natively() {
 #else
   return true;
 #endif
-}
-
-int os::win32::feature_configuration_state(uint32_t feature_id) {
-  // The layout ntdll fills, which no Windows SDK header declares (it is the one of public
-  // reverse-engineered headers such as phnt): Flags holds Priority in bits 0-3 and EnabledState in
-  // bits 4-5 (0 default, 1 disabled, 2 enabled).
-  struct FeatureConfiguration {
-    ULONG FeatureId;
-    ULONG Flags;
-    ULONG VariantPayload;
-  };
-  typedef LONG (NTAPI* RtlQueryFeatureConfiguration_t)(ULONG, ULONG, ULONGLONG*, FeatureConfiguration*);
-  HMODULE ntdll = GetModuleHandle(TEXT("ntdll.dll"));
-  if (ntdll == nullptr) {
-    return -1;
-  }
-  RtlQueryFeatureConfiguration_t query =
-      (RtlQueryFeatureConfiguration_t)(void*)GetProcAddress(ntdll, "RtlQueryFeatureConfiguration");
-  if (query == nullptr) {
-    return -1;
-  }
-  // Enabled if the boot or the runtime configuration says so and neither says disabled.
-  int state = -1;
-  for (ULONG type = 0; type <= 1; type++) {
-    FeatureConfiguration config = { 0, 0, 0 };
-    ULONGLONG stamp = 0;
-    if (query(feature_id, type, &stamp, &config) < 0 || config.FeatureId != feature_id) {
-      continue;
-    }
-    int enabled_state = (int)((config.Flags >> 4) & 3);
-    if (enabled_state == 1) {
-      return 0;
-    }
-    if (enabled_state == 2) {
-      state = 1;
-    }
-  }
-  return state;
 }
 
 JNIEXPORT
@@ -2924,8 +2869,8 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
 
   if ((exception_code == EXCEPTION_ACCESS_VIOLATION) &&
       VM_Version::is_exception_xstate_segv_addr(pc)) {
-    // Check whether resuming from an exception keeps the AVX state, and record where the
-    // context has its extended state (VM_Version::check_exception_xstate()).
+    // Verify that clearing the stale XSAVE header keeps the AVX state, and record where the
+    // context has its extended state (VM_Version::verify_exception_xstate_scrub()).
     record_exception_xstate(exceptionInfo->ContextRecord);
     return Handle_Exception(exceptionInfo, VM_Version::exception_xstate_cont_addr());
   }

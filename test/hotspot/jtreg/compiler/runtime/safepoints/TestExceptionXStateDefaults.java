@@ -24,13 +24,12 @@
 /*
  * @test
  * @bug 8365196
- * @summary Whether resuming from an exception can lose AVX state, as the JVM decides it from its
- *          table of Windows kernels or from its startup check, agrees with an independent native
- *          probe, both by default and with the startup check forced (ExceptionXStateSelfTest), and
- *          selects the mitigation: the scrub of the stale exception context header at the length
- *          the probe measures, or, without the scrub, no state that can be lost (UseAVX at most 2,
- *          MaxVectorSize at most 16, with a warning when that overrides the command line). APX is
- *          off where state can be lost.
+ * @summary The JVM protects the AVX state wherever an independent native probe finds that
+ *          resuming from an exception loses it, by default and with the protection forced
+ *          (ForceExceptionXStateProtection), and selects the mitigation: the scrub of the stale
+ *          exception context header at the length the probe measures, or, without the scrub, no
+ *          state that can be lost (UseAVX at most 2, MaxVectorSize at most 16, with a warning when
+ *          that overrides the command line). APX is off where state can be lost.
  * @requires os.arch == "amd64" | os.arch == "x86_64"
  * @requires vm.flagless
  * @library /test/lib /
@@ -92,40 +91,34 @@ public class TestExceptionXStateDefaults {
         boolean jvmKeeps = out.getStdout().contains(KEEPS);
 
         if (!(Platform.isWindows() && useAVX > 0)) {
-            // The check runs on Windows with AVX only.
+            // The decision is made on Windows with AVX only.
             if (jvmLoses || jvmKeeps) {
-                throw new RuntimeException("startup check ran with UseAVX = " + useAVX);
+                throw new RuntimeException("decision reported with UseAVX = " + useAVX);
             }
             expect(out, "ExceptionXStateLength", 0);
             return;
         }
 
         if (jvmLoses && jvmKeeps) {
-            throw new RuntimeException("startup check reported both results");
+            throw new RuntimeException("both decisions reported");
         }
         if (!jvmLoses && !jvmKeeps) {
             throw new RuntimeException("no decision reported");
         }
-        // The oracle: the JVM must agree with the native probe whenever the probe can tell.
-        if (probe.known() && probe.loses() != jvmLoses) {
-            throw new RuntimeException("JVM reports \"" + (jvmLoses ? LOSES : KEEPS)
-                                       + "\" but the native probe found " + probe);
+        // The oracle: the JVM protects the state wherever the native probe finds it lost. It may
+        // protect it where the probe finds it kept: on a kernel it does not know to keep it.
+        if (probe.known() && probe.loses() && !jvmLoses) {
+            throw new RuntimeException("JVM reports \"" + KEEPS + "\" but the native probe found " + probe);
         }
-        // The same with the startup check forced, which must also agree with the table.
-        OutputAnalyzer selfTest = flags("-XX:+ExceptionXStateSelfTest");
-        boolean selfTestLoses = selfTest.getStdout().contains(LOSES);
-        if (selfTestLoses == selfTest.getStdout().contains(KEEPS)) {
-            throw new RuntimeException("startup check: no single decision reported");
+        if (jvmLoses && probe.known() && !probe.loses()) {
+            System.out.println("The JVM protects state that the native probe finds kept");
         }
-        if (probe.known() && probe.loses() != selfTestLoses) {
-            throw new RuntimeException("startup check reports \"" + (selfTestLoses ? LOSES : KEEPS)
-                                       + "\" but the native probe found " + probe);
-        }
-        selfTest.shouldNotContain("disagrees with the table");
-        if (selfTestLoses && jvmLoses) {
-            // The length of the table's formula is the one the startup check measures.
-            expect(selfTest, "ExceptionXStateLength", flag(out, "ExceptionXStateLength"));
-        }
+        // With the protection forced, the JVM protects the state on every system.
+        OutputAnalyzer forcedOut = flags("-XX:+ForceExceptionXStateProtection");
+        forcedOut.shouldContain(LOSES);
+        forcedOut.shouldNotContain(KEEPS);
+        expect(forcedOut, "UseAPX", false);
+        checkLength(forcedOut, probe);
 
         if (!jvmLoses) {
             expect(out, "ExceptionXStateLength", 0);
@@ -133,13 +126,10 @@ public class TestExceptionXStateDefaults {
         }
 
         expect(out, "UseAPX", false);
-        int length = intFlag(out, "ExceptionXStateLength");
+        checkLength(out, probe);
         if (probe.loses() && probe.scrubWorks()) {
-            // The JVM measures the same context length and protects its traps with the scrub.
+            // Where the scrub at the measured length works, the JVM's verified length is it.
             expect(out, "ExceptionXStateLength", probe.length());
-        }
-        if (length == 0) {
-            checkCapped(out);
         }
 
         // Without the scrub, the JVM uses no state that can be lost.
@@ -158,6 +148,17 @@ public class TestExceptionXStateDefaults {
         OutputAnalyzer noAvx = flags("-XX:UseAVX=0");
         noAvx.shouldNotContain(LOSES);
         expect(noAvx, "ExceptionXStateLength", 0);
+    }
+
+    // A scrub is at the length the probe measures (the JVM's is verified the same way); without
+    // one, the vectors are capped.
+    static void checkLength(OutputAnalyzer out, ExceptionXState.Probe probe) {
+        int length = intFlag(out, "ExceptionXStateLength");
+        if (length == 0) {
+            checkCapped(out);
+        } else if (probe.known() && probe.length() > 0 && length != probe.length()) {
+            throw new RuntimeException("ExceptionXStateLength = " + length + ", the native probe measured " + probe);
+        }
     }
 
     static void checkCapped(OutputAnalyzer out) {

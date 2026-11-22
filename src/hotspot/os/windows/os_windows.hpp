@@ -70,25 +70,19 @@ class os::win32 {
   // filter, and waits for it to finish. Needs no Thread: fn must not use one. Returns false if the
   // thread could not be created.
   static bool   run_on_native_thread(void (*fn)(void*), void* arg, size_t stack_size);
-  // The file version of ntoskrnl.exe, which a monthly update changes with the kernel: the build
-  // number and the revision (UBR) of the kernel itself. Returns false if it cannot be read.
-  static bool   kernel_file_version(int* build, int* revision);
   // The build number the running kernel reports (an enablement package raises it above the build
-  // of its files, 26200 on Windows 11 25H2), also inside a container, or 0 on kernels that do not
+  // of its line, 26200 on Windows 11 25H2), also inside a container, or 0 on kernels that do not
   // report it there.
   static int    running_kernel_build();
-  // Whether this process runs in a Windows container (a server silo), where System32 holds the
-  // files of the container image, not of the kernel that runs it.
-  static bool   in_container();
-  // Whether an update waits for the reboot that completes it.
-  static bool   reboot_pending();
+  // The build and the revision (the QFE of the update it booted with) the running kernel reports,
+  // also inside a container, through ntdll's undocumented NtQuerySystemInformationEx
+  // (SystemBuildVersionInformation, layer 0). Returns false if the query fails or returns anything
+  // unexpected.
+  static bool   running_kernel_version(int* build, int* revision);
   // Whether the machine runs this process's instruction set natively, rather than through an
-  // emulator (an x64 process on an Arm64 machine). Assumes native where it cannot be told.
+  // emulator (an x64 process on an Arm64 machine). False where it cannot be told, except on
+  // Windows versions that predate the emulator.
   static bool   runs_natively();
-  // The state of a feature of the Windows feature configuration (the staged rollout of fixes in
-  // a monthly update), through ntdll's undocumented RtlQueryFeatureConfiguration: 1 if it is
-  // enabled, 0 if it is disabled, -1 if it has no configuration or the query is unavailable.
-  static int    feature_configuration_state(uint32_t feature_id);
   static size_t large_page_init_decide_size();
   static int windows_major_version() {
     assert(_major_version > 0, "windows version not initialized.");

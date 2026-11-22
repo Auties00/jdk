@@ -379,9 +379,8 @@ protected:
   static address   _exception_xstate_chunk;
   static int       _exception_xstate_chunk_length;
 
-  // Outcome of the exception XSTATE check.
+  // Outcome of the exception XSTATE decision.
   static bool      _exception_resume_loses_xstate;
-  static int       _exception_xstate_measured_length; // L, or 0 if the contexts had no single L
   static int       _exception_xstate_scrub_length;
   static bool      _exception_xstate_capped;
 
@@ -780,9 +779,8 @@ private:
   static bool os_supports_apx_egprs();
 #ifdef _WINDOWS
   static int  exception_xstate_check_fill_size();
-  static void check_exception_xstate();
   static bool verify_exception_xstate_scrub(int length);
-  static int  verified_exception_xstate_scrub_length(bool measured);
+  static int  verified_exception_xstate_scrub_length(int length);
 #endif
   static void set_exception_xstate_mitigation();
   static void get_processor_features();
@@ -855,12 +853,14 @@ public:
   // sp of the fault, which is stale stack memory. A stale header that looks like a compacted one
   // leaves out of the context the state components it does not name, and resuming from that
   // context resets them: the upper halves of ymm/zmm, xmm16-xmm31, the opmask registers, the APX
-  // registers. The check at startup takes such exceptions with a header-like value on the stack,
-  // on a native thread of its own, and tells whether the state survives; if it cannot run, the
-  // state is assumed lost. One thread suffices: L is the length of the context's extended state,
-  // which depends on the enabled features, not on the thread. APX is off on such systems. Code
-  // outside the VM that writes below a thread's stack pointer asynchronously (a special user APC)
-  // can still leave a stale header between a scrub and a trap.
+  // registers. The JVM decides from the version of the running kernel (see
+  // classify_exception_xstate_system()) and protects the state wherever that kernel is not known
+  // to keep it. The protection's L comes from CPUID and is verified at startup by exceptions taken
+  // with a header-like value on the stack, on a native thread of its own; one thread suffices: L
+  // is the length of the context's extended state, which depends on the enabled features, not on
+  // the thread. APX is off where the state is protected. Code outside the VM that writes below a
+  // thread's stack pointer asynchronously (a special user APC) can still leave a stale header
+  // between a scrub and a trap.
   //
   // Whether resuming from an exception can lose extended processor state.
   static bool exception_resume_loses_xstate() { return _exception_resume_loses_xstate; }
@@ -876,8 +876,9 @@ public:
 
 #ifdef _WINDOWS
   // What a native x64 Windows kernel does with a stale XSAVE header below the stack pointer of a
-  // user-mode exception (JDK-8365196): unknown, keeps the state, loses it, or, where the fix is
-  // gated by a feature of the Windows feature configuration, gated.
+  // user-mode exception (JDK-8365196): not known, keeps the state, loses it, or, where the fix is
+  // gated by a feature of the Windows feature configuration, gated. Only keeps leaves the state
+  // unprotected.
   enum ExceptionXStateKernel {
     exception_xstate_kernel_unknown,
     exception_xstate_kernel_keeps,
@@ -888,34 +889,25 @@ public:
   // package (which raises the reported build and keeps the kernel of its line) the line it enables.
   static int exception_xstate_kernel_line(int reported_build);
   // Whether the decision for a kernel of this build line needs the kernel's revision.
-  static bool exception_xstate_kernel_needs_revision(int build);
-  // The decision for the kernel with this file version (build line and revision, or -1 for the
-  // revision when it is not needed) on a client or a server installation, from the table of
-  // examined kernels in vm_version_x86.cpp.
-  static ExceptionXStateKernel classify_exception_xstate_kernel(int build, int revision, bool server);
-  // The decision for a gated kernel, from the state of its feature (1 enabled, 0 disabled, -1 not
-  // configured or not queried): only the startup check can tell whether an enabled fix applies.
-  static ExceptionXStateKernel decide_gated_exception_xstate_kernel(int feature);
+  static bool exception_xstate_kernel_needs_revision(int line);
+  // What the kernel of this build line and revision (the QFE the running kernel reports, or -1 when
+  // the line needs none) does, from the table of examined kernels in vm_version_x86.cpp.
+  static ExceptionXStateKernel classify_exception_xstate_kernel(int line, int revision);
   // Where the decision for the running system comes from (os::win32 on a real system).
   struct ExceptionXStateSystem {
     bool (*runs_natively)();
-    bool (*in_container)();
-    int  (*file_build)();                                 // the build of kernel32.dll
-    int  (*running_build)();                              // the build the running kernel reports
-    bool (*is_server)();
-    bool (*reboot_pending)();
-    bool (*kernel_file_version)(int* build, int* revision); // ntoskrnl.exe's
-    int  (*feature_state)(uint32_t feature_id);
+    int  (*running_build)();                          // KUSER_SHARED_DATA.NtBuildNumber
+    bool (*running_version)(int* build, int* revision); // SystemBuildVersionInformation, layer 0
   };
   struct ExceptionXStateDecision {
-    int build;          // the build line of the system's files
     int running_build;  // the build the running kernel reports, or -1 if not read
-    int revision;       // the revision of ntoskrnl.exe, or -1 if not read
-    int feature;        // the state of the gating feature, or -1 if not queried
-    const char* reason; // why the table was not used, or nullptr
+    int line;           // its build line, or -1 if not read
+    int revision;       // the revision the running kernel reports, or -1 if not read
+    const char* reason; // why the kernel is not classified, or nullptr
   };
-  // The decision for a system: from the table where the system's files are the running kernel's,
-  // else unknown with the reason. Reads only what the decision needs.
+  // What the running kernel of a system does with the state. Anything but keeps protects it: an
+  // emulator, a build or revision outside the examined ones, or a query that fails. Reads only
+  // what the decision needs.
   static ExceptionXStateKernel classify_exception_xstate_system(const ExceptionXStateSystem* system,
                                                                 ExceptionXStateDecision* decision);
 #endif
