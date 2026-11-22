@@ -833,11 +833,14 @@ public:
   static address  cpuinfo_cont_addr()           { return _cpuinfo_cont_addr; }
 
   static void set_exception_xstate_segv_addr(address pc) { _exception_xstate_segv_addr = pc; }
-  static bool  is_exception_xstate_segv_addr(address pc) { return _exception_xstate_segv_addr == pc; }
+  // Only while a verification stub exists: a fault at pc 0 is not one of its traps.
+  static bool  is_exception_xstate_segv_addr(address pc) {
+    return _exception_xstate_segv_addr != nullptr && _exception_xstate_segv_addr == pc;
+  }
   static void set_exception_xstate_cont_addr(address pc) { _exception_xstate_cont_addr = pc; }
   static address  exception_xstate_cont_addr()           { return _exception_xstate_cont_addr; }
 #ifdef _WINDOWS
-  // Takes the traps of the exception XSTATE check (an ExceptionXStateProbe in vm_version_x86.cpp),
+  // Takes the traps of the verification of the scrub (an ExceptionXStateProbe in vm_version_x86.cpp),
   // on a native thread of its own.
   static void probe_exception_xstate(void* probe);
 #endif

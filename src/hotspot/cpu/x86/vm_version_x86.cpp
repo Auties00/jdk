@@ -788,12 +788,13 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
   // check->fill_qwords quadwords below a 16-byte aligned stack pointer with a value that passes
   // for a compacted XSAVE header naming no component, loads ymm0, raises an access violation,
   // and stores ymm0 to check->ymm after the exception handler has resumed at the next
-  // instruction. With scrub_length > 0 the stub clears the stale header before the access
-  // violation, with the same code C2 emits before its trap sites. The fill is cleared again
-  // before returning, so that it is not left on the stack for later exceptions of this thread.
+  // instruction. The stub clears the stale header scrub_length bytes below the stack pointer
+  // before the access violation, with the same code C2 emits before its trap sites. The fill is
+  // cleared again before returning, so that it is not left on the stack for later exceptions of
+  // this thread.
   address generate_exception_xstate_check(int scrub_length) {
-    StubCodeMark mark(this, "VM_Version", scrub_length == 0 ? "exception_xstate_check_stub"
-                                                            : "exception_xstate_scrub_check_stub");
+    assert(scrub_length > 0, "the stub verifies a scrub");
+    StubCodeMark mark(this, "VM_Version", "exception_xstate_scrub_check_stub");
 #   define __ _masm->
 
     address start = __ pc();
@@ -2398,6 +2399,9 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
   probe.stub = CAST_TO_FN_PTR(exception_xstate_check_stub_t, stub_generator->generate_exception_xstate_check(length));
   probe.scrub_length = length;
   bool ran = run_exception_xstate_probe(&probe);
+  // The stub is not run again: the exception handler no longer treats a fault as its trap.
+  set_exception_xstate_segv_addr(nullptr);
+  set_exception_xstate_cont_addr(nullptr);
   if (!ran) {
     return false;
   }
@@ -2454,8 +2458,9 @@ struct ExceptionXStateRevision {
 #define XS_L VM_Version::exception_xstate_kernel_loses
 #define XS_G VM_Version::exception_xstate_kernel_gated
 #define XS_K VM_Version::exception_xstate_kernel_keeps
-// Build 26100: Windows 11 24H2, Windows Server 2025, and the enablement builds 26200 (Windows 11
-// 25H2) and 26300, whose updates share its revisions and its kernel.
+// Build 26100: Windows 11 24H2, Windows Server 2025, and the enablement build 26200 (Windows 11
+// 25H2), whose updates share its revisions and its kernel. 26300 is not mapped: Insider builds of
+// it carry revisions of their own, from a branch that was not examined.
 static const ExceptionXStateRevision exception_xstate_26100[] = {
   {     1, XS_L }, {   863, XS_L }, {  1000, XS_L }, {  1150, XS_L }, {  1301, XS_L }, {  1455, XS_L },
   {  1591, XS_L }, {  1742, XS_L }, {  1882, XS_L }, {  2033, XS_L }, {  2161, XS_L }, {  2314, XS_L },
@@ -2524,8 +2529,8 @@ VM_Version::ExceptionXStateKernel VM_Version::classify_exception_xstate_kernel(i
   if (line == 28000) {
     return classify_exception_xstate_revision(exception_xstate_28000, ARRAY_SIZE(exception_xstate_28000), revision);
   }
-  // No valid build, or a line that was not examined: 26101 to 27999 but the enablement builds of
-  // 26100 (Insider builds), or newer than 28000.
+  // No valid build, or a line that was not examined: 26101 to 27999 but 26200, the enablement
+  // build of 26100 (Insider builds such as 26120, 26220 and 26300), or newer than 28000.
   return exception_xstate_kernel_unknown;
 }
 
@@ -2534,7 +2539,7 @@ int VM_Version::exception_xstate_kernel_line(int reported_build) {
     case 18363: return 18362;                                         // Windows 10 1909
     case 19042: case 19043: case 19044: case 19045: return 19041;     // Windows 10 20H2 to 22H2
     case 22631: return 22621;                                         // Windows 11 23H2
-    case 26200: case 26300: return 26100;                             // Windows 11 25H2, 26300
+    case 26200: return 26100;                                         // Windows 11 25H2
     default: return reported_build;
   }
 }

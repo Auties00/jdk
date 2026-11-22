@@ -100,7 +100,7 @@ TEST(ExceptionXStateKernels, build_28000_and_later) {
     { 28000, 3366, XS_U }, { 28000, 3501, XS_U }, { 28000, 3620, XS_U }, { 28000, 6365, XS_U },
     { 28000, 30000, XS_U },
     // Lines that were not examined: between 26100 and 28000 (Insider builds), and later.
-    { 26120, -1, XS_U }, { 26200, -1, XS_U }, { 27000, 1, XS_U }, { 28001, 1, XS_U }, { 28001, -1, XS_U },
+    { 26120, -1, XS_U }, { 26200, -1, XS_U }, { 26300, -1, XS_U }, { 26300, 9711, XS_U }, { 27000, 1, XS_U }, { 28001, 1, XS_U }, { 28001, -1, XS_U },
     { 29000, 1, XS_U }, { 30000, 1, XS_U }
   };
   check_cases(cases, ARRAY_SIZE(cases));
@@ -125,7 +125,7 @@ TEST(ExceptionXStateKernels, kernel_line) {
   EXPECT_EQ(22621, VM_Version::exception_xstate_kernel_line(22631));
   EXPECT_EQ(26100, VM_Version::exception_xstate_kernel_line(26100));
   EXPECT_EQ(26100, VM_Version::exception_xstate_kernel_line(26200));
-  EXPECT_EQ(26100, VM_Version::exception_xstate_kernel_line(26300));
+  EXPECT_EQ(26300, VM_Version::exception_xstate_kernel_line(26300));
   EXPECT_EQ(26120, VM_Version::exception_xstate_kernel_line(26120));
   EXPECT_EQ(26220, VM_Version::exception_xstate_kernel_line(26220));
   EXPECT_EQ(28000, VM_Version::exception_xstate_kernel_line(28000));
@@ -208,8 +208,11 @@ TEST(ExceptionXStateKernels, system_26100) {
   EXPECT_EQ(26200, d.running_build);
   fake_version_build = 26100;
   EXPECT_EQ(XS_K, decide(&d));
+  // 26300: Insider builds with revisions of their own, not the line's.
   fake_running_build = 26300;
-  EXPECT_EQ(XS_K, decide(&d));
+  fake_version_build = 26300;
+  EXPECT_EQ(XS_U, decide(&d));
+  EXPECT_EQ(2, version_reads); // not read for 26300
 }
 
 TEST(ExceptionXStateKernels, system_failures) {
@@ -283,6 +286,11 @@ TEST(ExceptionXStateKernels, system_other_lines) {
   fake_running_build = 30000;
   EXPECT_EQ(XS_U, decide(&d));
   EXPECT_EQ(0, version_reads);
+}
+
+// Without a verification stub, no fault is taken for one of its traps, a fault at pc 0 included.
+TEST(ExceptionXStateKernels, no_trap_without_stub) {
+  EXPECT_FALSE(VM_Version::is_exception_xstate_segv_addr(nullptr));
 }
 
 // The sources of a real system: the running kernel reports one line through both.

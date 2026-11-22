@@ -2811,9 +2811,13 @@ bool os::win32::running_kernel_version(int* build, int* revision) {
   ULONG returned = 0;
   LONG status = query(system_build_version_information, &layer, sizeof(layer), &info, sizeof(info), &returned);
   if (status < 0 || returned < offset_of(BuildVersionInformation, NtBuildQfe) + sizeof(ULONG) ||
-      returned > sizeof(info) || info.LayerCount == 0 || info.OsMajorVersion != 10 ||
+      returned > sizeof(info) || info.LayerNumber != 0 || info.LayerCount == 0 || info.OsMajorVersion != 10 ||
       info.OsMinorVersion != 0 || info.NtBuildNumber == 0 || info.NtBuildNumber > 0xFFFF ||
       info.NtBuildQfe > 0xFFFF) {
+    log_debug(os, cpu)("SystemBuildVersionInformation: status 0x%08x, %u bytes, layer %u of %u, %u.%u.%u.%u",
+                       (unsigned)status, (unsigned)returned, (unsigned)info.LayerNumber, (unsigned)info.LayerCount,
+                       (unsigned)info.OsMajorVersion, (unsigned)info.OsMinorVersion, (unsigned)info.NtBuildNumber,
+                       (unsigned)info.NtBuildQfe);
     return false;
   }
   *build = (int)info.NtBuildNumber;

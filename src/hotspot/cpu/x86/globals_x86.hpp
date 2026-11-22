@@ -120,8 +120,8 @@ define_pd_global(bool, ValueTypeReturnedAsFields, true);
           "below the stack pointer of an exception, used by "               \
           "ScrubExceptionXStateHeader. 0: from CPUID, verified at "         \
           "startup, where the running Windows kernel is not known to "      \
-          "keep the state. Any other value enables the scrub on every "     \
-          "system, for testing")                                            \
+          "keep the state. Any other value enables the scrub, unverified, " \
+          "on every system, for testing")                                   \
           range(0, 16384)                                                   \
                                                                             \
   product(bool, ForceExceptionXStateProtection, false, DIAGNOSTIC,          \
