@@ -2437,24 +2437,28 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
 // left unprotected only where that kernel is known to keep it; anything else protects it, gated
 // kernels included, whatever their feature configuration.
 
-// The revision of a line with a table, as the QFE the running kernel reports, is the revision of
-// the cumulative update the machine booted with. That update's ntoskrnl.exe has the same revision
-// or an earlier one (an update that did not rebuild the kernel: 26100.7922 runs kernel 7920,
-// 20348.5870 kernel 5866), never a later one, and every later update has a kernel at least as new.
-// So the kernel that runs is the newest one at or below the QFE: a QFE is judged by the newest
-// entry at or below it, and only where the next entry above it, if the QFE is not an entry itself,
-// has the same class, so that nothing in between can differ. Checked against the 87 updates of
-// 26100 and 28000 that winbindex lists (no QFE judged to keep the state runs a kernel that does
-// not), and against the Windows Server 2025 updates, which use the client revisions up to 7462 and
-// from January 2026 revisions from 32230, the branch of 33828. Kernels of the line that are known
-// but could not be examined are entries of their own, unknown. Below the oldest entry, above the
-// newest, or next to an entry of another class, a QFE protects the state.
+// The revision of a line with a table is the QFE the running kernel reports: the revision of the
+// update the machine booted with (its OS revision), not the one of ntoskrnl.exe. The tables list
+// the QFE of every released cumulative update of the line whose kernel was examined, with the
+// class of the kernel that the update ships: the same revision, or an earlier one for an update
+// that did not rebuild the kernel (26100.7922 ships kernel 7920, 26100.9725 kernel 9711). A QFE
+// is matched exactly. One that is not an entry protects the state, whatever its neighbours,
+// because a revision does not tell what runs by its position: a hotpatch update (Windows 11
+// Enterprise, Windows Server 2025 Datacenter: Azure Edition or with Azure Arc) ships patch images
+// only (ntkrnlmp_hotpatch.exe, no ntoskrnl.exe), so a machine at a hotpatch revision runs the
+// kernel of its baseline update, patched in memory, a combination that was not examined. The
+// hotpatches 26100.7979 to 7985 (March 2026) are numbered between the fixed updates 7922 and 8037
+// and patch the gated kernel 7623. No hotpatch revision is an entry, nor are the kernels that
+// could not be examined (26100.10075, with kernel 10068) or the Windows Server 2025 updates other
+// than the one examined (they use the client revisions up to 7462 and from January 2026
+// revisions from 32230, the branch of 33828). The QFE is recorded when the kernel boots: a
+// hotpatch applied later, without a reboot, does not change it, and no unprivileged query tells
+// that one is applied (NtManageHotPatch refuses its queries of loaded patches without privilege).
 struct ExceptionXStateRevision {
   int revision;
   VM_Version::ExceptionXStateKernel kernel;
 };
 
-#define XS_U VM_Version::exception_xstate_kernel_unknown
 #define XS_L VM_Version::exception_xstate_kernel_loses
 #define XS_G VM_Version::exception_xstate_kernel_gated
 #define XS_K VM_Version::exception_xstate_kernel_keeps
@@ -2462,32 +2466,26 @@ struct ExceptionXStateRevision {
 // 25H2), whose updates share its revisions and its kernel. 26300 is not mapped: Insider builds of
 // it carry revisions of their own, from a branch that was not examined.
 static const ExceptionXStateRevision exception_xstate_26100[] = {
-  {     1, XS_L }, {   863, XS_L }, {  1000, XS_L }, {  1150, XS_L }, {  1301, XS_L }, {  1455, XS_L },
+  {     1, XS_L }, {   863, XS_L }, {  1000, XS_L }, {  1150, XS_L }, {  1301, XS_L }, {  1457, XS_L },
   {  1591, XS_L }, {  1742, XS_L }, {  1882, XS_L }, {  2033, XS_L }, {  2161, XS_L }, {  2314, XS_L },
   {  2454, XS_L }, {  2605, XS_L }, {  2894, XS_L }, {  3037, XS_L }, {  3194, XS_L }, {  3323, XS_L },
-  {  3476, XS_L }, {  3624, XS_L }, {  3775, XS_L }, {  3912, XS_L }, {  4061, XS_L }, {  4202, XS_L },
-  {  4343, XS_L }, {  4351, XS_L }, {  4484, XS_L }, {  4652, XS_L }, {  4656, XS_L }, {  4768, XS_L },
-  {  4946, XS_L }, {  5074, XS_L }, {  6584, XS_L },
+  {  3476, XS_L }, {  3624, XS_L }, {  3775, XS_L }, {  3915, XS_L }, {  4061, XS_L }, {  4066, XS_L },
+  {  4202, XS_L }, {  4349, XS_L }, {  4351, XS_L }, {  4484, XS_L }, {  4652, XS_L }, {  4656, XS_L },
+  {  4770, XS_L }, {  4946, XS_L }, {  5074, XS_L }, {  6584, XS_L }, {  6588, XS_L },
   {  6725, XS_G }, {  6899, XS_G }, {  6901, XS_G }, {  7019, XS_G }, {  7171, XS_G }, {  7309, XS_G },
-  {  7462, XS_G }, {  7623, XS_G }, {  7627, XS_G }, {  7705, XS_G }, {  7824, XS_G },
-  {  7920, XS_K }, {  8036, XS_K }, {  8115, XS_K }, {  8117, XS_K }, {  8246, XS_K }, {  8328, XS_K },
-  {  8457, XS_K }, {  8521, XS_K }, {  8655, XS_K }, {  8737, XS_K }, {  8875, XS_K }, {  8894, XS_K },
-  {  8972, XS_K }, {  9168, XS_K }, {  9278, XS_K }, {  9444, XS_K }, {  9457, XS_K }, {  9549, XS_K },
-  {  9711, XS_K }, {  9818, XS_K }, {  9974, XS_K },
-  { 10068, XS_U }, // KB5132057, not on the symbol server
+  {  7462, XS_G }, {  7623, XS_G }, {  7627, XS_G }, {  7628, XS_G }, {  7705, XS_G }, {  7840, XS_G },
+  {  7922, XS_K }, {  8037, XS_K }, {  8039, XS_K }, {  8116, XS_K }, {  8117, XS_K }, {  8246, XS_K },
+  {  8328, XS_K }, {  8457, XS_K }, {  8524, XS_K }, {  8655, XS_K }, {  8737, XS_K }, {  8875, XS_K },
+  {  8894, XS_K }, {  8973, XS_K }, {  9168, XS_K }, {  9278, XS_K }, {  9445, XS_K }, {  9457, XS_K },
+  {  9550, XS_K }, {  9711, XS_K }, {  9725, XS_K }, {  9818, XS_K }, {  9974, XS_K },
   { 33828, XS_G }  // Windows Server 2025, November 2026
 };
 // Build 28000: Windows 11 26H1.
 static const ExceptionXStateRevision exception_xstate_28000[] = {
-  {  1575, XS_K }, {  1643, XS_K }, {  1719, XS_K }, {  1761, XS_K }, {  1830, XS_K },
-  {  1896, XS_U }, // KB5083806, not examined: winbindex has no file data
-  {  2113, XS_K },
-  {  2179, XS_U }, // KB5089570, not examined: winbindex has no file data
-  {  2269, XS_K }, {  2336, XS_K }, {  2525, XS_K }, {  2605, XS_K }, {  2704, XS_K }, {  2804, XS_K },
-  {  2952, XS_K }, {  3086, XS_K }, {  3231, XS_K }, {  3365, XS_K },
-  {  3501, XS_U }, {  3614, XS_U } // KB5132059, KB5132265, not examined
+  {  1575, XS_K }, {  1643, XS_K }, {  1719, XS_K }, {  1764, XS_K }, {  1836, XS_K }, {  2113, XS_K },
+  {  2269, XS_K }, {  2340, XS_K }, {  2525, XS_K }, {  2608, XS_K }, {  2704, XS_K }, {  2804, XS_K },
+  {  2954, XS_K }, {  2956, XS_K }, {  3086, XS_K }, {  3231, XS_K }, {  3365, XS_K }
 };
-#undef XS_U
 #undef XS_L
 #undef XS_G
 #undef XS_K
@@ -2498,23 +2496,13 @@ bool VM_Version::exception_xstate_kernel_needs_revision(int line) {
 
 static VM_Version::ExceptionXStateKernel classify_exception_xstate_revision(const ExceptionXStateRevision* table,
                                                                             size_t length, int revision) {
-  if (revision < 0) {
-    return VM_Version::exception_xstate_kernel_unknown;
-  }
   for (size_t i = 0; i < length; i++) {
     assert(i == 0 || table[i - 1].revision < table[i].revision, "the table is in ascending order");
     if (table[i].revision == revision) {
       return table[i].kernel;
     }
-    if (table[i].revision > revision) {
-      // Between the entries i - 1 and i: their class if they agree.
-      if (i > 0 && table[i - 1].kernel == table[i].kernel) {
-        return table[i].kernel;
-      }
-      return VM_Version::exception_xstate_kernel_unknown;
-    }
   }
-  // Above the newest entry.
+  // Not the revision of an update whose kernel was examined.
   return VM_Version::exception_xstate_kernel_unknown;
 }
 

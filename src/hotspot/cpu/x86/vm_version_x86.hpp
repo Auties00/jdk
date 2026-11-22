@@ -894,7 +894,8 @@ public:
   // Whether the decision for a kernel of this build line needs the kernel's revision.
   static bool exception_xstate_kernel_needs_revision(int line);
   // What the kernel of this build line and revision (the QFE the running kernel reports, or -1 when
-  // the line needs none) does, from the table of examined kernels in vm_version_x86.cpp.
+  // the line needs none) does, from the tables of updates with an examined kernel in
+  // vm_version_x86.cpp. A revision that is not exactly the one of such an update is not known.
   static ExceptionXStateKernel classify_exception_xstate_kernel(int line, int revision);
   // Where the decision for the running system comes from (os::win32 on a real system).
   struct ExceptionXStateSystem {

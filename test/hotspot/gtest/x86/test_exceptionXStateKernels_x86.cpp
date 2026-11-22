@@ -63,20 +63,24 @@ TEST(ExceptionXStateKernels, lines_before_26100) {
 
 TEST(ExceptionXStateKernels, build_26100) {
   static const ExceptionXStateCase cases[] = {
-    // No revision, or below the oldest examined.
+    // No revision, or below the oldest update.
     { 26100, -1, XS_U }, { 26100, 0, XS_U },
-    // Affected, examined and between examined.
-    { 26100, 1, XS_L }, { 26100, 2, XS_L }, { 26100, 4946, XS_L }, { 26100, 5000, XS_L }, { 26100, 6584, XS_L },
-    // The gap to the gated class: 26100.6588 (KB5068221) runs kernel 6584.
-    { 26100, 6585, XS_U }, { 26100, 6588, XS_U }, { 26100, 6724, XS_U },
+    // Updates with an affected kernel, and the revisions next to them, which are not updates.
+    { 26100, 1, XS_L }, { 26100, 2, XS_U }, { 26100, 862, XS_U }, { 26100, 863, XS_L }, { 26100, 864, XS_U },
+    { 26100, 4946, XS_L }, { 26100, 5000, XS_U }, { 26100, 6584, XS_L },
+    // 26100.6588 (KB5068221) ships the affected kernel 6584.
+    { 26100, 6585, XS_U }, { 26100, 6588, XS_L }, { 26100, 6724, XS_U },
     // Gated: protected whatever the feature configuration.
-    { 26100, 6725, XS_G }, { 26100, 7000, XS_G }, { 26100, 7824, XS_G },
-    // The gap to the fixed class: 26100.7840 (KB5077181) runs the gated kernel 7824.
-    { 26100, 7825, XS_U }, { 26100, 7840, XS_U }, { 26100, 7919, XS_U },
-    // Fixed: 7920 to 9974, 26100.7922 (KB5077241) runs kernel 7920, 26100.9725 kernel 9711.
-    { 26100, 7920, XS_K }, { 26100, 7922, XS_K }, { 26100, 9000, XS_K }, { 26100, 9711, XS_K }, { 26100, 9725, XS_K },
-    { 26100, 9974, XS_K },
-    // Above the newest fixed one: the kernel 10068 that was not examined, and everything after it.
+    { 26100, 6725, XS_G }, { 26100, 7000, XS_U }, { 26100, 7623, XS_G }, { 26100, 7705, XS_G },
+    // 26100.7840 (KB5077181) ships the gated kernel 7824, whose revision is not the one of an update.
+    { 26100, 7824, XS_U }, { 26100, 7825, XS_U }, { 26100, 7840, XS_G }, { 26100, 7919, XS_U },
+    // Fixed: only the revisions of the updates. 26100.7922 (KB5077241) ships kernel 7920, 26100.8037
+    // kernel 8036, 26100.9725 kernel 9711; the kernels' own revisions are not updates.
+    { 26100, 7920, XS_U }, { 26100, 7921, XS_U }, { 26100, 7922, XS_K }, { 26100, 7923, XS_U },
+    { 26100, 8036, XS_U }, { 26100, 8037, XS_K }, { 26100, 8039, XS_K }, { 26100, 9000, XS_U },
+    { 26100, 9444, XS_U }, { 26100, 9445, XS_K }, { 26100, 9711, XS_K }, { 26100, 9725, XS_K },
+    { 26100, 9818, XS_K }, { 26100, 9973, XS_U }, { 26100, 9974, XS_K },
+    // Above the newest one: the kernel 10068 (26100.10075) that was not examined, and everything after it.
     { 26100, 9975, XS_U }, { 26100, 10067, XS_U }, { 26100, 10068, XS_U }, { 26100, 10075, XS_U },
     { 26100, 12974, XS_U }, { 26100, 29999, XS_U },
     // The Windows Server 2025 branch: only the examined revision, and it is gated.
@@ -86,17 +90,63 @@ TEST(ExceptionXStateKernels, build_26100) {
   check_cases(cases, ARRAY_SIZE(cases));
 }
 
+// A hotpatch update ships patch images only: at its revision runs the kernel of its baseline
+// update, patched in memory, which was not examined. Every hotpatch revision of build 26100
+// released until November 2026 (Windows 11 Enterprise and Windows Server 2025) protects the state,
+// wherever it lies: among the affected, gated or fixed updates, or on the server branch.
+TEST(ExceptionXStateKernels, hotpatch_revisions) {
+  static const int hotpatches[] = {
+    2240, 2528, 3107, 3403, 3981, 3983, 4270, 4851, 6508, 7092, 7093, 7392, 7634, 7781,
+    // March 2026, on the gated baseline 7623, numbered between the fixed updates 7922 and 8037.
+    7979, 7982, 7984, 7985,
+    // On fixed baselines.
+    8390, 8893, 9106, 9448, 9911,
+    // Windows Server 2025 in 2026.
+    32313, 32463, 32704, 32772, 33222, 33730
+  };
+  for (size_t i = 0; i < ARRAY_SIZE(hotpatches); i++) {
+    EXPECT_EQ(XS_U, VM_Version::classify_exception_xstate_kernel(26100, hotpatches[i])) << hotpatches[i];
+  }
+}
+
+// Only the revisions of the updates with a fixed kernel leave the state unprotected: 23 of build
+// 26100 and 17 of build 28000, and no other revision that a kernel can report.
+TEST(ExceptionXStateKernels, keeps_only_listed_updates) {
+  static const int keeps_26100[] = {
+    7922, 8037, 8039, 8116, 8117, 8246, 8328, 8457, 8524, 8655, 8737, 8875, 8894, 8973, 9168, 9278, 9445, 9457,
+    9550, 9711, 9725, 9818, 9974
+  };
+  static const int keeps_28000[] = {
+    1575, 1643, 1719, 1764, 1836, 2113, 2269, 2340, 2525, 2608, 2704, 2804, 2954, 2956, 3086, 3231, 3365
+  };
+  size_t next_26100 = 0;
+  size_t next_28000 = 0;
+  for (int revision = -1; revision <= 70000; revision++) {
+    bool listed_26100 = next_26100 < ARRAY_SIZE(keeps_26100) && keeps_26100[next_26100] == revision;
+    bool listed_28000 = next_28000 < ARRAY_SIZE(keeps_28000) && keeps_28000[next_28000] == revision;
+    EXPECT_EQ(listed_26100, VM_Version::classify_exception_xstate_kernel(26100, revision) == XS_K) << revision;
+    EXPECT_EQ(listed_28000, VM_Version::classify_exception_xstate_kernel(28000, revision) == XS_K) << revision;
+    next_26100 += listed_26100 ? 1 : 0;
+    next_28000 += listed_28000 ? 1 : 0;
+  }
+  EXPECT_EQ(ARRAY_SIZE(keeps_26100), next_26100);
+  EXPECT_EQ(ARRAY_SIZE(keeps_28000), next_28000);
+  EXPECT_EQ(XS_U, VM_Version::classify_exception_xstate_kernel(26100, max_jint));
+  EXPECT_EQ(XS_U, VM_Version::classify_exception_xstate_kernel(28000, max_jint));
+  EXPECT_EQ(XS_U, VM_Version::classify_exception_xstate_kernel(26100, min_jint));
+}
+
 TEST(ExceptionXStateKernels, build_28000_and_later) {
   static const ExceptionXStateCase cases[] = {
-    // Below the oldest examined revision.
+    // Below the oldest update.
     { 28000, -1, XS_U }, { 28000, 0, XS_U }, { 28000, 1, XS_U }, { 28000, 1574, XS_U },
-    // Examined and between examined.
-    { 28000, 1575, XS_K }, { 28000, 1576, XS_K }, { 28000, 1764, XS_K }, { 28000, 1830, XS_K },
-    // Next to the kernels that were not examined, 1896 and 2179.
-    { 28000, 1836, XS_U }, { 28000, 1895, XS_U }, { 28000, 1896, XS_U }, { 28000, 2112, XS_U },
+    // Updates with an examined kernel, and the revisions next to them.
+    { 28000, 1575, XS_K }, { 28000, 1576, XS_U }, { 28000, 1761, XS_U }, { 28000, 1764, XS_K },
+    // 28000.1836 (KB5083768) ships the examined kernel 1830; the kernels 1896 and 2179 were not examined.
+    { 28000, 1830, XS_U }, { 28000, 1836, XS_K }, { 28000, 1895, XS_U }, { 28000, 1896, XS_U }, { 28000, 2112, XS_U },
     { 28000, 2113, XS_K }, { 28000, 2114, XS_U }, { 28000, 2179, XS_U }, { 28000, 2268, XS_U },
-    { 28000, 2269, XS_K }, { 28000, 2340, XS_K }, { 28000, 3365, XS_K },
-    // Above the newest examined revision.
+    { 28000, 2269, XS_K }, { 28000, 2336, XS_U }, { 28000, 2340, XS_K }, { 28000, 3365, XS_K },
+    // Above the newest update.
     { 28000, 3366, XS_U }, { 28000, 3501, XS_U }, { 28000, 3620, XS_U }, { 28000, 6365, XS_U },
     { 28000, 30000, XS_U },
     // Lines that were not examined: between 26100 and 28000 (Insider builds), and later.
@@ -198,6 +248,16 @@ TEST(ExceptionXStateKernels, system_26100) {
   fake_version_revision = 10075;
   EXPECT_EQ(XS_U, decide(&d));
   EXPECT_EQ(10075, d.revision);
+  // The kernel reports a hotpatch revision (March 2026 on the gated January baseline, November
+  // 2026 on the fixed October baseline), or a revision between two fixed updates that is no update.
+  fake_version_revision = 7979;
+  EXPECT_EQ(XS_U, decide(&d));
+  EXPECT_EQ(7979, d.revision);
+  EXPECT_EQ(nullptr, d.reason);
+  fake_version_revision = 9911;
+  EXPECT_EQ(XS_U, decide(&d));
+  fake_version_revision = 9000;
+  EXPECT_EQ(XS_U, decide(&d));
   // Windows 11 25H2: both sources report 26200, or the version reports the line.
   reset_fake_system();
   fake_running_build = 26200;
@@ -209,10 +269,16 @@ TEST(ExceptionXStateKernels, system_26100) {
   fake_version_build = 26100;
   EXPECT_EQ(XS_K, decide(&d));
   // 26300: Insider builds with revisions of their own, not the line's.
+  // The same on 25H2 for a hotpatch revision (26200.9911).
+  fake_version_build = 26200;
+  fake_version_revision = 9911;
+  EXPECT_EQ(XS_U, decide(&d));
+  fake_version_revision = 9974;
+  // 26300: Insider builds with revisions of their own, not the line's.
   fake_running_build = 26300;
   fake_version_build = 26300;
   EXPECT_EQ(XS_U, decide(&d));
-  EXPECT_EQ(2, version_reads); // not read for 26300
+  EXPECT_EQ(3, version_reads); // not read for 26300
 }
 
 TEST(ExceptionXStateKernels, system_failures) {
