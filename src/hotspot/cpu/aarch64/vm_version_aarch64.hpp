@@ -249,6 +249,15 @@ public:
   static int get_initial_sve_vector_length()        { return _initial_sve_vector_length; };
   static int get_max_supported_sve_vector_length()  { return _max_supported_sve_vector_length; };
 
+#ifdef _WINDOWS
+  // Whether resuming from an exception is known to keep SVE state (the predicate registers, FFR and
+  // the Z registers above their low 128 bits) on the Windows kernel that reports this build
+  // (KUSER_SHARED_DATA.NtBuildNumber) and this version (SystemBuildVersionInformation: whether it
+  // could be read, its build and its revision). See vm_version_windows_aarch64.cpp (JDK-8365196).
+  static bool windows_kernel_keeps_sve_state(int running_build, bool version_read, int version_build,
+                                             int version_revision);
+#endif
+
   // Aarch64 supports fast class initialization checks
   static bool supports_fast_class_init_checks() { return true; }
   constexpr static bool supports_stack_watermark_barrier() { return true; }
