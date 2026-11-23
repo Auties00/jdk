@@ -896,6 +896,9 @@ public:
   // What the kernel of this build line and revision (the QFE the running kernel reports, or -1 when
   // the line needs none) does, from the tables of updates with an examined kernel in
   // vm_version_x86.cpp. A revision that is not exactly the one of such an update is not known.
+  // The line is the one of exception_xstate_kernel_line(); what depends on the reported build
+  // itself (build 26300 is the 26100 line only from a revision on) is decided by
+  // classify_exception_xstate_system(), the only caller outside the tests.
   static ExceptionXStateKernel classify_exception_xstate_kernel(int line, int revision);
   // Where the decision for the running system comes from (os::win32 on a real system).
   struct ExceptionXStateSystem {

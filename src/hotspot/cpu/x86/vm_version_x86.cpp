@@ -2453,8 +2453,8 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
 // the QFE of released cumulative updates whose kernel was examined (and the base image 26100.1),
 // with the class of the kernel that the update ships: the same revision, or an earlier one for an
 // update that did not rebuild the kernel (26100.7922 ships kernel 7920, 26100.9725 kernel 9711,
-// 26100.10075 kernel 10068, 28000.3620 kernel 3614). No released update and no server image
-// ships a kernel newer than its revision. A QFE is matched exactly. One that is not an entry protects the state,
+// 26100.10075 kernel 10068, 28000.3620 kernel 3614). In the cumulative updates and the server
+// images the kernel is never newer than the revision. A QFE is matched exactly. One that is not an entry protects the state,
 // whatever its neighbours, because a revision does not tell what runs by its position: a hotpatch
 // update (Windows 11 Enterprise, Windows Server 2025 Datacenter: Azure Edition or with Azure Arc)
 // ships patch images only (ntkrnlmp_hotpatch.exe, no ntoskrnl.exe), so a machine at a hotpatch
@@ -2484,7 +2484,8 @@ struct ExceptionXStateRevision {
 // 26300 (Windows 11 26H2), whose updates are the same package files as the 26100 ones of the same
 // revision and so install its kernel. Pre-release flights of 26200 and 26300 with a revision of
 // their own are not entries. 26300 takes the line's updates since 26300.9278 (August 2026); its
-// earlier flights could not be examined, so an earlier revision of 26300 protects the state. The
+// earlier flights have revisions of their own, and the ones before May 2026 could not be examined,
+// so an earlier revision of 26300 protects the state (in classify_exception_xstate_system()). The
 // other builds that run this line's kernels (the flights 26120, 26220, 26320, 26340) are not
 // mapped, so they protect the state.
 static const int exception_xstate_26300_first_shared_revision = 9278;

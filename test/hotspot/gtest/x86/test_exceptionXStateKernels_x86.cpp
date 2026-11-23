@@ -23,6 +23,7 @@
 
 #if defined(X86) && defined(_LP64) && defined(_WINDOWS) && !defined(ZERO)
 
+#include "os_windows.hpp"
 #include "runtime/os.hpp"
 #include "runtime/vm_version.hpp"
 #include "unittest.hpp"

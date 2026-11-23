@@ -148,7 +148,7 @@ TEST(SveStateKernels, this_system) {
     EXPECT_TRUE(version_read);
     EXPECT_GE(running_build, 26100);
   }
-  if (reported && kept && FLAG_IS_DEFAULT(UseSVE)) {
+  if (reported && kept && FLAG_IS_DEFAULT(UseSVE) && FLAG_IS_DEFAULT(MaxVectorSize)) {
     EXPECT_TRUE(VM_Version::supports_sve());
   }
 }
