@@ -2428,11 +2428,12 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
 //   before it copies the state, so a stale header on the stack is never read: builds 10240, 10586,
 //   14393, 15063, 16299, 17134, 17763, 17784 (Azure Stack HCI 20H2), 18362, 19041, 20348 (Windows
 //   Server 2022; 20349 installs the same update packages), 22000, 22621 and 25398 (Windows Server
-//   23H2), every kernel of every update that could be obtained, 1,596 files. The routine's code is
-//   the same in all the kernels of a line. Seven kernels of these lines could not be obtained
-//   (10240.18244, 14393.3024, 14393.5989, 14393.6252, 17763.4499, 18362.175, 22000.708): each
-//   lies between examined kernels of its line with that identical code, so these lines are
-//   decided by the build alone;
+//   23H2), every kernel of every update that could be obtained, 1,542 files, and 54 pre-release
+//   builds from 18836 to 20344. The routine's code is the same in all the kernels of a line. Seven
+//   kernel versions of these lines could not be obtained (10240.18244, 14393.3024, 14393.5989,
+//   14393.6252, 17763.4499, 18362.175, 22000.708), nor the LA57 kernel of four more (20348.405,
+//   20348.2652, 22621.4036, 22621.4111): each lies between examined kernels of its line with that
+//   identical code, so these lines are decided by the build alone;
 // - the routine that trusts a header already at the destination first appears between 25398 and
 //   the pre-release build 26074. In build 26100 the first revisions do nothing about it (they lose
 //   the state); then KiDispatchException copies the kernel's own header to the destination first,
@@ -2452,15 +2453,16 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
 // the QFE of released cumulative updates whose kernel was examined (and the base image 26100.1),
 // with the class of the kernel that the update ships: the same revision, or an earlier one for an
 // update that did not rebuild the kernel (26100.7922 ships kernel 7920, 26100.9725 kernel 9711,
-// 26100.10075 kernel 10068, 28000.3620 kernel 3614). In no update or server image is the kernel
-// newer than the revision. A QFE is matched exactly. One that is not an entry protects the state,
+// 26100.10075 kernel 10068, 28000.3620 kernel 3614). No released update and no server image
+// ships a kernel newer than its revision. A QFE is matched exactly. One that is not an entry protects the state,
 // whatever its neighbours, because a revision does not tell what runs by its position: a hotpatch
 // update (Windows 11 Enterprise, Windows Server 2025 Datacenter: Azure Edition or with Azure Arc)
 // ships patch images only (ntkrnlmp_hotpatch.exe, no ntoskrnl.exe), so a machine at a hotpatch
 // revision runs the kernel of its baseline update, patched in memory. The hotpatches 26100.7979
 // to 7985 (March 2026) are numbered between the fixed updates 7922 and 8037, and their baseline
-// is the January 2026 update, the gated kernel 7623. No hotpatch revision is an entry, nor is a
-// revision whose kernel could not be examined (28000.1896: no public symbols).
+// is the January 2026 update, the gated kernel 7623. No hotpatch revision is an entry, and an
+// entry keeps the state only if both kernel files of its update (ntoskrnl.exe and ntkrla57.exe)
+// were examined and are fixed (28000.1896 is no entry: its kernel has no public symbols).
 //
 // Not covered: the QFE is recorded when the kernel boots. A hotpatch applied later without a
 // reboot does not change it, so a machine booted with a fixed baseline update and hotpatched since
@@ -2481,8 +2483,11 @@ struct ExceptionXStateRevision {
 // Build 26100: Windows 11 24H2, Windows Server 2025, and the builds 26200 (Windows 11 25H2) and
 // 26300 (Windows 11 26H2), whose updates are the same package files as the 26100 ones of the same
 // revision and so install its kernel. Pre-release flights of 26200 and 26300 with a revision of
-// their own are not entries. The other builds that run this line's kernels (the flights 26120,
-// 26220, 26320, 26340) are not mapped, so they protect the state.
+// their own are not entries. 26300 takes the line's updates since 26300.9278 (August 2026); its
+// earlier flights could not be examined, so an earlier revision of 26300 protects the state. The
+// other builds that run this line's kernels (the flights 26120, 26220, 26320, 26340) are not
+// mapped, so they protect the state.
+static const int exception_xstate_26300_first_shared_revision = 9278;
 static const ExceptionXStateRevision exception_xstate_26100[] = {
   {     1, XS_L }, {   863, XS_L }, {  1000, XS_L }, {  1150, XS_L }, {  1301, XS_L }, {  1457, XS_L },
   {  1591, XS_L }, {  1742, XS_L }, {  1882, XS_L }, {  2033, XS_L }, {  2161, XS_L }, {  2314, XS_L },
@@ -2592,6 +2597,11 @@ VM_Version::ExceptionXStateKernel VM_Version::classify_exception_xstate_system(c
     return exception_xstate_kernel_unknown;
   }
   decision->revision = revision;
+  if ((decision->running_build == 26300 || build == 26300) &&
+      revision < exception_xstate_26300_first_shared_revision) {
+    decision->reason = "a revision of build 26300 from before it took the updates of 26100";
+    return exception_xstate_kernel_unknown;
+  }
   return classify_exception_xstate_kernel(decision->line, revision);
 }
 

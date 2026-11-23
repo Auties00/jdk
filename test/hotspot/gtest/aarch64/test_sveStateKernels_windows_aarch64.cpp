@@ -23,6 +23,9 @@
 
 #if defined(AARCH64) && defined(_WINDOWS) && !defined(ZERO)
 
+#include "os_windows.hpp"
+#include "runtime/globals.hpp"
+#include "runtime/globals_extension.hpp"
 #include "runtime/os.hpp"
 #include "runtime/vm_version.hpp"
 #include "unittest.hpp"
@@ -61,10 +64,24 @@ TEST(SveStateKernels, enablement_builds) {
   for (size_t i = 0; i < ARRAY_SIZE(builds); i++) {
     for (size_t j = 0; j < ARRAY_SIZE(builds); j++) {
       EXPECT_TRUE(keeps(builds[i], builds[j], 9974)) << builds[i] << " " << builds[j];
+      EXPECT_TRUE(keeps(builds[i], builds[j], 9278)) << builds[i] << " " << builds[j];
       EXPECT_FALSE(keeps(builds[i], builds[j], 7623)) << builds[i] << " " << builds[j];
       EXPECT_FALSE(keeps(builds[i], builds[j], 9911)) << builds[i] << " " << builds[j];
     }
   }
+}
+
+// 26300 takes the updates of 26100 since 26300.9278; its earlier flights were not examined.
+TEST(SveStateKernels, build_26300_before_the_shared_updates) {
+  EXPECT_TRUE(keeps(26300, 26300, 9278));
+  EXPECT_FALSE(keeps(26300, 26300, 9168));
+  EXPECT_FALSE(keeps(26300, 26300, 7922));
+  EXPECT_FALSE(keeps(26300, 26100, 9168));
+  EXPECT_FALSE(keeps(26200, 26300, 9168));
+  EXPECT_FALSE(keeps(26100, 26300, 8037));
+  EXPECT_TRUE(keeps(26200, 26200, 9168));
+  EXPECT_TRUE(keeps(26100, 26100, 7922));
+  EXPECT_TRUE(keeps(26200, 26100, 8037));
 }
 
 TEST(SveStateKernels, build_28000) {
@@ -123,6 +140,16 @@ TEST(SveStateKernels, this_system) {
   }
   if (VM_Version::supports_sve()) {
     EXPECT_TRUE(kept);
+  }
+  // The version can be read on every Windows that reports SVE, and on a kernel that keeps the
+  // state the JVM uses the SVE the processor has.
+  bool reported = IsProcessorFeaturePresent(46 /* PF_ARM_SVE_INSTRUCTIONS_AVAILABLE */) != 0;
+  if (reported) {
+    EXPECT_TRUE(version_read);
+    EXPECT_GE(running_build, 26100);
+  }
+  if (reported && kept && FLAG_IS_DEFAULT(UseSVE)) {
+    EXPECT_TRUE(VM_Version::supports_sve());
   }
 }
 

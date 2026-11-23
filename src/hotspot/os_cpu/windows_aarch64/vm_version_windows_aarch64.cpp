@@ -23,6 +23,8 @@
  */
 
 #include "logging/log.hpp"
+#include "os_windows.hpp"
+#include "runtime/globals_extension.hpp"
 #include "runtime/os.hpp"
 #include "runtime/vm_version.hpp"
 
@@ -92,7 +94,9 @@ int VM_Version::set_and_get_current_sve_vector_length(int length) {
 // with) of the released updates whose Arm64 kernel always copies the header, matched exactly as
 // on x64 and for the same reasons (a hotpatch revision runs its baseline's kernel). They are the
 // revisions that keep the state on x64. Builds 26200 and 26300 (Windows 11 25H2 and 26H2) install
-// the updates of 26100.
+// the updates of 26100, 26300 since its revision 9278; its earlier flights were not examined.
+// A kernel update released after this list, Windows Server 2025 (not examined on Arm64) and every
+// pre-release build run without SVE.
 static const int sve_state_kept_26100[] = {
    7922,  8037,  8039,  8116,  8117,  8246,  8328,  8457,  8524,  8655,  8737,  8875,
    8894,  8973,  9168,  9278,  9445,  9457,  9550,  9711,  9725,  9818,  9974, 10075
@@ -101,6 +105,8 @@ static const int sve_state_kept_28000[] = {
    1575,  1643,  1719,  1764,  1836,  2113,  2179,  2269,  2340,  2525,  2608,  2704,
    2804,  2954,  2956,  3086,  3231,  3365,  3501,  3620
 };
+
+static const int sve_state_26300_first_shared_revision = 9278;
 
 static int sve_state_kernel_line(int build) {
   return (build == 26200 || build == 26300) ? 26100 : build;
@@ -122,6 +128,10 @@ bool VM_Version::windows_kernel_keeps_sve_state(int running_build, bool version_
     return false;
   }
   if (!version_read || sve_state_kernel_line(version_build) != line) {
+    return false;
+  }
+  if ((running_build == 26300 || version_build == 26300) &&
+      version_revision < sve_state_26300_first_shared_revision) {
     return false;
   }
   for (size_t i = 0; i < count; i++) {
@@ -163,8 +173,18 @@ void VM_Version::get_os_cpu_info() {
         set_feature(CPU_SVEBITPERM);
       }
     } else {
-      log_info(os, cpu)("Windows kernel 10.0.%d.%d (build %d): not known to keep SVE state when resuming from an "
-                        "exception; SVE is not used", build, revision, running_build);
+      if (version_read) {
+        log_info(os, cpu)("Windows kernel 10.0.%d.%d (build %d): not known to keep SVE state when resuming from an "
+                          "exception; SVE is not used", build, revision, running_build);
+      } else {
+        log_info(os, cpu)("Windows build %d: not known to keep SVE state when resuming from an exception; SVE is "
+                          "not used", running_build);
+      }
+      if (!FLAG_IS_DEFAULT(UseSVE) && UseSVE > 0) {
+        warning("UseSVE specified, but this Windows kernel is not known to keep SVE state when resuming from an "
+                "exception (JDK-8365196). Disabling SVE.");
+        FLAG_SET_DEFAULT(UseSVE, 0);
+      }
     }
   }
   if (IsProcessorFeaturePresent(PF_ARM_V82_FP16_INSTRUCTIONS_AVAILABLE)) {

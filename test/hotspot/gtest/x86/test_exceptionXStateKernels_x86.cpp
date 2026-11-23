@@ -92,7 +92,7 @@ TEST(ExceptionXStateKernels, build_26100) {
     // Updates with an affected kernel, and the revisions next to them, which are not updates.
     { 26100, 1, XS_L }, { 26100, 2, XS_U }, { 26100, 862, XS_U }, { 26100, 863, XS_L }, { 26100, 864, XS_U },
     { 26100, 4946, XS_L }, { 26100, 5000, XS_U }, { 26100, 6584, XS_L },
-    // A Windows Server 2025 update among them (affected kernel 3781).
+    // The revision 3781 of the Windows Server 2025 images, among them (affected kernel 3781).
     { 26100, 3780, XS_U }, { 26100, 3781, XS_L }, { 26100, 3782, XS_U },
     // 26100.6588 (KB5068221) ships the affected kernel 6584.
     { 26100, 6585, XS_U }, { 26100, 6588, XS_L }, { 26100, 6724, XS_U },
@@ -381,6 +381,32 @@ TEST(ExceptionXStateKernels, system_26100) {
   EXPECT_EQ(XS_K, decide(&d));
   fake_version_build = 26200;
   EXPECT_EQ(XS_K, decide(&d));
+  fake_version_build = 26300;
+  // 26300 takes the updates of the line since 26300.9278: an earlier revision is protected, also
+  // one that is an update of 26100 and 26200 with a fixed kernel, whichever source reports 26300.
+  fake_version_revision = 9278;
+  EXPECT_EQ(XS_K, decide(&d));
+  fake_version_revision = 9168;
+  EXPECT_EQ(XS_U, decide(&d));
+  EXPECT_STREQ("a revision of build 26300 from before it took the updates of 26100", d.reason);
+  EXPECT_EQ(9168, d.revision);
+  fake_version_revision = 7922;
+  EXPECT_EQ(XS_U, decide(&d));
+  fake_version_build = 26100;
+  EXPECT_EQ(XS_U, decide(&d));
+  fake_running_build = 26200;
+  fake_version_build = 26300;
+  EXPECT_EQ(XS_U, decide(&d));
+  EXPECT_STREQ("a revision of build 26300 from before it took the updates of 26100", d.reason);
+  fake_version_build = 26200;
+  EXPECT_EQ(XS_K, decide(&d));
+  fake_running_build = 26100;
+  fake_version_build = 26100;
+  EXPECT_EQ(XS_K, decide(&d));
+  fake_version_revision = 9168;
+  EXPECT_EQ(XS_K, decide(&d));
+  EXPECT_EQ(nullptr, d.reason);
+  fake_running_build = 26300;
   fake_version_build = 26300;
   // A flight of 26300 with a revision of its own, or a hotpatch revision: protected.
   fake_version_revision = 9032;

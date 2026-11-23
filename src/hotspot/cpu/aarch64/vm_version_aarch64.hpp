@@ -254,6 +254,7 @@ public:
   // the Z registers above their low 128 bits) on the Windows kernel that reports this build
   // (KUSER_SHARED_DATA.NtBuildNumber) and this version (SystemBuildVersionInformation: whether it
   // could be read, its build and its revision). See vm_version_windows_aarch64.cpp (JDK-8365196).
+  // Where it is not, the JVM does not use SVE.
   static bool windows_kernel_keeps_sve_state(int running_build, bool version_read, int version_build,
                                              int version_revision);
 #endif
