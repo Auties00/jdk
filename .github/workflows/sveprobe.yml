@@ -1,8 +1,4 @@
-name: 'JDK-8365196 sveprobe: does Windows/AArch64 keep SVE state across an exception?'
-
-# Review-only. On the hosted windows-11-arm runner, natively: the XState configuration, the layout of
-# an exception context, and faults taken with header-like values planted below the stack pointer
-# (sveprobe.c).
+name: 'JDK-8365196 sveprobe build (Arm64 binaries for local VMs)'
 
 on:
   push:
@@ -14,13 +10,9 @@ permissions:
 
 jobs:
   sveprobe:
-    name: sveprobe (${{ matrix.n }})
+    name: sveprobe build
     runs-on: windows-11-arm
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        n: [1, 2, 3, 4]
     defaults:
       run:
         shell: bash
@@ -34,16 +26,15 @@ jobs:
           cd /c/probe
           cmd //c "$(pwd -W)\sbuild.cmd" > $GITHUB_WORKSPACE/out/build.txt 2>&1
           cat $GITHUB_WORKSPACE/out/build.txt
-          powershell -NoProfile -Command "cmd /c ver; (Get-CimInstance Win32_Processor | Select-Object -First 1).Name; (Get-Item C:\Windows\System32\ntoskrnl.exe).VersionInfo.FileVersion; \$env:PROCESSOR_ARCHITECTURE" > $GITHUB_WORKSPACE/out/host.txt 2>&1
-          cat $GITHUB_WORKSPACE/out/host.txt
-          dumpbin //headers sveprobe.exe | grep -i machine
+          ./kver.exe > $GITHUB_WORKSPACE/out/kver.txt 2>&1
           ./sveprobe.exe > $GITHUB_WORKSPACE/out/sveprobe.txt 2>&1
           echo "exit=$?" >> $GITHUB_WORKSPACE/out/sveprobe.txt
-          cat $GITHUB_WORKSPACE/out/sveprobe.txt
+          cat $GITHUB_WORKSPACE/out/kver.txt $GITHUB_WORKSPACE/out/sveprobe.txt
+          cp sveprobe.exe kver.exe setfeat.exe p3agent.exe $GITHUB_WORKSPACE/out/
           true
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: sveprobe-${{ matrix.n }}
+          name: sveprobe-bin
           path: out
           retention-days: 30
