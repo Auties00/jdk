@@ -2421,18 +2421,26 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
 }
 
 // What the Windows kernel does with the XSAVE header of a user-mode exception context, as found by
-// disassembling KiDispatchException and RtlpCopyXStateChunk of 604 x64 ntoskrnl.exe revisions with
-// their public symbols from the Microsoft symbol server (JDK-8365196):
-// - up to Windows 11 23H2, RtlpCopyXStateChunk clears the header at the destination before it
-//   copies the state, in every revision examined (builds 17763 to 22621): a stale header on the
-//   stack is never read. The first examined kernel with the routine that trusts the header is the
-//   first of build 26100. The builds between them (Windows Server 23H2, 25398, and the Insider
-//   builds that led to 26100) were not examined;
-// - build 26100 changed RtlpCopyXStateChunk to trust a header already at the destination. Its
-//   first revisions do nothing about it (they lose the state); then KiDispatchException copies the
-//   kernel's own header to the destination first, at first only when feature 58474193 (0x037C3AD1,
+// disassembling KiDispatchException and RtlpCopyXStateChunk of 2,039 x64 kernel files (ntoskrnl.exe
+// and ntkrla57.exe, the kernel of systems with 5-level paging) with their public symbols from the
+// Microsoft symbol server (JDK-8365196):
+// - in every released line before 26100, RtlpCopyXStateChunk clears the header at the destination
+//   before it copies the state, so a stale header on the stack is never read: builds 10240, 10586,
+//   14393, 15063, 16299, 17134, 17763, 17784 (Azure Stack HCI 20H2), 18362, 19041, 20348 (Windows
+//   Server 2022; 20349 installs the same update packages), 22000, 22621 and 25398 (Windows Server
+//   23H2), every kernel of every update that could be obtained, 1,596 files. The routine's code is
+//   the same in all the kernels of a line. Seven kernels of these lines could not be obtained
+//   (10240.18244, 14393.3024, 14393.5989, 14393.6252, 17763.4499, 18362.175, 22000.708): each
+//   lies between examined kernels of its line with that identical code, so these lines are
+//   decided by the build alone;
+// - the routine that trusts a header already at the destination first appears between 25398 and
+//   the pre-release build 26074. In build 26100 the first revisions do nothing about it (they lose
+//   the state); then KiDispatchException copies the kernel's own header to the destination first,
+//   at first only when feature 58474193 (0x037C3AD1,
 //   Feature_Servicing_ExceptionDispatchUninitializedUserXStateHeaderFix) is enabled (gated), and
-//   from client revision 7920 unconditionally (fixed), as in every examined revision of build 28000.
+//   from client revision 7920 unconditionally (fixed), as in every examined kernel of build 28000.
+//   The Windows Server 2025 branch of build 26100 (revisions from 32230) is gated in every update
+//   up to November 2026.
 // The decision uses only what the running kernel reports about itself, never files, which in a
 // container are the image's: its build line (KUSER_SHARED_DATA), and on 26100 and 28000 the
 // revision of the update it booted with (the QFE of SystemBuildVersionInformation). The state is
@@ -2441,25 +2449,24 @@ bool VM_Version::verify_exception_xstate_scrub(int length) {
 
 // The revision of a line with a table is the QFE the running kernel reports: the revision of the
 // update the machine booted with (its OS revision), not the one of ntoskrnl.exe. The tables list
-// the QFE of every released cumulative update of the line whose kernel was examined (and the base
-// image 26100.1, and the examined Windows Server 2025 update), with the class of the kernel that
-// the update ships: the same revision, or an earlier one for an update that did not rebuild the
-// kernel (26100.7922 ships kernel 7920, 26100.9725 kernel 9711). A QFE is matched exactly. One
-// that is not an entry protects the state, whatever its neighbours, because a revision does not
-// tell what runs by its position: a hotpatch update (Windows 11 Enterprise, Windows Server 2025
-// Datacenter: Azure Edition or with Azure Arc) ships patch images only (ntkrnlmp_hotpatch.exe, no
-// ntoskrnl.exe), so a machine at a hotpatch revision runs the kernel of its baseline update,
-// patched in memory, a combination that was not examined. The hotpatches 26100.7979 to 7985 (March
-// 2026) are numbered between the fixed updates 7922 and 8037, and their baseline is the January
-// 2026 update, the gated kernel 7623. No hotpatch revision is an entry, nor are the kernels that
-// could not be examined (26100.10075, with kernel 10068) or the Windows Server 2025 updates since
-// January 2026 other than the one examined (revisions from 32230, the branch of 33828; the earlier
-// ones are the client revisions up to 7462).
+// the QFE of released cumulative updates whose kernel was examined (and the base image 26100.1),
+// with the class of the kernel that the update ships: the same revision, or an earlier one for an
+// update that did not rebuild the kernel (26100.7922 ships kernel 7920, 26100.9725 kernel 9711,
+// 26100.10075 kernel 10068, 28000.3620 kernel 3614). In no update or server image is the kernel
+// newer than the revision. A QFE is matched exactly. One that is not an entry protects the state,
+// whatever its neighbours, because a revision does not tell what runs by its position: a hotpatch
+// update (Windows 11 Enterprise, Windows Server 2025 Datacenter: Azure Edition or with Azure Arc)
+// ships patch images only (ntkrnlmp_hotpatch.exe, no ntoskrnl.exe), so a machine at a hotpatch
+// revision runs the kernel of its baseline update, patched in memory. The hotpatches 26100.7979
+// to 7985 (March 2026) are numbered between the fixed updates 7922 and 8037, and their baseline
+// is the January 2026 update, the gated kernel 7623. No hotpatch revision is an entry, nor is a
+// revision whose kernel could not be examined (28000.1896: no public symbols).
 //
 // Not covered: the QFE is recorded when the kernel boots. A hotpatch applied later without a
 // reboot does not change it, so a machine booted with a fixed baseline update and hotpatched since
-// is judged by the baseline. The patch images are builds of later revisions of the same branch,
-// all after the fix became unconditional, but what they change was not examined. No unprivileged
+// is judged by the baseline. The four kernel patch images that could be examined (26100.6508,
+// 7392, 7781, 9106) replace 1 to 24 functions each, none of them KiDispatchException,
+// RtlpCopyXStateChunk or RtlpCopyExtendedContext; the others were not available. No unprivileged
 // query tells that a hotpatch is applied: NtManageHotPatch refuses its queries of loaded patches
 // without SeLoadDriverPrivilege, and that the hotpatch engine is enabled does not tell that a
 // patch is applied.
@@ -2471,30 +2478,36 @@ struct ExceptionXStateRevision {
 #define XS_L VM_Version::exception_xstate_kernel_loses
 #define XS_G VM_Version::exception_xstate_kernel_gated
 #define XS_K VM_Version::exception_xstate_kernel_keeps
-// Build 26100: Windows 11 24H2, Windows Server 2025, and the enablement build 26200 (Windows 11
-// 25H2), whose updates share its revisions and its kernel. 26300 is not mapped, so it protects
-// the state: it shares the line's updates since September 2026 (26300.9550), but Insider builds of
-// it carry revisions of their own, from a branch that was not examined.
+// Build 26100: Windows 11 24H2, Windows Server 2025, and the builds 26200 (Windows 11 25H2) and
+// 26300 (Windows 11 26H2), whose updates are the same package files as the 26100 ones of the same
+// revision and so install its kernel. Pre-release flights of 26200 and 26300 with a revision of
+// their own are not entries. The other builds that run this line's kernels (the flights 26120,
+// 26220, 26320, 26340) are not mapped, so they protect the state.
 static const ExceptionXStateRevision exception_xstate_26100[] = {
   {     1, XS_L }, {   863, XS_L }, {  1000, XS_L }, {  1150, XS_L }, {  1301, XS_L }, {  1457, XS_L },
   {  1591, XS_L }, {  1742, XS_L }, {  1882, XS_L }, {  2033, XS_L }, {  2161, XS_L }, {  2314, XS_L },
   {  2454, XS_L }, {  2605, XS_L }, {  2894, XS_L }, {  3037, XS_L }, {  3194, XS_L }, {  3323, XS_L },
-  {  3476, XS_L }, {  3624, XS_L }, {  3775, XS_L }, {  3915, XS_L }, {  4061, XS_L }, {  4066, XS_L },
-  {  4202, XS_L }, {  4349, XS_L }, {  4351, XS_L }, {  4484, XS_L }, {  4652, XS_L }, {  4656, XS_L },
-  {  4770, XS_L }, {  4946, XS_L }, {  5074, XS_L }, {  6584, XS_L }, {  6588, XS_L },
-  {  6725, XS_G }, {  6899, XS_G }, {  6901, XS_G }, {  7019, XS_G }, {  7171, XS_G }, {  7309, XS_G },
-  {  7462, XS_G }, {  7623, XS_G }, {  7627, XS_G }, {  7628, XS_G }, {  7705, XS_G }, {  7840, XS_G },
+  {  3476, XS_L }, {  3624, XS_L }, {  3775, XS_L }, {  3781, XS_L }, {  3915, XS_L }, {  4061, XS_L },
+  {  4066, XS_L }, {  4202, XS_L }, {  4349, XS_L }, {  4351, XS_L }, {  4484, XS_L }, {  4652, XS_L },
+  {  4656, XS_L }, {  4770, XS_L }, {  4946, XS_L }, {  5074, XS_L }, {  6584, XS_L }, {  6588, XS_L },
+  {  6725, XS_G }, {  6899, XS_G }, {  6901, XS_G }, {  6905, XS_G }, {  7019, XS_G }, {  7171, XS_G },
+  {  7178, XS_G }, {  7309, XS_G }, {  7462, XS_G }, {  7623, XS_G }, {  7627, XS_G }, {  7628, XS_G },
+  {  7705, XS_G }, {  7840, XS_G },
   {  7922, XS_K }, {  8037, XS_K }, {  8039, XS_K }, {  8116, XS_K }, {  8117, XS_K }, {  8246, XS_K },
   {  8328, XS_K }, {  8457, XS_K }, {  8524, XS_K }, {  8655, XS_K }, {  8737, XS_K }, {  8875, XS_K },
   {  8894, XS_K }, {  8973, XS_K }, {  9168, XS_K }, {  9278, XS_K }, {  9445, XS_K }, {  9457, XS_K },
-  {  9550, XS_K }, {  9711, XS_K }, {  9725, XS_K }, {  9818, XS_K }, {  9974, XS_K },
-  { 33828, XS_G }  // Windows Server 2025, November 2026
+  {  9550, XS_K }, {  9711, XS_K }, {  9725, XS_K }, {  9818, XS_K }, {  9974, XS_K }, { 10075, XS_K },
+  // Windows Server 2025 since January 2026: every update is gated.
+  { 32230, XS_G }, { 32234, XS_G }, { 32236, XS_G }, { 32370, XS_G }, { 32522, XS_G }, { 32690, XS_G },
+  { 32698, XS_G }, { 32860, XS_G }, { 32995, XS_G }, { 33158, XS_G }, { 33296, XS_G }, { 33438, XS_G },
+  { 33451, XS_G }, { 33650, XS_G }, { 33674, XS_G }, { 33822, XS_G }, { 33828, XS_G }
 };
-// Build 28000: Windows 11 26H1.
+// Build 28000: Windows 11 26H1. Its flights 28020 and 28120 are not mapped.
 static const ExceptionXStateRevision exception_xstate_28000[] = {
   {  1575, XS_K }, {  1643, XS_K }, {  1719, XS_K }, {  1764, XS_K }, {  1836, XS_K }, {  2113, XS_K },
-  {  2269, XS_K }, {  2340, XS_K }, {  2525, XS_K }, {  2608, XS_K }, {  2704, XS_K }, {  2804, XS_K },
-  {  2954, XS_K }, {  2956, XS_K }, {  3086, XS_K }, {  3231, XS_K }, {  3365, XS_K }
+  {  2179, XS_K }, {  2269, XS_K }, {  2340, XS_K }, {  2525, XS_K }, {  2608, XS_K }, {  2704, XS_K },
+  {  2804, XS_K }, {  2954, XS_K }, {  2956, XS_K }, {  3086, XS_K }, {  3231, XS_K }, {  3365, XS_K },
+  {  3501, XS_K }, {  3620, XS_K }
 };
 #undef XS_L
 #undef XS_G
@@ -2517,8 +2530,10 @@ static VM_Version::ExceptionXStateKernel classify_exception_xstate_revision(cons
 }
 
 VM_Version::ExceptionXStateKernel VM_Version::classify_exception_xstate_kernel(int line, int revision) {
-  if (line >= 10240 && line <= 22631) {
-    // Windows 10 and Windows Server 2016 to Windows 11 23H2, any revision.
+  if ((line >= 10240 && line <= 22631) || line == 25398) {
+    // Windows 10 and Windows Server 2016 to Windows 11 23H2, and Windows Server 23H2, any
+    // revision. The pre-release builds in the first range were built before 25398 branched,
+    // which still has the routine that clears the header.
     return exception_xstate_kernel_keeps;
   }
   if (line == 26100) {
@@ -2527,9 +2542,11 @@ VM_Version::ExceptionXStateKernel VM_Version::classify_exception_xstate_kernel(i
   if (line == 28000) {
     return classify_exception_xstate_revision(exception_xstate_28000, ARRAY_SIZE(exception_xstate_28000), revision);
   }
-  // No valid build, or a line that was not examined: 22632 to 26099 (Windows Server 23H2, 25398,
-  // and the Insider builds that led to 26100), 26101 to 27999 but 26200, the enablement build of
-  // 26100 (Insider builds such as 26120 and 26220, and 26300), or newer than 28000.
+  // No valid build, a build before Windows 10 (the kernels of Windows 8.1 and earlier were not
+  // examined), or a line that was not examined or has kernels that lose the state without a table
+  // of its own: the pre-release builds 22632 to 26099 other than 25398, 26101 to 27999 other than
+  // 26200 and 26300 (flights such as 26120, 26220, 26320 and 26340), and everything above 28000
+  // (the flights 28020 and 28120, and the Canary builds, whose routine changed again).
   return exception_xstate_kernel_unknown;
 }
 
@@ -2538,7 +2555,7 @@ int VM_Version::exception_xstate_kernel_line(int reported_build) {
     case 18363: return 18362;                                         // Windows 10 1909
     case 19042: case 19043: case 19044: case 19045: return 19041;     // Windows 10 20H2 to 22H2
     case 22631: return 22621;                                         // Windows 11 23H2
-    case 26200: return 26100;                                         // Windows 11 25H2
+    case 26200: case 26300: return 26100;                             // Windows 11 25H2 and 26H2
     default: return reported_build;
   }
 }
