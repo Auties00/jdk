@@ -1539,6 +1539,14 @@ RegMask _NO_TRAP_EGPR_mask;
 // The registers a raw access kills in a compilation with unsafe accesses (see X86NoTrap).
 RegMask _NO_TRAP_RAW_KILL_mask;
 
+// Inserts reg unless C2 does not use it on this processor (c2_init_x86.cpp invalidates the upper
+// vector slots, xmm16-31 and the opmask registers without AVX-512).
+static void insert_if_valid(RegMask& mask, OptoReg::Name reg) {
+  if (reg != OptoReg::Bad) {
+    mask.insert(reg);
+  }
+}
+
 static bool need_r12_heapbase() {
   return UseCompressedOops;
 }
@@ -1644,34 +1652,34 @@ void reg_mask_init() {
     for (int slot = 0; slot < XMMRegister::max_slots_per_register; slot++) {
       OptoReg::Name reg = OptoReg::as_OptoReg(xmm->next(slot));
       if (n >= 16) {
-        _NO_TRAP_UPPER_XMM_mask.insert(reg);
+        insert_if_valid(_NO_TRAP_UPPER_XMM_mask, reg);
       }
       if (n >= 16 || slot >= 4) {
-        _NO_TRAP_LOSABLE_VECTOR_mask.insert(reg);
+        insert_if_valid(_NO_TRAP_LOSABLE_VECTOR_mask, reg);
       }
     }
   }
   for (int n = 1; n < KRegister::number_of_registers; n++) {
     VMReg k = as_KRegister(n)->as_VMReg();
-    _NO_TRAP_LOSABLE_VECTOR_mask.insert(OptoReg::as_OptoReg(k));
-    _NO_TRAP_LOSABLE_VECTOR_mask.insert(OptoReg::as_OptoReg(k->next()));
+    insert_if_valid(_NO_TRAP_LOSABLE_VECTOR_mask, OptoReg::as_OptoReg(k));
+    insert_if_valid(_NO_TRAP_LOSABLE_VECTOR_mask, OptoReg::as_OptoReg(k->next()));
   }
   for (uint i = 0; i < sizeof(egprs)/sizeof(Register); i++) {
-    _NO_TRAP_EGPR_mask.insert(OptoReg::as_OptoReg(egprs[i]->as_VMReg()));
-    _NO_TRAP_EGPR_mask.insert(OptoReg::as_OptoReg(egprs[i]->as_VMReg()->next()));
+    insert_if_valid(_NO_TRAP_EGPR_mask, OptoReg::as_OptoReg(egprs[i]->as_VMReg()));
+    insert_if_valid(_NO_TRAP_EGPR_mask, OptoReg::as_OptoReg(egprs[i]->as_VMReg()->next()));
   }
   if (VM_Version::supports_evex()) {
     for (int n = 1; n < KRegister::number_of_registers; n++) {
       VMReg k = as_KRegister(n)->as_VMReg();
-      _NO_TRAP_RAW_KILL_mask.insert(OptoReg::as_OptoReg(k));
-      _NO_TRAP_RAW_KILL_mask.insert(OptoReg::as_OptoReg(k->next()));
+      insert_if_valid(_NO_TRAP_RAW_KILL_mask, OptoReg::as_OptoReg(k));
+      insert_if_valid(_NO_TRAP_RAW_KILL_mask, OptoReg::as_OptoReg(k->next()));
     }
     if (!VM_Version::supports_avx512vlbwdq()) {
       // Masks of some shapes are vectors here, which can be in xmm16-31.
       for (int n = 16; n < XMMRegister::number_of_registers; n++) {
         VMReg xmm = as_XMMRegister(n)->as_VMReg();
         for (int slot = 0; slot < XMMRegister::max_slots_per_register; slot++) {
-          _NO_TRAP_RAW_KILL_mask.insert(OptoReg::as_OptoReg(xmm->next(slot)));
+          insert_if_valid(_NO_TRAP_RAW_KILL_mask, OptoReg::as_OptoReg(xmm->next(slot)));
         }
       }
     }

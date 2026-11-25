@@ -1308,8 +1308,9 @@ source %{
     _NO_SPECIAL_NO_RFP_PTR_REG_mask.remove(OptoReg::as_OptoReg(r29->as_VMReg()));
 
     for (int n = 0; n < PRegister::number_of_registers; n++) {
-      if (n != 7) {
-        _NO_TRAP_RAW_KILL_mask.insert(OptoReg::as_OptoReg(as_PRegister(n)->as_VMReg()));
+      OptoReg::Name reg = OptoReg::as_OptoReg(as_PRegister(n)->as_VMReg());
+      if (n != 7 && reg != OptoReg::Bad) {
+        _NO_TRAP_RAW_KILL_mask.insert(reg);
       }
     }
   }
