@@ -95,13 +95,9 @@ static bool may_access_raw_memory(const Node* n) {
   if (!n->is_Mach() || n->as_Mach()->memory_operand() == nullptr) {
     return false;
   }
-  const TypePtr* types[] = { n->as_Mach()->in_adr_type(), n->as_Mach()->out_adr_type() };
-  for (const TypePtr* t : types) {
-    if (t == nullptr || t->base() == Type::RawPtr || t->base() == Type::AnyPtr) {
-      return true;
-    }
-  }
-  return false;
+  // The memory a node consumes covers what it produces (Node::in_adr_type()); a load produces none.
+  const TypePtr* t = n->as_Mach()->in_adr_type();
+  return t == nullptr || t->base() == Type::RawPtr || t->base() == Type::AnyPtr;
 }
 
 // Checks what the unsafe access window relies on (see NoTrapPlatform): no integer, pointer or

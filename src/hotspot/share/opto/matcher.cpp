@@ -1759,7 +1759,7 @@ MachNode* Matcher::find_shared_node(Node* leaf, uint rule) {
 // the access, and a mask computed before it could come back zeroed and let a failed index check pass
 // (the check of a scatter's indices, whose low lanes survive in the vector registers). The allocator
 // then spills any such mask live across the access, and reloads it intact.
-void Matcher::kill_masks_at_raw_access(MachNode* mach, const Node* leaf) {
+void Matcher::kill_masks_at_raw_access(MachNode* mach, const TypePtr* t) {
   const NoTrapPlatform* no_trap = Matcher::no_trap();
   if (no_trap == nullptr || !C->has_unsafe_access()) {
     return;
@@ -1768,7 +1768,6 @@ void Matcher::kill_masks_at_raw_access(MachNode* mach, const Node* leaf) {
   if (kill == nullptr) {
     return;
   }
-  const TypePtr* t = leaf->in_adr_type();
   if (t != nullptr && t->base() != Type::RawPtr && t->base() != Type::AnyPtr) {
     return;
   }
@@ -1871,10 +1870,18 @@ MachNode *Matcher::ReduceInst( State *s, int rule, Node *&mem ) {
 
   uint number_of_projections_prior = number_of_projections();
 
+  // The memory an access consumes, read before an expansion clears its inputs, where a raw access
+  // kills the mask registers (see kill_masks_at_raw_access()).
+  const TypePtr* consumed = TYPE_PTR_SENTINAL;
+  if (mem != (Node*)1 && !_allocation_started && C->has_unsafe_access() && Matcher::no_trap() != nullptr &&
+      Matcher::no_trap()->raw_access_kill() != nullptr) {
+    consumed = mach->in_adr_type();
+  }
+
   // Perform any 1-to-many expansions required
   MachNode *ex = mach->Expand(s, _projection_list, mem);
-  if (mem != (Node*)1 && !_allocation_started) {
-    kill_masks_at_raw_access(ex, leaf);
+  if (consumed != TYPE_PTR_SENTINAL) {
+    kill_masks_at_raw_access(ex, consumed);
   }
   if (ex != mach) {
     assert(ex->ideal_reg() == mach->ideal_reg(), "ideal types should match");
