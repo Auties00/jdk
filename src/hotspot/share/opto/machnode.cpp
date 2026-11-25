@@ -772,7 +772,7 @@ const Pipeline* MachTrapScrubNode::pipeline() const {
 //=============================================================================
 #ifndef PRODUCT
 void MachExplicitNullCheckNode::format(PhaseRegAlloc* ra, outputStream* st) const {
-  st->print("explicit null check %s	# branch to the null successor", Matcher::regName[ra->get_reg_first(in(1))]);
+  st->print("explicit null check %s\t# branch to the null successor", Matcher::regName[ra->get_reg_first(in(1))]);
 }
 #endif
 
