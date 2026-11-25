@@ -122,14 +122,20 @@ bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
 
   DEBUG_ONLY(verify_placement(C, platform);)
 
+  // The implicit null checks (Block::end() is not reliable for every block here, so every node is
+  // looked at).
   uint block_count = 0;
   VectorSet null_check_accesses;
+  GrowableArray<MachNullCheckNode*> null_checks;
   for (uint i = 0; i < cfg->number_of_blocks(); i++) {
     Block* block = cfg->get_block(i);
     block_count = MAX2(block_count, block->_pre_order + 1);
-    Node* end = block->end();
-    if (end->is_MachNullCheck()) {
-      null_check_accesses.set(end->in(1)->_idx);
+    for (uint j = 0; j < block->number_of_nodes(); j++) {
+      Node* n = block->get_node(j);
+      if (n->is_MachNullCheck()) {
+        null_check_accesses.set(n->in(1)->_idx);
+        null_checks.append(n->as_MachNullCheck());
+      }
     }
   }
 
@@ -215,8 +221,13 @@ bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
   for (int i = 0; i < accesses.length(); i++) {
     Node* access = accesses.at(i);
     Block* block = cfg->get_block_for_node(access);
-    MachNullCheckNode* null_check = block->end()->as_MachNullCheck();
-    assert(null_check->in(1) == access, "the block's null check tests this access");
+    MachNullCheckNode* null_check = nullptr;
+    for (int k = 0; k < null_checks.length() && null_check == nullptr; k++) {
+      if (null_checks.at(k)->in(1) == access) {
+        null_check = null_checks.at(k);
+      }
+    }
+    guarantee(null_check != nullptr && cfg->get_block_for_node(null_check) == block, "the null check of this access");
     Node* value = access->in(null_check->_vidx);
     assert(!platform->null_test_kills_flags() || !reads_flags(access),
            "the explicit test would kill the flags the access reads (see PhaseCFG::implicit_null_check())");
@@ -236,13 +247,12 @@ bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
   for (int i = 0; i < accesses.length(); i++) {
     marked.set(accesses.at(i)->_idx);
   }
+  for (int k = 0; k < null_checks.length(); k++) {
+    assert(null_checks.at(k)->is_explicit() == marked.test(null_checks.at(k)->in(1)->_idx),
+           "an implicit null check is explicit exactly where losable state is live");
+  }
   for (uint i = 0; i < cfg->number_of_blocks(); i++) {
     Block* block = cfg->get_block(i);
-    Node* end = block->end();
-    if (end->is_MachNullCheck()) {
-      assert(end->as_MachNullCheck()->is_explicit() == marked.test(end->in(1)->_idx),
-             "an implicit null check is explicit exactly where losable state is live");
-    }
     for (uint j = 0; j < block->number_of_nodes(); j++) {
       Node* n = block->get_node(j);
       if (is_loop_poll(n)) {
