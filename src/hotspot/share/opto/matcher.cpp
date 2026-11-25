@@ -468,7 +468,8 @@ void Matcher::kill_masks_at_raw_accesses() {
     return;
   }
   const RegMask* kill = no_trap->raw_access_kill();
-  ResourceMark rm;
+  // No ResourceMark here: push_projection() grows the matcher's projection list, which lives in the
+  // compilation's resource area.
   Unique_Node_List<Node> nodes;
   GrowableArray<MachNode*> accesses;
   nodes.push(C->root());
