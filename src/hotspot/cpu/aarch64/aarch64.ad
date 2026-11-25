@@ -1264,6 +1264,9 @@ source %{
   RegMask _NO_SPECIAL_REG_mask;
   RegMask _NO_SPECIAL_PTR_REG_mask;
   RegMask _NO_SPECIAL_NO_RFP_PTR_REG_mask;
+  // The predicate registers a raw access kills in a compilation with unsafe accesses, with SVE
+  // (see AArch64NoTrap): every allocatable one, p0-p6 and p8-p15.
+  RegMask _NO_TRAP_RAW_KILL_mask;
 
   void reg_mask_init() {
     // We derive below RegMask(s) from the ones which are auto-generated from
@@ -1303,6 +1306,12 @@ source %{
 
     _NO_SPECIAL_NO_RFP_PTR_REG_mask.assignFrom(_NO_SPECIAL_PTR_REG_mask);
     _NO_SPECIAL_NO_RFP_PTR_REG_mask.remove(OptoReg::as_OptoReg(r29->as_VMReg()));
+
+    for (int n = 0; n < PRegister::number_of_registers; n++) {
+      if (n != 7) {
+        _NO_TRAP_RAW_KILL_mask.insert(OptoReg::as_OptoReg(as_PRegister(n)->as_VMReg()));
+      }
+    }
   }
 
   // Optimizaton of volatile gets and puts
@@ -2499,6 +2508,18 @@ class AArch64NoTrap : public NoTrapPlatform {
 
   virtual const RegMask* allocation_exclusion(const Compile* C) const {
     return nullptr;
+  }
+
+  // A check's result lives in a predicate register, which a resumed exception loses entirely, while
+  // the vector it checks keeps its low 128 bits. Accesses governed by p7 do nothing after such a
+  // loss, but a call in the window sets p7 again; so no predicate other than p7 is live across a raw
+  // access. p7 itself is not killed: losing it only stops the accesses it governs.
+  virtual const RegMask* raw_access_kill() const {
+    return &_NO_TRAP_RAW_KILL_mask;
+  }
+
+  virtual uint64_t raw_access_killed_units() const {
+    return (uint64_t)0xFF7F << 32; // p0-p6, p8-p15
   }
 };
 

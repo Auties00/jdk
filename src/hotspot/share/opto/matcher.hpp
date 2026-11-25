@@ -250,6 +250,9 @@ public:
     return _projection_list.size();
   }
 
+  // AvoidLosableStateAtTraps: kills the mask registers at a raw access (see NoTrapPlatform).
+  void kill_masks_at_raw_access(MachNode* mach, const Node* leaf);
+
   // Select instructions for entire method
   void match();
 

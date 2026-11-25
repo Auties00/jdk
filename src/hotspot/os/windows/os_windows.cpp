@@ -2998,11 +2998,16 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
       //   then write a[1] of a 1-element array);
       // - in a compilation with unsafe accesses no live range uses the APX registers
       //   (NoTrapPlatform::allocation_exclusion());
-      // - addresses and bounds checks are computed in general purpose registers; a vector of
-      //   indices or a mask that comes back zeroed only selects index 0, which a passed check
-      //   implies is in range, or fewer lanes (zero means inactive for opmask, AVX2 mask and SVE
-      //   predicate registers), and a flags producer that tests a mask is scheduled right before
-      //   its branch (PhaseCFG::select()), so no resumed access falls between them.
+      // - addresses and scalar bounds checks are computed in general purpose registers; a vector of
+      //   indices that comes back zeroed only selects index 0, which a passed check implies is in
+      //   range, and an access mask that comes back zeroed only drops lanes;
+      // - the result of a vector check (the Vector API's index check of a gather or scatter) is never
+      //   live across a raw access in a register that would lose it while the checked indices keep
+      //   their low lanes: such an access kills the opmask registers (and, on AVX-512 without VL, BW
+      //   and DQ, xmm16-31) or the SVE predicates other than p7, so a mask computed before it is
+      //   spilled and reloaded intact (Matcher::kill_masks_at_raw_access(); without it a failed
+      //   check of a scatter's indices could pass and the scatter write out of bounds). A mask in
+      //   xmm0-15 has the lane width of the vector it checks, so it loses the same lanes.
       nmethod* nm = nullptr;
       if (in_java) {
         CodeBlob* cb = CodeCache::find_blob(pc);

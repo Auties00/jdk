@@ -89,16 +89,14 @@ static bool may_access_raw_memory(const Node* n) {
 }
 
 // Checks what the unsafe access window relies on (see NoTrapPlatform): no integer, pointer or
-// narrow oop is in a losable floating point or vector register, none is in a losable general
-// purpose register in a compilation with unsafe accesses, and no flags producer with a losable
-// input is separated from its use by an access that can fault and be resumed.
+// narrow oop is in a losable floating point or vector register, and none is in a losable general
+// purpose register in a compilation with unsafe accesses.
 static void verify_placement(Compile* C, const NoTrapPlatform* platform) {
   PhaseCFG* cfg = C->cfg();
   PhaseRegAlloc* ra = C->regalloc();
   const bool unsafe = C->has_unsafe_access();
   for (uint i = 0; i < cfg->number_of_blocks(); i++) {
     Block* block = cfg->get_block(i);
-    const Node* pending_flags = nullptr;
     for (uint j = 0; j < block->number_of_nodes(); j++) {
       Node* n = block->get_node(j);
       if (n->_idx < ra->node_regs_max_index() && is_gpr_ideal_reg(n->ideal_reg())) {
@@ -111,24 +109,6 @@ static void verify_placement(Compile* C, const NoTrapPlatform* platform) {
           assert(unit < 0 || (!unsafe && platform->is_general_purpose_unit(unit)),
                  "an integer or pointer value in a register that a resumed exception can lose");
         }
-      }
-      if (!unsafe) {
-        continue;
-      }
-      if (pending_flags != nullptr) {
-        bool used = false;
-        for (uint k = 1; k < n->req(); k++) {
-          used |= n->in(k) == pending_flags;
-        }
-        if (used) {
-          pending_flags = nullptr;
-        } else if (may_access_raw_memory(n)) {
-          n->dump();
-          assert(false, "a resumable access between a flags producer with a losable input and its use");
-        }
-      }
-      if (n->is_Mach() && n->ideal_reg() == Op_RegFlags && n->as_Mach()->has_losable_input()) {
-        pending_flags = n;
       }
     }
   }
@@ -189,6 +169,7 @@ bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
 
   // The trap sites at which losable state is live.
   const uint64_t always_live = platform->always_live_units(C);
+  DEBUG_ONLY(const uint64_t raw_killed = C->has_unsafe_access() ? platform->raw_access_killed_units() : 0;)
   GrowableArray<Node*> polls;
   GrowableArray<Node*> accesses;
   for (uint i = 0; i < cfg->number_of_blocks(); i++) {
@@ -196,6 +177,17 @@ bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
     uint64_t live = live_out(block);
     for (int j = (int)block->number_of_nodes() - 1; j >= 0; j--) {
       Node* n = block->get_node(j);
+#ifdef ASSERT
+      // No mask that could carry a check's result is live across a raw access (see
+      // Matcher::kill_masks_at_raw_access()).
+      if (raw_killed != 0 && may_access_raw_memory(n)) {
+        uint64_t across = live & raw_killed & ~bit(unit_of(platform, ra, n));
+        if (across != 0) {
+          n->dump();
+        }
+        assert(across == 0, "a mask register is live across a raw access of a compilation with unsafe accesses");
+      }
+#endif
       bool poll = is_loop_poll(n);
       bool access = null_check_accesses.test(n->_idx);
       if (poll || access) {

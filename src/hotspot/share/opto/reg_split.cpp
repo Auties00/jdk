@@ -320,8 +320,8 @@ Node *PhaseChaitin::split_Rematerialize(Node *def, Block *b, uint insidx, uint &
                                         Node **Reachblock, bool walkThru) {
   // A copy computed from a register that a resumed exception can lose could differ from the value
   // a bounds check tested (see AvoidLosableStateAtTraps and MachNode::rematerialize()). Flags are
-  // the exception: they cannot be spilled, and a flags producer used by a branch is scheduled right
-  // before it (PhaseCFG::select()), so no resumed fault falls between them.
+  // the exception: they cannot be spilled, and the masks a flags producer reads are killed at raw
+  // accesses (Matcher::kill_masks_at_raw_access()), so a copy after one reads them intact.
   assert(!def->is_Mach() || def->ideal_reg() == Op_RegFlags || !def->as_Mach()->has_losable_input(),
          "rematerializes a value from a register that a resumed exception can lose");
   // The input live ranges will be stretched to the site of the new

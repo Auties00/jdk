@@ -50,7 +50,9 @@ class RegMask;
 //   SharedRuntime::handle_unsafe_access()): the writes of that window have unspecified values in
 //   any case, and nothing that steers an access is ever kept in such state while the access can be
 //   reached: integer and pointer values are not spilled there, values are not recomputed from it,
-//   and in compilations with unsafe accesses no live range uses a losable general purpose register.
+//   and in compilations with unsafe accesses no live range uses a losable general purpose register,
+//   and no mask that can carry the result of a check is live across a raw access (the access kills
+//   the mask registers, NoTrapPlatform::raw_access_kill()).
 //
 // A platform that supports the mode returns an implementation from Matcher::no_trap().
 class NoTrapPlatform {
@@ -75,6 +77,12 @@ class NoTrapPlatform {
   // The registers no live range of C may use, or null: the losable general purpose registers in a
   // compilation with unsafe accesses.
   virtual const RegMask* allocation_exclusion(const Compile* C) const = 0;
+  // The registers that a raw memory access of a compilation with unsafe accesses kills, or null:
+  // those that can carry the result of a check (a mask) while losing more of it than the vector it
+  // checks keeps, so that no such value is live across an access whose fault is resumed.
+  virtual const RegMask* raw_access_kill() const = 0;
+  // The units of raw_access_kill(), for the debug check that none is live across a raw access.
+  virtual uint64_t raw_access_killed_units() const = 0;
 };
 
 // The pass that gives C2 trap sites their non-trapping form after register allocation.

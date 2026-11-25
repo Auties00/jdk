@@ -1500,6 +1500,7 @@ extern RegMask _STACK_OR_INT_REG_mask;
 extern RegMask _NO_TRAP_UPPER_XMM_mask;
 extern RegMask _NO_TRAP_LOSABLE_VECTOR_mask;
 extern RegMask _NO_TRAP_EGPR_mask;
+extern RegMask _NO_TRAP_RAW_KILL_mask;
 
 inline const RegMask& STACK_OR_PTR_REG_mask()  { return _STACK_OR_PTR_REG_mask;  }
 inline const RegMask& STACK_OR_LONG_REG_mask() { return _STACK_OR_LONG_REG_mask; }
@@ -1535,6 +1536,8 @@ RegMask _STACK_OR_INT_REG_mask;
 RegMask _NO_TRAP_UPPER_XMM_mask;
 RegMask _NO_TRAP_LOSABLE_VECTOR_mask;
 RegMask _NO_TRAP_EGPR_mask;
+// The registers a raw access kills in a compilation with unsafe accesses (see X86NoTrap).
+RegMask _NO_TRAP_RAW_KILL_mask;
 
 static bool need_r12_heapbase() {
   return UseCompressedOops;
@@ -1656,6 +1659,22 @@ void reg_mask_init() {
   for (uint i = 0; i < sizeof(egprs)/sizeof(Register); i++) {
     _NO_TRAP_EGPR_mask.insert(OptoReg::as_OptoReg(egprs[i]->as_VMReg()));
     _NO_TRAP_EGPR_mask.insert(OptoReg::as_OptoReg(egprs[i]->as_VMReg()->next()));
+  }
+  if (VM_Version::supports_evex()) {
+    for (int n = 1; n < KRegister::number_of_registers; n++) {
+      VMReg k = as_KRegister(n)->as_VMReg();
+      _NO_TRAP_RAW_KILL_mask.insert(OptoReg::as_OptoReg(k));
+      _NO_TRAP_RAW_KILL_mask.insert(OptoReg::as_OptoReg(k->next()));
+    }
+    if (!VM_Version::supports_avx512vlbwdq()) {
+      // Masks of some shapes are vectors here, which can be in xmm16-31.
+      for (int n = 16; n < XMMRegister::number_of_registers; n++) {
+        VMReg xmm = as_XMMRegister(n)->as_VMReg();
+        for (int slot = 0; slot < XMMRegister::max_slots_per_register; slot++) {
+          _NO_TRAP_RAW_KILL_mask.insert(OptoReg::as_OptoReg(xmm->next(slot)));
+        }
+      }
+    }
   }
 }
 
@@ -2811,6 +2830,26 @@ class X86NoTrap : public NoTrapPlatform {
     // r16-r31 can be lost when an unsafe access fault is resumed past the access; elsewhere the
     // trap sites at which they are live take their non-trapping form.
     return UseAPX && C->has_unsafe_access() ? &_NO_TRAP_EGPR_mask : nullptr;
+  }
+
+  // A check's result can live in an opmask register, which a resumed exception loses entirely,
+  // while the vector it checks keeps its low 128 bits in xmm0-xmm15: a zeroed mask would let a
+  // failed index check pass. Where masks of some shapes are vectors (AVX-512 without VL, BW and DQ),
+  // xmm16-31 can hold them too. A mask in xmm0-15 (AVX2) has the lane width of the vector it was
+  // computed from, so it loses the same lanes, whose indices then read as 0.
+  virtual const RegMask* raw_access_kill() const {
+    return VM_Version::supports_evex() ? &_NO_TRAP_RAW_KILL_mask : nullptr;
+  }
+
+  virtual uint64_t raw_access_killed_units() const {
+    if (!VM_Version::supports_evex()) {
+      return 0;
+    }
+    uint64_t units = (uint64_t)0xFE << 32; // k1-k7
+    if (!VM_Version::supports_avx512vlbwdq()) {
+      units |= (uint64_t)0xFFFF << 16;     // xmm16-31
+    }
+    return units;
   }
 };
 
