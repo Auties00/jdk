@@ -99,6 +99,8 @@ private:
 
   // Whether TrapScrubs::insert() placed scrubs (see TrapScrubPlatform).
   bool _has_trap_scrubs;
+  // Whether NoTrapSites::apply() changed trap sites (see NoTrapPlatform).
+  bool _has_no_trap_sites;
   // The trap sites TrapScrubs::insert() protected, for TrapScrubs::verify().
   DEBUG_ONLY(GrowableArray<Node*>* _trap_scrub_hot_traps;)
 

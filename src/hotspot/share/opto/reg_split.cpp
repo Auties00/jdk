@@ -318,6 +318,12 @@ static Node* clone_node(Node* def, Block *b, Compile* C) {
 Node *PhaseChaitin::split_Rematerialize(Node *def, Block *b, uint insidx, uint &maxlrg,
                                         GrowableArray<uint> splits, int slidx, uint *lrg2reach,
                                         Node **Reachblock, bool walkThru) {
+  // A copy computed from a register that a resumed exception can lose could differ from the value
+  // a bounds check tested (see AvoidLosableStateAtTraps and MachNode::rematerialize()). Flags are
+  // the exception: they cannot be spilled, and a flags producer used by a branch is scheduled right
+  // before it (PhaseCFG::select()), so no resumed fault falls between them.
+  assert(!def->is_Mach() || def->ideal_reg() == Op_RegFlags || !def->as_Mach()->has_losable_input(),
+         "rematerializes a value from a register that a resumed exception can lose");
   // The input live ranges will be stretched to the site of the new
   // instruction.  They might be stretched past a def and will thus
   // have the old and new values of the same live range alive at the

@@ -48,6 +48,26 @@ void C2SafepointPollStub::emit(C2_MacroAssembler& masm) {
   __ jump(callback_addr);
 }
 
+int C2LoopPollStub::max_size() const {
+  return 33;
+}
+
+void C2LoopPollStub::emit(C2_MacroAssembler& masm) {
+  assert(SharedRuntime::polling_page_branch_safepoint_handler_blob() != nullptr,
+         "branch poll stub not created");
+  RuntimeAddress callback_addr(SharedRuntime::polling_page_branch_safepoint_handler_blob()->entry_point());
+
+  __ bind(entry());
+  // Every register may hold a value here: rax is borrowed below the stack pointer, which the
+  // handler finds where it was.
+  InternalAddress safepoint_pc(masm.pc() - masm.offset() + _safepoint_offset);
+  __ push(rax);
+  __ lea(rax, safepoint_pc);
+  __ movptr(Address(r15_thread, JavaThread::saved_exception_pc_offset()), rax);
+  __ pop(rax);
+  __ jump(callback_addr);
+}
+
 int C2EntryBarrierStub::max_size() const {
   return 10;
 }

@@ -46,6 +46,18 @@ static bool is_valid_gp(Register reg) {
   return reg->is_valid() && (reg->encoding() < (UseAPX ? 32 : 16));
 }
 
+// Whether the stub saves the caller's MXCSR and runs Java code with the standard one. On Windows
+// the control bits are preserved across calls, so the caller's value is restored on return; it is
+// done there only with AvoidLosableStateAtTraps, where Java code must never run with FP exceptions
+// unmasked (such an exception in compiled code is resumed and can lose vector state).
+static bool saves_mxcsr() {
+#ifdef _WIN64
+  return AvoidLosableStateAtTraps;
+#else
+  return true;
+#endif
+}
+
 // for callee saved regs, according to the caller's ABI
 static int compute_reg_save_area_size(const ABIDescriptor& abi) {
   int size = 0;
@@ -68,10 +80,9 @@ static int compute_reg_save_area_size(const ABIDescriptor& abi) {
     }
   }
 
-#ifndef _WIN64
-  // for mxcsr
-  size += 8;
-#endif
+  if (saves_mxcsr()) {
+    size += 8; // for mxcsr
+  }
 
   return size;
 }
@@ -80,7 +91,7 @@ static void preserve_callee_saved_registers(MacroAssembler* _masm, const ABIDesc
   // 1. iterate all registers in the architecture
   //     - check if they are volatile or not for the given abi
   //     - if NOT, we need to save it here
-  // 2. save mxcsr on non-windows platforms
+  // 2. save mxcsr where saves_mxcsr()
 
   int offset = reg_save_area_offset;
 
@@ -108,8 +119,7 @@ static void preserve_callee_saved_registers(MacroAssembler* _masm, const ABIDesc
     }
   }
 
-#ifndef _WIN64
-  {
+  if (saves_mxcsr()) {
     const Address mxcsr_save(rsp, offset);
     Label skip_ldmx;
     __ cmp32_mxcsr_std(mxcsr_save, rax, rscratch1);
@@ -118,7 +128,6 @@ static void preserve_callee_saved_registers(MacroAssembler* _masm, const ABIDesc
     __ ldmxcsr(mxcsr_std, rscratch1);
     __ bind(skip_ldmx);
   }
-#endif
 
   __ block_comment("} preserve_callee_saved_regs ");
 }
@@ -127,7 +136,7 @@ static void restore_callee_saved_registers(MacroAssembler* _masm, const ABIDescr
   // 1. iterate all registers in the architecture
   //     - check if they are volatile or not for the given abi
   //     - if NOT, we need to restore it here
-  // 2. restore mxcsr on non-windows platforms
+  // 2. restore mxcsr where saves_mxcsr()
 
   int offset = reg_save_area_offset;
 
@@ -155,10 +164,10 @@ static void restore_callee_saved_registers(MacroAssembler* _masm, const ABIDescr
     }
   }
 
-#ifndef _WIN64
-  const Address mxcsr_save(rsp, offset);
-  __ ldmxcsr(mxcsr_save);
-#endif
+  if (saves_mxcsr()) {
+    const Address mxcsr_save(rsp, offset);
+    __ ldmxcsr(mxcsr_save);
+  }
 
   __ block_comment("} restore_callee_saved_regs ");
 }

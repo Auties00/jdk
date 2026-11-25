@@ -82,6 +82,20 @@ public:
   void emit(C2_MacroAssembler& masm);
 };
 
+// The slow path of a loop poll that branches instead of faulting (see AvoidLosableStateAtTraps):
+// records the poll's pc as the exception pc, as the fault handler would, and enters the poll
+// handler that saves every register and returns to the poll.
+class C2LoopPollStub : public C2CodeStub {
+private:
+  uintptr_t _safepoint_offset;
+
+public:
+  C2LoopPollStub(uintptr_t safepoint_offset) :
+    _safepoint_offset(safepoint_offset) {}
+  int max_size() const;
+  void emit(C2_MacroAssembler& masm);
+};
+
 // We move non-hot code of the nmethod entry barrier to an out-of-line stub
 class C2EntryBarrierStub: public C2CodeStub {
 private:

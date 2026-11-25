@@ -39,6 +39,7 @@ class Compile;
 class Node;
 class MachNode;
 class TrapScrubPlatform;
+class NoTrapPlatform;
 class MachOper;
 
 //---------------------------Matcher-------------------------------------------

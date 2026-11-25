@@ -2983,6 +2983,26 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
     // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
     if (exception_code == EXCEPTION_IN_PAGE_ERROR) {
+      // An unsafe access fault is resumed past the access with an InternalError pending, which
+      // compiled code throws at its next poll or call. On kernels that lose AVX or SVE state when
+      // resuming (see AvoidLosableStateAtTraps), the context restored here may have that state
+      // zeroed while the frame runs on until the throw. That is acceptable: in Java program order
+      // nothing after the failed access runs, so every write of that window already has unspecified
+      // values (the failed load leaves its register as it was), and the lost state can change only
+      // such values, never where a write goes, because C2 keeps nothing that steers an access in
+      // that state:
+      // - no oop, derived pointer, narrow oop or index is spilled to xmm16-31: with
+      //   UseFPUForSpilling such values spill only to xmm0-15 (Matcher::init_first_stack_mask());
+      // - no value is recomputed from that state after it was checked (MachNode::rematerialize()
+      //   refuses; a recomputed Float.floatToRawIntBits(f) index could pass a check on index + 1 and
+      //   then write a[1] of a 1-element array);
+      // - in a compilation with unsafe accesses no live range uses the APX registers
+      //   (NoTrapPlatform::allocation_exclusion());
+      // - addresses and bounds checks are computed in general purpose registers; a vector of
+      //   indices or a mask that comes back zeroed only selects index 0, which a passed check
+      //   implies is in range, or fewer lanes (zero means inactive for opmask, AVX2 mask and SVE
+      //   predicate registers), and a flags producer that tests a mask is scheduled right before
+      //   its branch (PhaseCFG::select()), so no resumed access falls between them.
       nmethod* nm = nullptr;
       if (in_java) {
         CodeBlob* cb = CodeCache::find_blob(pc);

@@ -125,15 +125,16 @@ TEST(SveStateKernels, only_listed_updates) {
   }
 }
 
-// The running system: where Windows reports SVE, the JVM uses it exactly on a kernel that keeps
-// the state.
+// The running system: where Windows reports SVE, the JVM uses it on every kernel with
+// AvoidLosableStateAtTraps, else exactly on a kernel that keeps the state.
 TEST(SveStateKernels, this_system) {
   int running_build = os::win32::running_kernel_build();
   EXPECT_GE(running_build, 10240);
   int build = -1;
   int revision = -1;
   bool version_read = os::win32::running_kernel_version(&build, &revision);
-  bool kept = VM_Version::windows_kernel_keeps_sve_state(running_build, version_read, build, revision);
+  bool kept = VM_Version::windows_kernel_keeps_sve_state(running_build, version_read, build, revision) ||
+              AvoidLosableStateAtTraps;
   if (!kept) {
     EXPECT_FALSE(VM_Version::supports_sve());
     EXPECT_FALSE(VM_Version::supports_sve2());

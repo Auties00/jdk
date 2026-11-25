@@ -200,4 +200,7 @@
   // No trap scrub is needed (see TrapScrubPlatform).
   static const TrapScrubPlatform* trap_scrub() { return nullptr; }
 
+  // AvoidLosableStateAtTraps is not supported (see NoTrapPlatform).
+  static const NoTrapPlatform* no_trap() { return nullptr; }
+
 #endif // CPU_ARM_MATCHER_ARM_HPP

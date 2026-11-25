@@ -5572,8 +5572,10 @@ void MacroAssembler::print_CPU_state() {
 
 void MacroAssembler::restore_cpu_control_state_after_jni(Register rscratch) {
   // Either restore the MXCSR register after returning from the JNI Call
-  // or verify that it wasn't changed (with -Xcheck:jni flag).
-  if (RestoreMXCSROnJNICalls) {
+  // or verify that it wasn't changed (with -Xcheck:jni flag). With AvoidLosableStateAtTraps
+  // Java code never runs with FP exceptions unmasked by native code: such an exception in
+  // compiled code would be resumed (handle_FLT_exception) and could lose vector state.
+  if (RestoreMXCSROnJNICalls || AvoidLosableStateAtTraps) {
     ldmxcsr(ExternalAddress(StubRoutines::x86::addr_mxcsr_std()), rscratch);
   } else if (CheckJNICalls) {
     call(RuntimeAddress(StubRoutines::x86::verify_mxcsr_entry()));

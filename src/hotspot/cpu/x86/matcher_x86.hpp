@@ -244,4 +244,8 @@
   // VM_Version::exception_resume_loses_xstate()), or null.
   static const TrapScrubPlatform* trap_scrub();
 
+  // With AvoidLosableStateAtTraps, the trap sites of AVX, AVX-512 and APX state (see
+  // NoTrapPlatform), else null.
+  static const NoTrapPlatform* no_trap();
+
 #endif // CPU_X86_MATCHER_X86_HPP

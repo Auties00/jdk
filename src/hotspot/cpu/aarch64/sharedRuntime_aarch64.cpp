@@ -2668,7 +2668,11 @@ SafepointBlob* SharedRuntime::generate_handler_blob(StubId id, address call_ptr)
   address call_pc = nullptr;
   int frame_size_in_words;
   bool cause_return = (id == StubId::shared_polling_page_return_handler_id);
-  RegisterSaver reg_save(id == StubId::shared_polling_page_vectors_safepoint_handler_id /* save_vectors */);
+  // A branch poll (see C2LoopPollStub) is taken where SVE state a resumed exception can lose is
+  // live: it saves the vectors and predicates, and its return pc is the poll itself, which runs
+  // again instead of being stepped over.
+  bool branch_poll = (id == StubId::shared_polling_page_branch_safepoint_handler_id);
+  RegisterSaver reg_save(id == StubId::shared_polling_page_vectors_safepoint_handler_id || branch_poll /* save_vectors */);
 
   // When the signal occurred, the LR was either signed and stored on the stack (in which
   // case it will be restored from the stack before being used) or unsigned and not stored
@@ -2730,7 +2734,7 @@ SafepointBlob* SharedRuntime::generate_handler_blob(StubId id, address call_ptr)
   __ bind(noException);
 
   Label no_adjust, bail;
-  if (!cause_return) {
+  if (!cause_return && !branch_poll) {
     // If our stashed return pc was modified by the runtime we avoid touching it
     __ ldr(rscratch1, Address(rfp, wordSize));
     __ cmp(r20, rscratch1);

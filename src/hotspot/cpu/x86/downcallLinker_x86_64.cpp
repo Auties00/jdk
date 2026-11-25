@@ -29,6 +29,7 @@
 #include "prims/downcallLinker.hpp"
 #include "runtime/globals.hpp"
 #include "runtime/sharedRuntime.hpp"
+#include "runtime/stubRoutines.hpp"
 #include "utilities/formatBuffer.hpp"
 
 #define __ _masm->
@@ -262,6 +263,11 @@ void DowncallLinker::StubGenerator::generate() {
   }
   __ call(as_Register(locs.get(StubLocations::TARGET_ADDRESS)));
   assert(!_abi.is_volatile_reg(r15_thread), "Call assumed not to kill r15");
+  if (!_needs_transition && AvoidLosableStateAtTraps) {
+    // A critical call returns without the thread state transition, which restores MXCSR (see
+    // MacroAssembler::restore_cpu_control_state_after_jni()).
+    __ ldmxcsr(ExternalAddress(StubRoutines::x86::addr_mxcsr_std()), rscratch1);
+  }
 
   if (_needs_return_buffer) {
     __ movptr(rscratch1, Address(rsp, locs.data_offset(StubLocations::RETURN_BUFFER)));

@@ -179,6 +179,13 @@ void SharedRuntime::generate_stubs() {
   _polling_page_return_handler_blob =
     generate_handler_blob(StubId::shared_polling_page_return_handler_id,
                           CAST_FROM_FN_PTR(address, SafepointSynchronize::handle_polling_page_exception));
+#if defined(COMPILER2) && (defined(AMD64) || defined(AARCH64))
+  if (AvoidLosableStateAtTraps) {
+    _polling_page_branch_safepoint_handler_blob =
+      generate_handler_blob(StubId::shared_polling_page_branch_safepoint_handler_id,
+                            CAST_FROM_FN_PTR(address, SafepointSynchronize::handle_polling_page_exception));
+  }
+#endif
 
   generate_deopt_blob();
 

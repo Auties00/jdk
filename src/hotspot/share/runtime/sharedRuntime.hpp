@@ -68,6 +68,7 @@ class SharedRuntime: AllStatic {
   }
   static bool is_polling_page_id(StubId id) {
     return (id == StubId::shared_polling_page_vectors_safepoint_handler_id ||
+            id == StubId::shared_polling_page_branch_safepoint_handler_id ||
             id == StubId::shared_polling_page_safepoint_handler_id ||
             id == StubId::shared_polling_page_return_handler_id);
   }
@@ -273,6 +274,9 @@ class SharedRuntime: AllStatic {
   static SafepointBlob* polling_page_return_handler_blob()     { return _polling_page_return_handler_blob; }
   static SafepointBlob* polling_page_safepoint_handler_blob()  { return _polling_page_safepoint_handler_blob; }
   static SafepointBlob* polling_page_vectors_safepoint_handler_blob()  { return _polling_page_vectors_safepoint_handler_blob; }
+  // The handler of loop polls that branch instead of faulting (AvoidLosableStateAtTraps): it saves
+  // every register, vectors included, and returns to the poll instead of stepping over it.
+  static SafepointBlob* polling_page_branch_safepoint_handler_blob()  { return _polling_page_branch_safepoint_handler_blob; }
 
   static nmethod* cont_doYield_stub() {
     assert(_cont_doYield_stub != nullptr, "oops");

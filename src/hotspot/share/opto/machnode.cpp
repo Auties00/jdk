@@ -28,9 +28,11 @@
 #include "memory/universe.hpp"
 #include "oops/compressedOops.hpp"
 #include "opto/ad.hpp"
+#include "opto/c2_MacroAssembler.hpp"
 #include "opto/machnode.hpp"
 #include "opto/matcher.hpp"
 #include "opto/node.hpp"
+#include "opto/noTrap.hpp"
 #include "opto/opcodes.hpp"
 #include "opto/output.hpp"
 #include "opto/regalloc.hpp"
@@ -634,7 +636,26 @@ bool MachNode::rematerialize() const {
     }
   }
 
-  return true;
+  // Don't recompute a value from an input that a resumed exception can lose (see
+  // AvoidLosableStateAtTraps): after an unsafe access fault is resumed, the copy would differ from
+  // the value a bounds check tested.
+  if (!has_losable_input()) {
+    return true;
+  }
+  return false;
+}
+
+bool MachNode::has_losable_input() const {
+  const NoTrapPlatform* no_trap = Matcher::no_trap();
+  if (no_trap == nullptr) {
+    return false;
+  }
+  for (uint i = oper_input_base(); i < req(); i++) {
+    if (in(i) != nullptr && no_trap->is_losable_input(in_RegMask(i), in(i)->ideal_reg())) {
+      return true;
+    }
+  }
+  return false;
 }
 
 #ifndef PRODUCT
@@ -745,6 +766,30 @@ uint MachTrapScrubNode::size(PhaseRegAlloc* ra_) const {
 }
 
 const Pipeline* MachTrapScrubNode::pipeline() const {
+  return MachNode::pipeline_class();
+}
+
+//=============================================================================
+#ifndef PRODUCT
+void MachExplicitNullCheckNode::format(PhaseRegAlloc* ra, outputStream* st) const {
+  st->print("explicit null check %s	# branch to the null successor", Matcher::regName[ra->get_reg_first(in(1))]);
+}
+#endif
+
+void MachExplicitNullCheckNode::emit(C2_MacroAssembler* masm, PhaseRegAlloc* ra_) const {
+  // Sizing emits without a target; the code has the same length either way.
+  Label unbound;
+  Matcher::no_trap()->emit_null_test(masm, ra_->get_reg_first(in(1)), _narrow, _target != nullptr ? *_target : unbound);
+  if (_target == nullptr) {
+    masm->bind(unbound);
+  }
+}
+
+uint MachExplicitNullCheckNode::size(PhaseRegAlloc* ra_) const {
+  return MachNode::size(ra_);
+}
+
+const Pipeline* MachExplicitNullCheckNode::pipeline() const {
   return MachNode::pipeline_class();
 }
 

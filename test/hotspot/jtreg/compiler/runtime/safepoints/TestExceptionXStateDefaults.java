@@ -59,12 +59,14 @@ public class TestExceptionXStateDefaults {
     }
 
     static OutputAnalyzer flags(String... extra) throws Exception {
-        String[] args = new String[extra.length + 4];
+        // The classification, the scrub and the cap are used only without AvoidLosableStateAtTraps.
+        String[] args = new String[extra.length + 5];
         args[0] = "-XX:+UnlockDiagnosticVMOptions";
-        args[1] = "-Xlog:os+cpu=info";
-        System.arraycopy(extra, 0, args, 2, extra.length);
-        args[extra.length + 2] = "-XX:+PrintFlagsFinal";
-        args[extra.length + 3] = "-version";
+        args[1] = "-XX:-AvoidLosableStateAtTraps";
+        args[2] = "-Xlog:os+cpu=info";
+        System.arraycopy(extra, 0, args, 3, extra.length);
+        args[extra.length + 3] = "-XX:+PrintFlagsFinal";
+        args[extra.length + 4] = "-version";
         OutputAnalyzer out = ProcessTools.executeTestJava(args);
         out.shouldHaveExitValue(0);
         return out;

@@ -101,6 +101,7 @@
   do_blob(polling_page_vectors_safepoint_handler, SafepointBlob)       \
   do_blob(polling_page_safepoint_handler, SafepointBlob)               \
   do_blob(polling_page_return_handler, SafepointBlob)                  \
+  do_blob(polling_page_branch_safepoint_handler, SafepointBlob)        \
   /* throw stubs */                                                    \
   do_blob(throw_AbstractMethodError, RuntimeStub)                      \
   do_blob(throw_IncompatibleClassChangeError, RuntimeStub)             \

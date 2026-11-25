@@ -33,6 +33,7 @@
 #include "opto/idealGraphPrinter.hpp"
 #include "opto/machnode.hpp"
 #include "opto/matcher.hpp"
+#include "opto/noTrap.hpp"
 #include "opto/memnode.hpp"
 #include "opto/movenode.hpp"
 #include "opto/opcodes.hpp"
@@ -668,6 +669,18 @@ void Matcher::init_first_stack_mask() {
     idealreg2spillmask[Op_RegD]->or_with(*idealreg2regmask[Op_RegL]);
 #endif
 #endif
+    // An integer, pointer or narrow oop spilled to a register that a resumed exception can lose
+    // could come back as zero after an unsafe access fault is resumed, and steer a later access
+    // (see AvoidLosableStateAtTraps): such values spill to the floating point registers every
+    // exception context keeps.
+    const NoTrapPlatform* no_trap = Matcher::no_trap();
+    const RegMask* exclusion = no_trap != nullptr ? no_trap->gpr_spill_exclusion() : nullptr;
+    if (exclusion != nullptr) {
+      idealreg2spillmask[Op_RegI]->subtract_inner(*exclusion);
+      idealreg2spillmask[Op_RegN]->subtract_inner(*exclusion);
+      idealreg2spillmask[Op_RegL]->subtract_inner(*exclusion);
+      idealreg2spillmask[Op_RegP]->subtract_inner(*exclusion);
+    }
   }
 
   // Make up debug masks.  Any spill slot plus callee-save (SOE) registers.

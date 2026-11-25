@@ -3097,7 +3097,12 @@ SafepointBlob* SharedRuntime::generate_handler_blob(StubId id, address call_ptr)
   address call_pc = nullptr;
   int frame_size_in_words;
   bool cause_return = (id == StubId::shared_polling_page_return_handler_id);
-  bool save_wide_vectors = (id == StubId::shared_polling_page_vectors_safepoint_handler_id);
+  // A branch poll (see C2LoopPollStub) is taken where state a resumed exception can lose is live:
+  // it saves the vectors whatever the width the method uses, and its return pc is the poll itself,
+  // which runs again instead of being stepped over.
+  bool branch_poll = (id == StubId::shared_polling_page_branch_safepoint_handler_id);
+  bool save_wide_vectors = (id == StubId::shared_polling_page_vectors_safepoint_handler_id) ||
+                           (branch_poll && UseAVX > 0);
 
   // Make room for return address (or push it again)
   if (!cause_return) {
@@ -3155,7 +3160,7 @@ SafepointBlob* SharedRuntime::generate_handler_blob(StubId id, address call_ptr)
 #ifdef ASSERT
   Label bail;
 #endif
-  if (!cause_return) {
+  if (!cause_return && !branch_poll) {
     Label no_prefix, not_special, check_rex_prefix;
 
     // If our stashed return pc was modified by the runtime we avoid touching it

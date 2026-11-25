@@ -32,7 +32,7 @@
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
- * @run main/othervm/native -XX:+UseG1GC -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
+ * @run main/othervm/native -XX:+UseG1GC -XX:+UnlockDiagnosticVMOptions -XX:-AvoidLosableStateAtTraps -XX:ExceptionXStateLength=1920
  *      -XX:+VerifyExceptionXStateScrub -XX:+StressGCM -XX:+StressLCM -XX:+SafepointALot
  *      -XX:GuaranteedSafepointInterval=1 -XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee
  *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify
@@ -47,7 +47,7 @@
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
  * @run main/othervm/native -XX:+UseSerialGC -XX:+UseCountedLoopSafepoints -XX:LoopStripMiningIter=1000
- *      -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
+ *      -XX:+UnlockDiagnosticVMOptions -XX:-AvoidLosableStateAtTraps -XX:ExceptionXStateLength=1920
  *      -XX:+VerifyExceptionXStateScrub -XX:+StressGCM -XX:+StressLCM -XX:+SafepointALot
  *      -XX:GuaranteedSafepointInterval=1 -XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee
  *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify
@@ -62,7 +62,7 @@
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
  * @run main/othervm/native -XX:+UseParallelGC -XX:+UseCountedLoopSafepoints -XX:LoopStripMiningIter=1000
- *      -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
+ *      -XX:+UnlockDiagnosticVMOptions -XX:-AvoidLosableStateAtTraps -XX:ExceptionXStateLength=1920
  *      -XX:+VerifyExceptionXStateScrub -XX:+StressGCM -XX:+StressLCM -XX:+SafepointALot
  *      -XX:GuaranteedSafepointInterval=1 -XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee
  *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify
@@ -76,7 +76,7 @@
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
- * @run main/othervm/native -XX:+UseZGC -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
+ * @run main/othervm/native -XX:+UseZGC -XX:+UnlockDiagnosticVMOptions -XX:-AvoidLosableStateAtTraps -XX:ExceptionXStateLength=1920
  *      -XX:+VerifyExceptionXStateScrub -XX:+StressGCM -XX:+StressLCM -XX:+SafepointALot
  *      -XX:GuaranteedSafepointInterval=1 -XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee
  *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify
@@ -90,7 +90,7 @@
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
- * @run main/othervm/native -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
+ * @run main/othervm/native -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:-AvoidLosableStateAtTraps -XX:ExceptionXStateLength=1920
  *      -XX:+VerifyExceptionXStateScrub -XX:+StressGCM -XX:+StressLCM -XX:+SafepointALot
  *      -XX:GuaranteedSafepointInterval=1 -XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee
  *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify
@@ -104,7 +104,7 @@
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
- * @run main/othervm/native -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
+ * @run main/othervm/native -XX:+UnlockDiagnosticVMOptions -XX:-AvoidLosableStateAtTraps -XX:ExceptionXStateLength=1920
  *      -XX:+VerifyExceptionXStateScrub -XX:+ScrubExceptionXStateHeaderAtTraps -XX:+StressGCM -XX:+StressLCM
  *      -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee
  *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify
@@ -122,7 +122,7 @@
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
- * @run main/othervm/native -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
+ * @run main/othervm/native -XX:+UnlockDiagnosticVMOptions -XX:-AvoidLosableStateAtTraps -XX:ExceptionXStateLength=1920
  *      -XX:+VerifyExceptionXStateScrub -XX:-TieredCompilation -XX:+UseCountedLoopSafepoints
  *      -XX:LoopStripMiningIter=1000
  *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify connector
@@ -139,7 +139,7 @@
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
- * @run main/othervm/native -XX:+UseG1GC -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
+ * @run main/othervm/native -XX:+UseG1GC -XX:+UnlockDiagnosticVMOptions -XX:-AvoidLosableStateAtTraps -XX:ExceptionXStateLength=1920
  *      -XX:+VerifyExceptionXStateScrub -XX:+PlantExceptionXStateHeader -XX:+StressGCM -XX:+StressLCM
  *      -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee
  *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify
@@ -153,7 +153,7 @@
  * @modules jdk.incubator.vector java.base/jdk.internal.misc
  * @library /test/lib /
  * @build compiler.runtime.safepoints.ExceptionXState
- * @run main/othervm/native -XX:+UseZGC -XX:+UnlockDiagnosticVMOptions -XX:ExceptionXStateLength=1920
+ * @run main/othervm/native -XX:+UseZGC -XX:+UnlockDiagnosticVMOptions -XX:-AvoidLosableStateAtTraps -XX:ExceptionXStateLength=1920
  *      -XX:+VerifyExceptionXStateScrub -XX:+PlantExceptionXStateHeader -XX:+StressGCM -XX:+StressLCM
  *      -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 -XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee
  *      --add-modules jdk.incubator.vector compiler.runtime.safepoints.TestExceptionXStateScrubVerify
@@ -487,7 +487,7 @@ public class TestExceptionXStateScrubVerify {
 
     static void plantNegative() throws Exception {
         List<String> opts = new ArrayList<>(List.of(
-            "-XX:+UnlockDiagnosticVMOptions", "-XX:ExceptionXStateLength=1920",
+            "-XX:+UnlockDiagnosticVMOptions", "-XX:-AvoidLosableStateAtTraps", "-XX:ExceptionXStateLength=1920",
             "-XX:+VerifyExceptionXStateScrub", "-XX:+PlantExceptionXStateHeader", "-XX:+TrapScrubOmitAfterCalls",
             "-XX:-TieredCompilation", "-XX:+UseCountedLoopSafepoints", "-XX:LoopStripMiningIter=1000",
             "-XX:CompileCommand=dontinline,*TestExceptionXStateScrubVerify::callee",
@@ -502,7 +502,7 @@ public class TestExceptionXStateScrubVerify {
     static void negative() throws Exception {
         List<String> opts = new ArrayList<>(List.of(
             "-Djava.library.path=" + System.getProperty("java.library.path"),
-            "-XX:+UnlockDiagnosticVMOptions", "-XX:ExceptionXStateLength=4096",
+            "-XX:+UnlockDiagnosticVMOptions", "-XX:-AvoidLosableStateAtTraps", "-XX:ExceptionXStateLength=4096",
             "-XX:+VerifyExceptionXStateScrub", "-XX:+TrapScrubOmitAfterCalls",
             "-XX:+UseCountedLoopSafepoints", "-XX:LoopStripMiningIter=1000",
             "-XX:-CreateCoredumpOnCrash", "--add-modules", "jdk.incubator.vector",

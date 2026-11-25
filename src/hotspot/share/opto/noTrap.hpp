@@ -1,0 +1,89 @@
+/*
+ * Copyright (c) 2026, Alessandro Autiero. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
+ *
+ */
+
+#ifndef SHARE_OPTO_NOTRAP_HPP
+#define SHARE_OPTO_NOTRAP_HPP
+
+#include "memory/allStatic.hpp"
+#include "opto/optoreg.hpp"
+#include "utilities/globalDefinitions.hpp"
+
+class C2_MacroAssembler;
+class Compile;
+class Label;
+class RegMask;
+
+// AvoidLosableStateAtTraps. On some Windows kernels, resuming from a hardware exception resets
+// the processor state that the exception's context left out: on x64 the upper halves of the
+// vector registers, xmm16-31, the opmask registers and the APX registers; on AArch64 the SVE
+// state beyond the NEON registers. The invariant is that compiled code takes no hardware exception
+// that the VM resumes while such state is live:
+//
+// - C2 trap sites that resume in the same frame, loop polls and implicit null checks, get a
+//   non-trapping form wherever such state is live after register allocation (NoTrapSites): a
+//   branch to a stub that saves every register, and an explicit test of the value.
+// - C2 code takes no implicit div0 (it tests the divisor) and no min_int / -1 trap.
+// - C1 code and the interpreter hold no such state.
+// - Java code always runs with the standard MXCSR, so no FP exception is resumed in it.
+// - Unsafe access faults are still resumed past the access with an InternalError pending (see
+//   SharedRuntime::handle_unsafe_access()): the writes of that window have unspecified values in
+//   any case, and nothing that steers an access is ever kept in such state while the access can be
+//   reached: integer and pointer values are not spilled there, values are not recomputed from it,
+//   and in compilations with unsafe accesses no live range uses a losable general purpose register.
+//
+// A platform that supports the mode returns an implementation from Matcher::no_trap().
+class NoTrapPlatform {
+ public:
+  // Units of register state that a resumed exception can lose, at most 64: the unit that a value
+  // of ideal register class ideal_reg in register reg occupies, or -1 if the value is never lost.
+  // A MachTemp passes 0 for ideal_reg: its width is unknown.
+  virtual int losable_unit(OptoReg::Name reg, uint ideal_reg) const = 0;
+  // Units live everywhere in C whatever the allocation (an all-true predicate register).
+  virtual uint64_t always_live_units(const Compile* C) const = 0;
+  // Whether unit is a general purpose register.
+  virtual bool is_general_purpose_unit(int unit) const = 0;
+  // Emits a test of the value in reg, a narrow oop when narrow, and a branch to is_null when it is
+  // null. Its length does not depend on the label.
+  virtual void emit_null_test(C2_MacroAssembler* masm, OptoReg::Name reg, bool narrow, Label& is_null) const = 0;
+  // Whether that test kills the condition codes.
+  virtual bool null_test_kills_flags() const = 0;
+  // The registers an integer, pointer or narrow oop must not be spilled to, or null.
+  virtual const RegMask* gpr_spill_exclusion() const = 0;
+  // Whether an input with this register mask and ideal register class may be in a losable register.
+  virtual bool is_losable_input(const RegMask& mask, uint ideal_reg) const = 0;
+  // The registers no live range of C may use, or null: the losable general purpose registers in a
+  // compilation with unsafe accesses.
+  virtual const RegMask* allocation_exclusion(const Compile* C) const = 0;
+};
+
+// The pass that gives C2 trap sites their non-trapping form after register allocation.
+class NoTrapSites : public AllStatic {
+ public:
+  // Marks the loop polls at which losable state is live as branch polls and inserts an explicit
+  // null check before each such implicit null check access. Returns whether it changed anything;
+  // such a compilation is not scheduled after register allocation, which could move the checks.
+  static bool apply(Compile* C, const NoTrapPlatform* platform);
+};
+
+#endif // SHARE_OPTO_NOTRAP_HPP

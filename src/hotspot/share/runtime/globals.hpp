@@ -783,6 +783,17 @@ const int ObjectAlignmentInBytes = 8;
   product(bool, RestoreMXCSROnJNICalls, false,                              \
           "Restore MXCSR when returning from JNI calls")                    \
                                                                             \
+  product(bool, AvoidLosableStateAtTraps, WINDOWS_ONLY(true) NOT_WINDOWS(false), DIAGNOSTIC, \
+          "Compiled code takes no hardware exception that the VM resumes "  \
+          "while state that a resumed exception can lose on some Windows "  \
+          "kernels is live (x64: the upper halves of the vector "           \
+          "registers, xmm16-31, the opmask and APX registers; AArch64: "    \
+          "SVE state beyond the NEON registers): C2 uses explicit null "    \
+          "checks and branch-based loop polls where such state is live, "   \
+          "C1 uses xmm0-15 only, and Java code always runs with the "       \
+          "standard MXCSR. No effect on platforms other than x64 and "      \
+          "AArch64")                                                        \
+                                                                            \
   product(bool, CheckJNICalls, false,                                       \
           "Verify all arguments to JNI calls")                              \
                                                                             \

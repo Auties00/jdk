@@ -531,6 +531,8 @@ public:
   do_fun(int,   VM_zva_length, UseBlockZeroing ? VM_Version::zva_length() : 0) \
   do_fun(int,   VM_dcache_line_size, VM_Version::dcache_line_size()) \
   do_fun(bool,  VM_use_rop_protection, VM_Version::use_rop_protection()) \
+  /* C2 code compiled with AvoidLosableStateAtTraps uses no SVE state at its traps */ \
+  do_var(bool,  AvoidLosableStateAtTraps)               /* C2 nmethods */ \
   // END
 #else
 #define AOTCODECACHE_CONFIGS_AARCH64_DO(do_var, do_fun)
@@ -545,6 +547,8 @@ public:
   /* Where resuming from an exception can lose AVX state, C1 code avoids xmm16-xmm31 and C2 code */ \
   /* clears the stale XSAVE header L bytes below rsp: a cache made where either differs (another */ \
   /* OS build, or other CPU features and so another L) is rejected. */ \
+  /* C1 and C2 code compiled with AvoidLosableStateAtTraps uses no losable state at its traps */ \
+  do_var(bool,  AvoidLosableStateAtTraps)               /* C1 and C2 nmethods, native wrappers */ \
   do_fun(bool,  VM_exception_resume_loses_xstate, VM_Version::exception_resume_loses_xstate()) /* C1 nmethods */ \
   do_fun(int,   VM_exception_xstate_scrub_length, VM_Version::exception_xstate_scrub_length()) /* C2 nmethods */ \
   do_fun(bool,  VM_exception_xstate_capped, VM_Version::exception_xstate_capped()) /* stubs and nmethods */ \

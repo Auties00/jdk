@@ -49,6 +49,7 @@
 #include "opto/optoreg.hpp"
 #include "opto/output.hpp"
 #include "opto/regalloc.hpp"
+#include "opto/noTrap.hpp"
 #include "opto/trapScrub.hpp"
 #include "opto/type.hpp"
 #include "runtime/sharedRuntime.hpp"
@@ -226,6 +227,7 @@ PhaseOutput::PhaseOutput()
     _orig_pc_slot_offset_in_bytes(0),
     _java_callees(nullptr),
     _has_trap_scrubs(false),
+    _has_no_trap_sites(false),
     DEBUG_ONLY(_trap_scrub_hot_traps(nullptr) COMMA)
     _buf_sizes(),
     _block(nullptr),
@@ -324,6 +326,12 @@ void PhaseOutput::Output() {
     }
   }
 
+  const NoTrapPlatform* no_trap = Matcher::no_trap();
+  if (no_trap != nullptr) {
+    _has_no_trap_sites = NoTrapSites::apply(C, no_trap);
+    if (C->failing()) return;
+  }
+
   const TrapScrubPlatform* trap_scrub = Matcher::trap_scrub();
   if (trap_scrub != nullptr) {
 #ifdef ASSERT
@@ -372,9 +380,9 @@ void PhaseOutput::Output() {
     }
   }
 
-  // The trap scrubs have no dependences that would keep them in place, so a compilation that
-  // placed them is not scheduled.
-  if (!_has_trap_scrubs) {
+  // The trap scrubs and the explicit null checks have no dependences that would keep them in place,
+  // so a compilation that placed them is not scheduled.
+  if (!_has_trap_scrubs && !_has_no_trap_sites) {
     ScheduleAndBundle();
   }
 #ifdef ASSERT
@@ -1716,7 +1724,15 @@ void PhaseOutput::fill_buffer(C2_MacroAssembler* masm, uint* blk_starts) {
 
           // If this is a null check, then add the start of the previous instruction to the list
         else if( mach->is_MachNullCheck() ) {
-          inct_starts[inct_cnt++] = previous_offset;
+          if (!mach->as_MachNullCheck()->is_explicit()) {
+            inct_starts[inct_cnt++] = previous_offset;
+          }
+        }
+
+        // An explicit null check branches to the null successor, succs[0] of its block
+        else if (mach->is_MachExplicitNullCheck()) {
+          uint block_num = block->non_connector_successor(0)->_pre_order;
+          mach->as_MachExplicitNullCheck()->set_target(&blk_labels[block_num]);
         }
 
           // If this is a branch, then fill in the label with the target BB's label
@@ -2075,6 +2091,9 @@ void PhaseOutput::FillExceptionTables(uint cnt, uint *call_returns, uint *inct_s
     }
 
     // Handle implicit null exception table updates
+    if (n->is_MachNullCheck() && n->as_MachNullCheck()->is_explicit()) {
+      continue; // the access cannot fault (see MachExplicitNullCheckNode)
+    }
     if (n->is_MachNullCheck()) {
       MachNode* access = n->in(1)->as_Mach();
       assert(access->barrier_data() == 0 ||

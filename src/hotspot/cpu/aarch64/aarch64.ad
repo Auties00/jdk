@@ -1166,6 +1166,7 @@ source_hpp %{
 #include "gc/shared/collectedHeap.hpp"
 #include "opto/addnode.hpp"
 #include "opto/convertnode.hpp"
+#include "opto/noTrap.hpp"
 #include "runtime/objectMonitor.hpp"
 
 extern RegMask _ANY_REG32_mask;
@@ -2438,6 +2439,74 @@ int Matcher::max_vector_size_auto_vectorization(const BasicType bt) {
 // Actual max scalable vector register length.
 int Matcher::scalable_vector_reg_size(const BasicType bt) {
   return Matcher::max_vector_size(bt);
+}
+
+// AvoidLosableStateAtTraps on AArch64 (see NoTrapPlatform). Every exception context keeps the
+// general purpose registers and the NEON registers, the low 128 bits of z0-z31; a resumed
+// exception can lose the predicate registers, FFR and the bits of z0-z31 above 128. C2 uses no
+// FFR. Units 0-31 are z0-z31, 32-47 p0-p15.
+class AArch64NoTrap : public NoTrapPlatform {
+  // Whether C2 vectors are wider than the NEON registers.
+  static bool wide_vectors() {
+    return UseSVE > 0 && Matcher::scalable_vector_reg_size(T_BYTE) > FloatRegister::neon_vl;
+  }
+
+ public:
+  virtual int losable_unit(OptoReg::Name reg, uint ideal_reg) const {
+    VMReg r = OptoReg::as_VMReg(reg);
+    if (!r->is_valid()) {
+      return -1;
+    }
+    if (r->is_PRegister()) {
+      return 32 + r->as_PRegister()->encoding();
+    }
+    if (r->is_FloatRegister() && wide_vectors() && (ideal_reg == Op_VecA || ideal_reg == 0)) {
+      // A MachTemp (ideal_reg 0) can be used at any width by its instruction.
+      return r->as_FloatRegister()->encoding();
+    }
+    return -1;
+  }
+
+  virtual uint64_t always_live_units(const Compile* C) const {
+    // p7 holds the all-true predicate from the method entry on (reinitialize_ptrue()).
+    return UseSVE > 0 && C->max_vector_size() > 0 ? (uint64_t)1 << (32 + 7) : 0;
+  }
+
+  virtual bool is_general_purpose_unit(int unit) const {
+    return false;
+  }
+
+  virtual void emit_null_test(C2_MacroAssembler* masm, OptoReg::Name reg, bool narrow, Label& is_null) const {
+    Register r = as_Register(Matcher::_regEncode[reg]);
+    if (narrow) {
+      masm->cbzw(r, is_null);
+    } else {
+      masm->cbz(r, is_null);
+    }
+  }
+
+  virtual bool null_test_kills_flags() const {
+    return false;
+  }
+
+  virtual const RegMask* gpr_spill_exclusion() const {
+    return nullptr; // such values spill to the low 64 bits of the FP registers, which are kept
+  }
+
+  virtual bool is_losable_input(const RegMask& mask, uint ideal_reg) const {
+    return ideal_reg == Op_RegVectMask || (ideal_reg == Op_VecA && wide_vectors());
+  }
+
+  virtual const RegMask* allocation_exclusion(const Compile* C) const {
+    return nullptr;
+  }
+};
+
+static const AArch64NoTrap aarch64_no_trap;
+
+const NoTrapPlatform* Matcher::no_trap() {
+  // Without SVE every register C2 uses is in the exception context.
+  return AvoidLosableStateAtTraps && UseSVE > 0 ? &aarch64_no_trap : nullptr;
 }
 
 // Vector ideal reg.
@@ -15444,7 +15513,27 @@ instruct safePoint(rFlagsReg cr, iRegP poll)
     "ldrw zr, [$poll]\t# Safepoint: poll for GC"
   %}
   ins_encode %{
-    __ read_polling_page(as_Register($poll$$reg), relocInfo::poll_type);
+    if (is_branch_poll()) {
+      // Losable state is live here (see NoTrapSites): test the polling word and branch to a stub
+      // that saves every register instead of faulting. The safepoint's pc is the load, to which
+      // the handler returns. rscratch1 is never allocated.
+      Label dummy_label;
+      Label* code_stub = &dummy_label;
+      if (!Compile::current()->output()->in_scratch_emit_size()) {
+        C2LoopPollStub* stub = new (Compile::current()->comp_arena()) C2LoopPollStub(__ offset());
+        Compile::current()->output()->add_stub(stub);
+        code_stub = &stub->entry();
+      }
+      __ relocate(relocInfo::poll_type);
+      __ ldr(rscratch1, Address(rthread, JavaThread::polling_word_offset()));
+      __ tst(rscratch1, SafepointMechanism::poll_bit());
+      __ br(Assembler::NE, *code_stub);
+      if (code_stub == &dummy_label) {
+        __ bind(dummy_label);
+      }
+    } else {
+      __ read_polling_page(as_Register($poll$$reg), relocInfo::poll_type);
+    }
   %}
   ins_pipe(pipe_serial); // ins_pipe(iload_reg_mem);
 %}

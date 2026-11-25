@@ -48,6 +48,23 @@ void C2SafepointPollStub::emit(C2_MacroAssembler& masm) {
   __ far_jump(callback_addr);
 }
 
+int C2LoopPollStub::max_size() const {
+  return 20;
+}
+
+void C2LoopPollStub::emit(C2_MacroAssembler& masm) {
+  assert(SharedRuntime::polling_page_branch_safepoint_handler_blob() != nullptr,
+         "branch poll stub not created");
+  RuntimeAddress callback_addr(SharedRuntime::polling_page_branch_safepoint_handler_blob()->entry_point());
+
+  // rscratch1 and rscratch2 are never allocated, so they are free at the poll.
+  __ bind(entry());
+  InternalAddress safepoint_pc(masm.pc() - masm.offset() + _safepoint_offset);
+  __ adr(rscratch1, safepoint_pc);
+  __ str(rscratch1, Address(rthread, JavaThread::saved_exception_pc_offset()));
+  __ far_jump(callback_addr);
+}
+
 int C2EntryBarrierStub::max_size() const {
   return 24;
 }

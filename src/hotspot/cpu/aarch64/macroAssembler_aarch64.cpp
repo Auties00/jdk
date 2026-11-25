@@ -7082,13 +7082,19 @@ void MacroAssembler::verified_entry(Compile* C, int sp_inc, bool do_stack_bang) 
     bind(L_skip_barrier);
   }
 
-  if (C->max_vector_size() > 0) {
+  // The stack bang can fault into stack growth, which resumes it (see AvoidLosableStateAtTraps):
+  // the all-true predicate is set after it, so that no SVE state is live there.
+  if (C->max_vector_size() > 0 && !AvoidLosableStateAtTraps) {
     reinitialize_ptrue();
   }
 
   int bangsize = C->output()->bang_size_in_bytes();
   if (do_stack_bang && C->output()->need_stack_bang(bangsize)) {
     generate_stack_overflow_check(bangsize);
+  }
+
+  if (C->max_vector_size() > 0 && AvoidLosableStateAtTraps) {
+    reinitialize_ptrue();
   }
 
   // n.b. frame size includes space for return pc and rfp

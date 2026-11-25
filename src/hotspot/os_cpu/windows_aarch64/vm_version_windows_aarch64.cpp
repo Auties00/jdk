@@ -160,11 +160,19 @@ void VM_Version::get_os_cpu_info() {
     set_feature(CPU_LSE);
   }
   if (IsProcessorFeaturePresent(PF_ARM_SVE_INSTRUCTIONS_AVAILABLE)) {
-    const int running_build = os::win32::running_kernel_build();
+    // With AvoidLosableStateAtTraps compiled code takes no resumed exception with SVE state live,
+    // so SVE is used on every kernel and the kernel is not asked for its version.
+    int running_build = -1;
     int build = -1;
     int revision = -1;
-    const bool version_read = os::win32::running_kernel_version(&build, &revision);
-    if (windows_kernel_keeps_sve_state(running_build, version_read, build, revision)) {
+    bool version_read = false;
+    bool use_sve = AvoidLosableStateAtTraps;
+    if (!use_sve) {
+      running_build = os::win32::running_kernel_build();
+      version_read = os::win32::running_kernel_version(&build, &revision);
+      use_sve = windows_kernel_keeps_sve_state(running_build, version_read, build, revision);
+    }
+    if (use_sve) {
       set_feature(CPU_SVE);
       if (IsProcessorFeaturePresent(PF_ARM_SVE2_INSTRUCTIONS_AVAILABLE)) {
         set_feature(CPU_SVE2);

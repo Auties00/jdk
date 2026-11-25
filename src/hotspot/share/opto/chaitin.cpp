@@ -31,6 +31,7 @@
 #include "opto/callnode.hpp"
 #include "opto/cfgnode.hpp"
 #include "opto/chaitin.hpp"
+#include "opto/noTrap.hpp"
 #include "opto/coalesce.hpp"
 #include "opto/connode.hpp"
 #include "opto/idealGraphPrinter.hpp"
@@ -1170,10 +1171,17 @@ void PhaseChaitin::gather_lrg_masks( bool after_aggressive ) {
     } // end for all instructions
   } // end for all blocks
 
+  // Registers no live range of this compilation may use (see NoTrapPlatform::allocation_exclusion()).
+  const NoTrapPlatform* no_trap = Matcher::no_trap();
+  const RegMask* exclusion = no_trap != nullptr ? no_trap->allocation_exclusion(C) : nullptr;
+
   // Final per-liverange setup
   for (uint i2 = 0; i2 < _lrg_map.max_lrg_id(); i2++) {
     LRG &lrg = lrgs(i2);
     assert(!lrg._is_vector || !lrg._fat_proj, "sanity");
+    if (exclusion != nullptr && !lrg._fat_proj) {
+      lrg.subtract_inner(*exclusion);
+    }
     if (lrg.num_regs() > 1 && !lrg._fat_proj) {
       lrg.clear_to_sets();
     }

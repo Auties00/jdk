@@ -405,6 +405,9 @@ public:
 
   // Should we clone rather than spill this instruction?
   bool rematerialize() const;
+  // Whether an input may be in a register that a resumed exception can lose (see
+  // AvoidLosableStateAtTraps).
+  bool has_losable_input() const;
 
   // Get the pipeline info
   static const Pipeline *pipeline_class();
@@ -665,6 +668,33 @@ public:
 #endif
 };
 
+//------------------------------MachExplicitNullCheckNode----------------------
+// Tests the value a MachNullCheckNode's memop would fault on and branches to the null successor
+// (succs[0] of the block) when it is null, so that the memop cannot fault. Placed right before the
+// memop by NoTrapSites::apply() after register allocation, where a value that a resumed exception
+// can lose is live (see AvoidLosableStateAtTraps). It reads the value's register and gets none.
+class MachExplicitNullCheckNode : public MachIdealNode {
+  const bool _narrow;   // the value is a narrow oop (compare 32 bits)
+  Label* _target;       // the null successor's label, set by PhaseOutput::fill_buffer()
+public:
+  MachExplicitNullCheckNode(Node* value, bool narrow) : _narrow(narrow), _target(nullptr) {
+    init_class_id(Class_MachExplicitNullCheck);
+    add_req(nullptr);
+    add_req(value);
+  }
+  void set_target(Label* target) { _target = target; }
+  virtual void emit(C2_MacroAssembler *masm, PhaseRegAlloc *ra_) const;
+  virtual uint size(PhaseRegAlloc *ra_) const;
+  virtual const class Type *bottom_type() const { return Type::CONTROL; }
+  virtual const Pipeline *pipeline() const;
+  virtual uint size_of() const { return sizeof(MachExplicitNullCheckNode); }
+#ifndef PRODUCT
+  virtual const char *Name() const { return "ExplicitNullCheck"; }
+  virtual void format( PhaseRegAlloc *, outputStream *st ) const;
+  virtual void dump_spec(outputStream *st) const { }
+#endif
+};
+
 //------------------------------MachSpillCopyNode------------------------------
 // Machine SpillCopy Node.  Copies 1 or 2 words from any location to any
 // location (stack or register).
@@ -804,13 +834,18 @@ public:
 // latency on the pointer-is-null path.
 
 class MachNullCheckNode : public MachBranchNode {
+  // Whether a MachExplicitNullCheckNode tests the value before the memop (see
+  // AvoidLosableStateAtTraps): then the memop is no implicit exception site.
+  bool _explicit;
 public:
   const uint _vidx;             // Index of memop being tested
-  MachNullCheckNode( Node *ctrl, Node *memop, uint vidx ) : MachBranchNode(), _vidx(vidx) {
+  MachNullCheckNode( Node *ctrl, Node *memop, uint vidx ) : MachBranchNode(), _explicit(false), _vidx(vidx) {
     init_class_id(Class_MachNullCheck);
     add_req(ctrl);
     add_req(memop);
   }
+  bool is_explicit() const { return _explicit; }
+  void set_explicit() { _explicit = true; }
   virtual int Opcode() const;
   virtual uint size_of() const { return sizeof(*this); }
 
@@ -922,12 +957,19 @@ public:
   JVMState*       _jvms;        // Pointer to list of JVM State Objects
   uint            _jvmadj;      // Extra delta to jvms indexes (mach. args)
   bool            _has_ea_local_in_scope; // NoEscape or ArgEscape objects in JVM States
+  // A loop poll that tests the polling word and branches to a stub instead of faulting (see
+  // AvoidLosableStateAtTraps).
+  bool            _branch_poll;
   OopMap*         oop_map() const { return _oop_map; }
   void            set_oop_map(OopMap* om) { _oop_map = om; }
 
-  MachSafePointNode() : MachReturnNode(), _oop_map(nullptr), _jvms(nullptr), _jvmadj(0), _has_ea_local_in_scope(false) {
+  MachSafePointNode() : MachReturnNode(), _oop_map(nullptr), _jvms(nullptr), _jvmadj(0), _has_ea_local_in_scope(false),
+                        _branch_poll(false) {
     init_class_id(Class_MachSafePoint);
   }
+
+  bool is_branch_poll() const { return _branch_poll; }
+  void set_branch_poll() { _branch_poll = true; }
 
   virtual JVMState* jvms() const { return _jvms; }
   void set_jvms(JVMState* s) {

@@ -2681,6 +2681,13 @@ int VM_Version::verified_exception_xstate_scrub_length(int length) {
 #endif // _WINDOWS
 
 void VM_Version::set_exception_xstate_mitigation() {
+  if (AvoidLosableStateAtTraps) {
+    // Compiled code takes no resumed exception with losable state live (see
+    // AvoidLosableStateAtTraps), so the running kernel is not classified, no length is measured,
+    // nothing is scrubbed or capped, and APX stays available.
+    log_info(os, cpu)("Compiled code takes no resumed exception with AVX, AVX-512 or APX state live");
+    return;
+  }
   bool forced = ExceptionXStateLength > 0;
   int scrub = 0;
 #ifdef _WINDOWS

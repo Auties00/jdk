@@ -32,6 +32,7 @@
 #include "opto/callnode.hpp"
 #include "opto/cfgnode.hpp"
 #include "opto/chaitin.hpp"
+#include "opto/noTrap.hpp"
 #include "opto/machnode.hpp"
 #include "opto/runtime.hpp"
 #include "runtime/os.inline.hpp"
@@ -113,8 +114,23 @@ void PhaseCFG::ensure_node_is_at_block_or_above(Node* n, Block* b) {
 // The proj is the control projection for the not-null case.
 // The val is the pointer being checked for nullness or
 // decodeHeapOop_not_null node if it did not fold into address.
+// Whether n reads the condition codes.
+static bool consumes_flags(const Node* n) {
+  for (uint i = 1; i < n->req(); i++) {
+    if (n->in(i) != nullptr && n->in(i)->ideal_reg() == Op_RegFlags) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void PhaseCFG::implicit_null_check(Block* block, Node *proj, Node *val, int allowed_reasons) {
   if (!ImplicitNullChecks) return;
+
+  // With AvoidLosableStateAtTraps, an implicit null check may become an explicit test after
+  // register allocation (NoTrapSites), which on some platforms kills the flags.
+  const NoTrapPlatform* no_trap = Matcher::no_trap();
+  const bool refuses_flag_consumers = no_trap != nullptr && no_trap->null_test_kills_flags();
 
   // Make sure the ptr-is-null path appears to be uncommon!
   float f = block->end()->as_MachIf()->_prob;
@@ -319,6 +335,12 @@ void PhaseCFG::implicit_null_check(Block* block, Node *proj, Node *val, int allo
             !CompressedOops::use_implicit_null_checks())
           continue;
       }
+    }
+
+    if (refuses_flag_consumers && consumes_flags(mach)) {
+      // The explicit null test that may replace this implicit one (see NoTrapSites) would kill
+      // the flags the candidate reads.
+      continue;
     }
 
     Block *cb = get_block_for_node(mach);
