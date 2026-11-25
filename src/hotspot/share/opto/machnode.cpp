@@ -754,10 +754,16 @@ void MachTrapScrubNode::format(PhaseRegAlloc*, outputStream* st) const {
 #endif
 
 void MachTrapScrubNode::emit(C2_MacroAssembler* masm, PhaseRegAlloc* ra_) const {
+  // Platforms without a trap scrub return a constant null, which the node never meets there.
+  const TrapScrubPlatform* platform = Matcher::trap_scrub();
+  if (platform == nullptr) {
+    ShouldNotReachHere();
+    return;
+  }
   if (_check) {
-    Matcher::trap_scrub()->emit_check(masm);
+    platform->emit_check(masm);
   } else {
-    Matcher::trap_scrub()->emit_scrub(masm, _free_scratch);
+    platform->emit_scrub(masm, _free_scratch);
   }
 }
 
@@ -779,7 +785,13 @@ void MachExplicitNullCheckNode::format(PhaseRegAlloc* ra, outputStream* st) cons
 void MachExplicitNullCheckNode::emit(C2_MacroAssembler* masm, PhaseRegAlloc* ra_) const {
   // Sizing emits without a target; the code has the same length either way.
   Label unbound;
-  Matcher::no_trap()->emit_null_test(masm, ra_->get_reg_first(in(1)), _narrow, _target != nullptr ? *_target : unbound);
+  // Platforms without the mode return a constant null, which the node never meets there.
+  const NoTrapPlatform* platform = Matcher::no_trap();
+  if (platform == nullptr) {
+    ShouldNotReachHere();
+    return;
+  }
+  platform->emit_null_test(masm, ra_->get_reg_first(in(1)), _narrow, _target != nullptr ? *_target : unbound);
   if (_target == nullptr) {
     masm->bind(unbound);
   }
