@@ -1768,7 +1768,7 @@ void Matcher::kill_masks_at_raw_access(MachNode* mach, const Node* leaf) {
   if (kill == nullptr) {
     return;
   }
-  const TypePtr* t = leaf->adr_type();
+  const TypePtr* t = leaf->in_adr_type();
   if (t != nullptr && t->base() != Type::RawPtr && t->base() != Type::AnyPtr) {
     return;
   }
