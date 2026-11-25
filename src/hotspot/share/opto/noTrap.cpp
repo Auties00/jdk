@@ -27,6 +27,7 @@
 #include "opto/block.hpp"
 #include "opto/compile.hpp"
 #include "opto/machnode.hpp"
+#include "opto/matcher.hpp"
 #include "opto/noTrap.hpp"
 #include "opto/opcodes.hpp"
 #include "opto/regalloc.hpp"
@@ -87,17 +88,6 @@ static bool reads_flags(const Node* n) {
 
 static bool is_gpr_ideal_reg(uint ideal_reg) {
   return ideal_reg == Op_RegI || ideal_reg == Op_RegN || ideal_reg == Op_RegL || ideal_reg == Op_RegP;
-}
-
-// Whether n may access raw or unknown memory, which in a compilation with unsafe accesses can
-// fault and be resumed at the next instruction.
-static bool may_access_raw_memory(const Node* n) {
-  if (!n->is_Mach() || n->as_Mach()->memory_operand() == nullptr) {
-    return false;
-  }
-  // The memory a node consumes covers what it produces (Node::in_adr_type()); a load produces none.
-  const TypePtr* t = n->as_Mach()->in_adr_type();
-  return t == nullptr || t->base() == Type::RawPtr || t->base() == Type::AnyPtr;
 }
 
 // Checks what the unsafe access window relies on (see NoTrapPlatform): no integer, pointer or
@@ -197,8 +187,8 @@ bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
       Node* n = block->get_node(j);
 #ifdef ASSERT
       // No mask that could carry a check's result is live across a raw access (see
-      // Matcher::kill_masks_at_raw_access()).
-      if (raw_killed != 0 && may_access_raw_memory(n)) {
+      // Matcher::kill_masks_at_raw_accesses()).
+      if (raw_killed != 0 && n->is_Mach() && Matcher::is_raw_memory_access(n->as_Mach())) {
         uint64_t across = live & raw_killed & ~bit(unit_of(platform, ra, n));
         if (across != 0) {
           n->dump();

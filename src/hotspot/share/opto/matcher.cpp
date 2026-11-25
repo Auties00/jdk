@@ -439,6 +439,59 @@ void Matcher::match( ) {
     if (C->failing())  return;
     assert(verify_after_postselect_cleanup(), "");
   }
+
+  kill_masks_at_raw_accesses();
+}
+
+bool Matcher::is_raw_memory_access(const MachNode* n) {
+  if (n->is_MachSafePoint() || n->is_MachReturn() || n->is_MachMemBar() || (uint)MemNode::Memory >= n->req()) {
+    return false;
+  }
+  const Node* mem = n->in(MemNode::Memory);
+  if (mem == nullptr || mem->bottom_type() != Type::MEMORY) {
+    return false; // no memory input: the matcher puts it at MemNode::Memory
+  }
+  const TypePtr* t = n->in_adr_type();
+  return t == nullptr || t->base() == Type::RawPtr || t->base() == Type::AnyPtr;
+}
+
+// With AvoidLosableStateAtTraps, an access to raw or unknown memory in a compilation with unsafe
+// accesses kills the registers of NoTrapPlatform::raw_access_kill(): a fault there is resumed past
+// the access, and a mask computed before it could come back zeroed and let a failed index check pass
+// (the check of a scatter's indices, whose low lanes survive in the vector registers). The allocator
+// then spills any such mask live across the access, and reloads it intact. The kill is a projection
+// of the access, so the copies the allocator makes of the access (rematerialized flags producers)
+// keep it.
+void Matcher::kill_masks_at_raw_accesses() {
+  const NoTrapPlatform* no_trap = Matcher::no_trap();
+  if (no_trap == nullptr || !C->has_unsafe_access() || no_trap->raw_access_kill() == nullptr) {
+    return;
+  }
+  const RegMask* kill = no_trap->raw_access_kill();
+  ResourceMark rm;
+  Unique_Node_List<Node> nodes;
+  GrowableArray<MachNode*> accesses;
+  nodes.push(C->root());
+  for (uint i = 0; i < nodes.size(); i++) {
+    Node* n = nodes.at(i);
+    for (uint j = 0; j < n->len(); j++) {
+      if (n->in(j) != nullptr) {
+        nodes.push(n->in(j));
+      }
+    }
+    if (n->is_Mach() && is_raw_memory_access(n->as_Mach())) {
+      accesses.append(n->as_Mach());
+    }
+  }
+  for (int i = 0; i < accesses.length(); i++) {
+    MachNode* access = accesses.at(i);
+    MachProjNode* proj = new MachProjNode(access, 20000, RegMask::EMPTY, MachProjNode::fat_proj);
+    proj->_rout.or_with(*kill);
+    proj->_rout.subtract(access->out_RegMask()); // the access's own result is defined after the fault point
+    if (!proj->_rout.is_empty()) {
+      push_projection(proj);
+    }
+  }
 }
 
 //------------------------------Fixup_Save_On_Entry----------------------------
@@ -1754,31 +1807,6 @@ MachNode* Matcher::find_shared_node(Node* leaf, uint rule) {
 }
 
 
-// With AvoidLosableStateAtTraps, an access to raw or unknown memory in a compilation with unsafe
-// accesses kills the registers of NoTrapPlatform::raw_access_kill(): a fault there is resumed past
-// the access, and a mask computed before it could come back zeroed and let a failed index check pass
-// (the check of a scatter's indices, whose low lanes survive in the vector registers). The allocator
-// then spills any such mask live across the access, and reloads it intact.
-void Matcher::kill_masks_at_raw_access(MachNode* mach, const TypePtr* t) {
-  const NoTrapPlatform* no_trap = Matcher::no_trap();
-  if (no_trap == nullptr || !C->has_unsafe_access()) {
-    return;
-  }
-  const RegMask* kill = no_trap->raw_access_kill();
-  if (kill == nullptr) {
-    return;
-  }
-  if (t != nullptr && t->base() != Type::RawPtr && t->base() != Type::AnyPtr) {
-    return;
-  }
-  MachProjNode* proj = new MachProjNode(mach, 20000, RegMask::EMPTY, MachProjNode::fat_proj);
-  proj->_rout.or_with(*kill);
-  proj->_rout.subtract(mach->out_RegMask()); // the access's own result is defined after the fault point
-  if (!proj->_rout.is_empty()) {
-    push_projection(proj);
-  }
-}
-
 //------------------------------ReduceInst-------------------------------------
 // Reduce a State tree (with given Control) into a tree of MachNodes.
 // This routine (and it's cohort ReduceOper) convert Ideal Nodes into
@@ -1870,19 +1898,8 @@ MachNode *Matcher::ReduceInst( State *s, int rule, Node *&mem ) {
 
   uint number_of_projections_prior = number_of_projections();
 
-  // The memory an access consumes, read before an expansion clears its inputs, where a raw access
-  // kills the mask registers (see kill_masks_at_raw_access()).
-  const TypePtr* consumed = TYPE_PTR_SENTINAL;
-  if (mem != (Node*)1 && !_allocation_started && C->has_unsafe_access() && Matcher::no_trap() != nullptr &&
-      Matcher::no_trap()->raw_access_kill() != nullptr) {
-    consumed = mach->in_adr_type();
-  }
-
   // Perform any 1-to-many expansions required
   MachNode *ex = mach->Expand(s, _projection_list, mem);
-  if (consumed != TYPE_PTR_SENTINAL) {
-    kill_masks_at_raw_access(ex, consumed);
-  }
   if (ex != mach) {
     assert(ex->ideal_reg() == mach->ideal_reg(), "ideal types should match");
     if( ex->in(1)->is_Con() )

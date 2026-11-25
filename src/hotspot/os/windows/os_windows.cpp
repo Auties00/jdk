@@ -3005,7 +3005,7 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
       //   live across a raw access in a register that would lose it while the checked indices keep
       //   their low lanes: such an access kills the opmask registers (and, on AVX-512 without VL, BW
       //   and DQ, xmm16-31) or the SVE predicates other than p7, so a mask computed before it is
-      //   spilled and reloaded intact (Matcher::kill_masks_at_raw_access(); without it a failed
+      //   spilled and reloaded intact (Matcher::kill_masks_at_raw_accesses(); without it a failed
       //   check of a scatter's indices could pass and the scatter write out of bounds). A mask in
       //   xmm0-15 has the lane width of the vector it checks, so it loses the same lanes.
       nmethod* nm = nullptr;

@@ -251,8 +251,11 @@ public:
   }
 
   // AvoidLosableStateAtTraps: kills the mask registers at a raw access (see NoTrapPlatform).
-  // t: the memory the access consumes.
-  void kill_masks_at_raw_access(MachNode* mach, const TypePtr* t);
+  // AvoidLosableStateAtTraps: whether n accesses raw or unknown memory, which in a compilation with
+  // unsafe accesses can fault and be resumed past the access.
+  static bool is_raw_memory_access(const MachNode* n);
+  // Kills the mask registers at every raw access of such a compilation (see NoTrapPlatform).
+  void kill_masks_at_raw_accesses();
 
   // Select instructions for entire method
   void match();
