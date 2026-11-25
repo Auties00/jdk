@@ -37,6 +37,19 @@
 // site the node's inputs (its TEMPs included) and the node itself count as live, since the fault
 // can happen in the middle of its code, and so do the units the platform keeps live everywhere.
 
+// Whether n is a machine node without operands whose ideal_reg() would read the operand it does not
+// have: the MachIdealNodes other than those that define their own (spill copies, merges, the
+// constant base, null checks).
+static bool defines_no_operand_value(const Node* n) {
+  return n->is_Mach() && n->as_Mach()->_opnds == nullptr && !n->is_MachSpillCopy() && !n->is_MachMerge() &&
+         !n->is_MachConstantBase() && !n->is_MachNullCheck() && !n->is_MachTemp();
+}
+
+// The ideal register class of the value n defines, or 0 when it defines none.
+static uint value_ideal_reg(const Node* n) {
+  return defines_no_operand_value(n) ? 0 : n->ideal_reg();
+}
+
 // The unit of losable state the value defined by n occupies, or -1.
 static int unit_of(const NoTrapPlatform* platform, PhaseRegAlloc* ra, const Node* n) {
   if (n == nullptr || n->_idx >= ra->node_regs_max_index()) {
@@ -46,7 +59,10 @@ static int unit_of(const NoTrapPlatform* platform, PhaseRegAlloc* ra, const Node
   if (!OptoReg::is_reg(reg)) {
     return -1;
   }
-  int unit = platform->losable_unit(reg, n->is_MachTemp() ? 0 : n->ideal_reg());
+  if (defines_no_operand_value(n)) {
+    return -1;
+  }
+  int unit = platform->losable_unit(reg, n->is_MachTemp() ? 0 : value_ideal_reg(n));
   assert(unit < 64, "at most 64 units");
   return unit;
 }
@@ -99,10 +115,10 @@ static void verify_placement(Compile* C, const NoTrapPlatform* platform) {
     Block* block = cfg->get_block(i);
     for (uint j = 0; j < block->number_of_nodes(); j++) {
       Node* n = block->get_node(j);
-      if (n->_idx < ra->node_regs_max_index() && is_gpr_ideal_reg(n->ideal_reg())) {
+      if (n->_idx < ra->node_regs_max_index() && is_gpr_ideal_reg(value_ideal_reg(n))) {
         OptoReg::Name reg = ra->get_reg_first(n);
         if (OptoReg::is_reg(reg)) {
-          int unit = platform->losable_unit(reg, n->ideal_reg());
+          int unit = platform->losable_unit(reg, value_ideal_reg(n));
           if (unit >= 0 && (unsafe || !platform->is_general_purpose_unit(unit))) {
             n->dump();
           }
