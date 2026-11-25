@@ -21,7 +21,7 @@ permissions:
 
 env:
   # The notrap CI run whose bundles (notrap, base and scrub14 for Windows; notrap for linux) to use.
-  NOTRAP_RUN: 45598817107
+  NOTRAP_RUN: 45629269246
   # scrub14 (c6f997c2c66), as built by run 45112930164, for its linux bundle.
   SCRUB14_RUN: 45112930164
 
