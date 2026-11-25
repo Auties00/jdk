@@ -30,6 +30,7 @@ on:
     branches-ignore:
       - pr/*
       - JDK-8365196-ci-notrap*
+      - JDK-8365196-ci-notrapbench*
   workflow_dispatch:
     inputs:
       platforms:

@@ -1,0 +1,186 @@
+name: 'JDK-8365196 notrap bench'
+
+# Review-only. The cost of AvoidLosableStateAtTraps, with the bundles of a run of the notrap CI workflow:
+# - JMH, interleaved rounds, on windows-2025 (a kernel that loses the state: scrub14 scrubs there, the
+#   notrap build takes its non-trapping forms) and windows-2022 (keeps it: scrub14 does nothing): the
+#   scrub's review kernels (review2, 3, 5, 6), kernels with vector state live at null checks,
+#   divisions and loop polls (review7), and JNI and FFM calls (review8, for the MXCSR restore);
+# - Renaissance (scrabble, future-genetic, mnemonics, fj-kmeans, dotty);
+# - C2 code size of -Xcomp -XX:-TieredCompilation -version per collector, on windows-2025 and linux.
+# Configurations: B the unpatched base, S scrub14, N notrap (mode on, the default on Windows), O notrap
+# with the mode off.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-notrapbench-*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  # The notrap CI run whose bundles (notrap, base and scrub14 for Windows; notrap for linux) to use.
+  NOTRAP_RUN: 45579794397
+  # scrub14 (c6f997c2c66), as built by run 45112930164, for its linux bundle.
+  SCRUB14_RUN: 45112930164
+
+jobs:
+  bench:
+    name: bench (${{ matrix.os }}, ${{ matrix.slot }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-2022]
+        slot: [1, 2, 3, 4]
+        exclude:
+          - { os: windows-2022, slot: 3 }
+          - { os: windows-2022, slot: 4 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review2
+            review3
+            review5
+            review6
+            review7
+            review8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-notrap
+          run-id: ${{ env.NOTRAP_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-base
+          path: b-base
+          run-id: ${{ env.NOTRAP_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-scrub14
+          path: b-scrub14
+          run-id: ${{ env.NOTRAP_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'JMH, Renaissance and code size: base (B), scrub14 (S), notrap (N), notrap mode off (O)'
+        run: |
+          set +e
+          mkdir -p out notrap base scrub14
+          unzip -q b-notrap/jdk-windows-x64.zip -d notrap; unzip -q b-base/jdk-windows-x64.zip -d base; unzip -q b-scrub14/jdk-windows-x64.zip -d scrub14
+          bin() { dirname "$(find "$1" -name java.exe -path '*/bin/*' | head -1)"; }
+          NBIN=$(bin notrap); BBIN=$(bin base); SBIN=$(bin scrub14)
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" | tee out/build.txt
+          for c in N S; do j=$NBIN; [ $c = S ] && j=$SBIN; "$j/java" -Xlog:os+cpu=info -version 2>&1 | grep -i -E "exception|xsave|capped|resumed" | sed "s/^/$c: /" | tee -a out/jvm-detect.txt; done
+          "$NBIN/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|AvoidLosableStateAtTraps|UseFPUForSpilling) ' | tee out/flags.txt
+          m2=https://repo1.maven.org/maven2
+          for a in org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar; do
+            curl -sfL -o "lib-$(basename $a)" "$m2/$a" || echo "download failed: $a"
+          done
+          cp="lib-jmh-core-1.37.jar;lib-jopt-simple-5.0.4.jar;lib-commons-math3-3.6.1.jar"
+          "$BBIN/javac" --add-modules jdk.incubator.vector -proc:full -cp "$cp;lib-jmh-generator-annprocess-1.37.jar" -d jmhc \
+            src/review2/R2Bench.java src/review3/R3Bench.java src/review5/R5Bench.java src/review6/R6Bench.java \
+            src/review7/R7Bench.java src/review8/R8Bench.java 2>&1 | grep -v -i warning | tail -5
+          JH=$(cd "$NBIN/.." && pwd -W)
+          clang -O2 -shared -I"$JH/include" -I"$JH/include/win32" -o r8bench.dll src/review8/r8bench.c
+          for v in 0.16.1 0.16.0 0.15.0; do
+            curl -sfL -o renaissance.jar "https://github.com/renaissance-benchmarks/renaissance/releases/download/v$v/renaissance-gpl-$v.jar" && break
+          done
+          declare -A JAVA FLAGS
+          JAVA[B]="$BBIN/java"; FLAGS[B]=""
+          JAVA[S]="$SBIN/java"; FLAGS[S]=""
+          JAVA[N]="$NBIN/java"; FLAGS[N]=""
+          JAVA[O]="$NBIN/java"; FLAGS[O]="-XX:+UnlockDiagnosticVMOptions -XX:-AvoidLosableStateAtTraps"
+          # C2 code size of -Xcomp -version, per collector
+          for c in B S N O; do
+            for gc in Serial G1 Z Shenandoah; do
+              f=out/xcomp-$c-$gc.txt
+              "${JAVA[$c]}" ${FLAGS[$c]} -XX:+Use${gc}GC -Xcomp -XX:-TieredCompilation -XX:+CITime -version > $f 2>&1
+              echo "SUMMARY xcomp-version $c $gc $(grep -o 'nmethod code size.*' $f | head -1)" | tee -a out/summary.txt
+            done
+          done
+          for round in 1 2 3; do
+            order="B S N O"; [ $round = 2 ] && order="S N O B"; [ $round = 3 ] && order="N O B S"
+            for c in $order; do
+              "${JAVA[$c]}" -Djava.library.path=. -cp "jmhc;$cp" org.openjdk.jmh.Main \
+                -jvmArgsAppend "--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED -Djava.library.path=. ${FLAGS[$c]}" \
+                -rf csv -rff "out/jmh-$c-$round.csv" -f 2 -wi 4 -i 6 -w 1 -r 1 \
+                "review2.R2Bench|review3.R3Bench|review5.R5Bench|review6.R6Bench|review7.R7Bench|review8.R8Bench" > "out/jmh-$c-$round.log" 2>&1
+              tail -40 "out/jmh-$c-$round.log"
+            done
+          done
+          RB="scrabble future-genetic mnemonics fj-kmeans dotty"
+          for round in 1 2 3; do
+            order="B S N O"; [ $round = 2 ] && order="S N O B"; [ $round = 3 ] && order="N O B S"
+            for b in $RB; do
+              for c in $order; do
+                timeout 900 "${JAVA[$c]}" ${FLAGS[$c]} -Xms2g -Xmx2g -jar renaissance.jar -r 12 --csv "out/ren-$b-$c-$round.csv" $b > "out/ren-$b-$c-$round.log" 2>&1 || echo "renaissance $b $c failed: $(tail -3 out/ren-$b-$c-$round.log | tr '\n' ' ')"
+              done
+            done
+          done
+          { echo "### $(cat out/cpu.txt) | $(cat out/build.txt)"; echo '```'; cat out/jvm-detect.txt out/flags.txt out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: bench-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
+
+  size-linux:
+    name: code size (linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64
+          path: b-notrap
+          run-id: ${{ env.NOTRAP_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64
+          path: b-scrub14
+          run-id: ${{ env.SCRUB14_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'C2 code size per collector: notrap mode off (the upstream code on linux), forced on, scrub14 forced'
+        run: |
+          set +e
+          mkdir -p out notrap scrub14
+          tar -xzf "$(ls b-notrap/jdk-linux-x64*.tar.gz | grep -v symbols | grep -v debug | head -1)" -C notrap
+          tar -xzf "$(ls b-scrub14/jdk-linux-x64*.tar.gz | grep -v symbols | grep -v debug | head -1)" -C scrub14
+          home() { cd "$(dirname "$(find $1 -name java -path '*/bin/*' -type f | head -1)")/.." && pwd; }
+          N=$(home notrap); S=$(home scrub14)
+          grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //' | tee out/cpu.txt
+          for gc in Serial G1 Z Shenandoah; do
+            for c in off on scrub14; do
+              case $c in
+                off) j=$N; o="-XX:-AvoidLosableStateAtTraps" ;;
+                on) j=$N; o="-XX:+AvoidLosableStateAtTraps" ;;
+                scrub14) j=$S; o="-XX:ExceptionXStateLength=1920" ;;
+              esac
+              f=out/xcomp-$c-$gc.txt
+              "$j/bin/java" -XX:+UnlockDiagnosticVMOptions $o -XX:+Use${gc}GC -Xcomp -XX:-TieredCompilation -XX:+CITime -version > $f 2>&1
+              echo "SUMMARY xcomp-version $c $gc $(grep -o 'nmethod code size.*' $f | head -1)" | tee -a out/summary.txt
+            done
+          done
+          cat out/summary.txt >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: size-linux
+          path: out
+          retention-days: 30
