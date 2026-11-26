@@ -2522,6 +2522,12 @@ class AArch64NoTrap : public NoTrapPlatform {
   virtual uint64_t raw_access_killed_units() const {
     return (uint64_t)0xFF7F << 32; // p0-p6, p8-p15
   }
+
+  // Every raw access kills the predicates: the readers of a predicate have not been examined here
+  // (p7 governs most instructions without being an input of their nodes).
+  virtual bool raw_access_kill_follows_masks() const {
+    return false;
+  }
 };
 
 static const AArch64NoTrap aarch64_no_trap;

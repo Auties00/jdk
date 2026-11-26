@@ -75,6 +75,7 @@
 #include "opto/multnode.hpp"
 #include "opto/narrowptrnode.hpp"
 #include "opto/node.hpp"
+#include "opto/noTrap.hpp"
 #include "opto/opaquenode.hpp"
 #include "opto/opcodes.hpp"
 #include "opto/output.hpp"
@@ -3945,6 +3946,11 @@ void Compile::Code_Gen() {
     cfg.verify();
     if (failing()) {
       return;
+    }
+
+    const NoTrapPlatform* no_trap = Matcher::no_trap();
+    if (no_trap != nullptr) {
+      NoTrapSites::kill_masks_where_checked(this, no_trap);
     }
   }
 

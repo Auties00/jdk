@@ -22,9 +22,13 @@
  *
  */
 
+#include "ci/ciMethod.hpp"
+#include "ci/ciSymbol.hpp"
 #include "libadt/vectset.hpp"
+#include "logging/log.hpp"
 #include "memory/resourceArea.hpp"
 #include "opto/block.hpp"
+#include "opto/c2compiler.hpp"
 #include "opto/compile.hpp"
 #include "opto/machnode.hpp"
 #include "opto/matcher.hpp"
@@ -76,6 +80,285 @@ static bool is_loop_poll(const Node* n) {
   return n->is_MachSafePoint() && !n->is_MachCall();
 }
 
+// The name of the method C compiles, for logging, in the resource area.
+static const char* method_name(const Compile* C) {
+  return C->method() != nullptr ? C->method()->name()->as_utf8() : "a stub";
+}
+
+// Whether n defines a mask: a value of the registers that carry the result of a vector check.
+static bool is_mask_value(const Node* n) {
+  return !n->is_MachTemp() && value_ideal_reg(n) == Op_RegVectMask;
+}
+
+static bool is_vector_ideal_reg(uint ideal_reg) {
+  return ideal_reg == Op_VecA || ideal_reg == Op_VecS || ideal_reg == Op_VecD ||
+         ideal_reg == Op_VecX || ideal_reg == Op_VecY || ideal_reg == Op_VecZ;
+}
+
+// Whether n, which defines no mask, can let a mask it reads decide something: every reader except
+// those that only apply the mask as a predicate, which are the instructions that compute a vector
+// and the masked vector stores. With a mask that a resumed fault zeroed, those compute a value with
+// lanes dropped, which is a value of the unsafe access window, or store nothing. VectorStoreMask
+// also computes a vector, but one that holds the mask itself (the payload of a boxed mask), so it
+// counts as a reader that decides.
+static bool checks_masks(const Node* n) {
+  if (!n->is_Mach() || n->is_MachReturn()) {
+    return true; // calls and safepoints with their debug info, returns
+  }
+  const int opcode = n->as_Mach()->ideal_Opcode();
+  if (is_vector_ideal_reg(value_ideal_reg(n))) {
+    return opcode == Op_VectorStoreMask;
+  }
+  return opcode != Op_StoreVectorMasked && opcode != Op_StoreVectorScatterMasked;
+}
+
+// Which masks reach a check, as a backward dataflow over the places a mask can be in: before
+// register allocation each mask value is its own place, afterwards the places are the registers
+// and stack slots that hold mask values. A place reaches a check at a point of the code if on some
+// path from there its mask is read by a node that checks_masks(), or by a node that defines a mask
+// whose place reaches a check after it (the mask operations, the copies and merges of the
+// allocator and, across a block boundary, the Phis). A raw access needs the kill if a place that a
+// resumed fault can lose reaches a check right after the access.
+class MaskFlow : public StackObj {
+ private:
+  PhaseCFG* const _cfg;
+  int* _place;                         // by node index: the place the node defines, or -1
+  VectorSet _masks;                    // the mask values
+  GrowableArray<OptoReg::Name> _regs;  // by place, after register allocation
+  GrowableArray<bool> _losable;        // by place: whether a resumed fault can lose its content
+  uint _words;                         // the words of a set of places
+  uint64_t* _top;                      // by block: the places that reach a check after the Phis of the block
+  uint64_t* _live;
+  uint64_t* _scratch;
+
+  static bool test(const uint64_t* set, int place) {
+    return (set[place >> 6] & ((uint64_t)1 << (place & 63))) != 0;
+  }
+
+  static void add(uint64_t* set, int place) {
+    set[place >> 6] |= (uint64_t)1 << (place & 63);
+  }
+
+  static void remove(uint64_t* set, int place) {
+    set[place >> 6] &= ~((uint64_t)1 << (place & 63));
+  }
+
+  uint64_t* top(const Block* block) const {
+    return _top + (size_t)block->_pre_order * _words;
+  }
+
+  bool is_mask(const Node* n) const {
+    return _masks.test(n->_idx);
+  }
+
+  // The index of the first node of block after its head and its Phis.
+  static uint first_after_phis(const Block* block) {
+    uint i = 1;
+    while (i < block->number_of_nodes() && block->get_node(i)->is_Phi()) {
+      i++;
+    }
+    return i;
+  }
+
+  // Sets _live to the places that reach a check at the end of block: those at the top of its
+  // successors, where the place of a Phi stands for the place of its input from block.
+  void at_end(const Block* block) {
+    for (uint w = 0; w < _words; w++) {
+      _live[w] = 0;
+    }
+    for (uint s = 0; s < block->_num_succs; s++) {
+      const Block* succ = block->_succs[s];
+      const uint64_t* succ_top = top(succ);
+      for (uint w = 0; w < _words; w++) {
+        _scratch[w] = succ_top[w];
+      }
+      const uint phis_end = first_after_phis(succ);
+      for (uint i = 1; i < phis_end; i++) {
+        const int place = _place[succ->get_node(i)->_idx];
+        if (place >= 0) {
+          remove(_scratch, place);
+        }
+      }
+      for (uint i = 1; i < phis_end; i++) {
+        const Node* phi = succ->get_node(i);
+        const int place = _place[phi->_idx];
+        if (!is_mask(phi) || (place >= 0 && !test(succ_top, place))) {
+          continue;
+        }
+        for (uint j = 1; j < succ->num_preds(); j++) {
+          const Node* in = phi->in(j);
+          if (in != nullptr && _cfg->get_block_for_node(succ->pred(j)) == block &&
+              is_mask(in) && _place[in->_idx] >= 0) {
+            add(_scratch, _place[in->_idx]);
+          }
+        }
+      }
+      for (uint w = 0; w < _words; w++) {
+        _live[w] |= _scratch[w];
+      }
+    }
+  }
+
+  // Steps _live from after n to before n.
+  void step_back(const Node* n) {
+    const int place = _place[n->_idx];
+    bool reads_for_a_check;
+    if (is_mask(n)) {
+      // A mask without a place is not followed: its inputs count as checked.
+      reads_for_a_check = place < 0 || test(_live, place);
+    } else {
+      reads_for_a_check = checks_masks(n);
+    }
+    if (place >= 0) {
+      remove(_live, place);
+    }
+    if (reads_for_a_check) {
+      for (uint k = 1; k < n->req(); k++) {
+        const Node* in = n->in(k);
+        if (in != nullptr && is_mask(in) && _place[in->_idx] >= 0) {
+          add(_live, _place[in->_idx]);
+        }
+      }
+    }
+  }
+
+ public:
+  // ra is null before register allocation.
+  MaskFlow(Compile* C, PhaseRegAlloc* ra, const NoTrapPlatform* platform) : _cfg(C->cfg()) {
+    const uint unique = C->unique();
+    _place = NEW_RESOURCE_ARRAY(int, unique);
+    for (uint i = 0; i < unique; i++) {
+      _place[i] = -1;
+    }
+    uint block_count = 0;
+    for (uint i = 0; i < _cfg->number_of_blocks(); i++) {
+      const Block* block = _cfg->get_block(i);
+      block_count = MAX2(block_count, block->_pre_order + 1);
+      for (uint j = 1; j < block->number_of_nodes(); j++) {
+        const Node* n = block->get_node(j);
+        if (!is_mask_value(n)) {
+          continue;
+        }
+        _masks.set(n->_idx);
+        if (ra == nullptr) {
+          _place[n->_idx] = _losable.append(true);
+          continue;
+        }
+        const OptoReg::Name reg = n->_idx < ra->node_regs_max_index() ? ra->get_reg_first(n) : OptoReg::Bad;
+        if (!OptoReg::is_valid(reg)) {
+          continue;
+        }
+        int place = _regs.find(reg);
+        if (place < 0) {
+          place = _regs.append(reg);
+          _losable.append(OptoReg::is_reg(reg) && platform->losable_unit(reg, Op_RegVectMask) >= 0);
+        }
+        _place[n->_idx] = place;
+      }
+    }
+    if (ra != nullptr && _regs.length() > 0) {
+      // Every other definition into one of those registers or stack slots ends what it held.
+      for (uint i = 0; i < _cfg->number_of_blocks(); i++) {
+        const Block* block = _cfg->get_block(i);
+        for (uint j = 1; j < block->number_of_nodes(); j++) {
+          const Node* n = block->get_node(j);
+          if (!is_mask(n) && n->_idx < ra->node_regs_max_index() && OptoReg::is_valid(ra->get_reg_first(n))) {
+            _place[n->_idx] = _regs.find(ra->get_reg_first(n));
+          }
+        }
+      }
+    }
+    _words = ((uint)_losable.length() + 63) >> 6;
+    if (_words == 0) {
+      _top = nullptr;
+      _live = nullptr;
+      _scratch = nullptr;
+      return;
+    }
+    const size_t top_words = (size_t)block_count * _words;
+    _top = NEW_RESOURCE_ARRAY(uint64_t, top_words);
+    for (size_t i = 0; i < top_words; i++) {
+      _top[i] = 0;
+    }
+    _live = NEW_RESOURCE_ARRAY(uint64_t, _words);
+    _scratch = NEW_RESOURCE_ARRAY(uint64_t, _words);
+    for (bool changed = true; changed; ) {
+      changed = false;
+      for (int i = (int)_cfg->number_of_blocks() - 1; i >= 0; i--) {
+        const Block* block = _cfg->get_block(i);
+        at_end(block);
+        const uint first = first_after_phis(block);
+        for (uint j = block->number_of_nodes(); j > first; j--) {
+          step_back(block->get_node(j - 1));
+        }
+        uint64_t* block_top = top(block);
+        for (uint w = 0; w < _words; w++) {
+          if (block_top[w] != _live[w]) {
+            block_top[w] = _live[w];
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+
+  // Appends the raw accesses right after which a place that a resumed fault can lose reaches a
+  // check. The mask that an access defines itself is defined after the point of the fault.
+  void accesses_before_checks(GrowableArray<MachNode*>& accesses) {
+    if (_words == 0) {
+      return;
+    }
+    for (uint i = 0; i < _cfg->number_of_blocks(); i++) {
+      const Block* block = _cfg->get_block(i);
+      at_end(block);
+      const uint first = first_after_phis(block);
+      for (uint j = block->number_of_nodes(); j > first; j--) {
+        Node* n = block->get_node(j - 1);
+        if (n->is_Mach() && Matcher::is_raw_memory_access(n->as_Mach())) {
+          bool lost = false;
+          for (int place = 0; place < _losable.length() && !lost; place++) {
+            lost = _losable.at(place) && place != _place[n->_idx] && test(_live, place);
+          }
+          if (lost) {
+            accesses.append(n->as_Mach());
+          }
+        }
+        step_back(n);
+      }
+    }
+  }
+};
+
+bool NoTrapSites::kill_follows_masks(const Compile* C, const NoTrapPlatform* platform) {
+  return C->has_unsafe_access() && platform->raw_access_kill() != nullptr &&
+         platform->raw_access_kill_follows_masks() && !C->kill_masks_at_every_raw_access();
+}
+
+void NoTrapSites::kill_masks_where_checked(Compile* C, const NoTrapPlatform* platform) {
+  if (!kill_follows_masks(C, platform)) {
+    return;
+  }
+  ResourceMark rm;
+  PhaseCFG* cfg = C->cfg();
+  GrowableArray<MachNode*> accesses;
+  MaskFlow flow(C, nullptr, platform);
+  flow.accesses_before_checks(accesses);
+  const RegMask* kill = platform->raw_access_kill();
+  for (int i = 0; i < accesses.length(); i++) {
+    MachNode* access = accesses.at(i);
+    MachProjNode* proj = new MachProjNode(access, 20000, RegMask::EMPTY, MachProjNode::fat_proj);
+    proj->_rout.or_with(*kill);
+    proj->_rout.subtract(access->out_RegMask()); // the result of the access is defined after the fault point
+    if (!proj->_rout.is_empty()) {
+      Block* block = cfg->get_block_for_node(access);
+      block->insert_node(proj, block->find_node(access) + 1);
+      cfg->map_node_to_block(proj, block);
+    }
+  }
+  log_debug(jit, compilation)("no-trap: %d raw accesses of %s kill the mask registers",
+                              accesses.length(), method_name(C));
+}
+
 #ifdef ASSERT
 static bool reads_flags(const Node* n) {
   for (uint k = 1; k < n->req(); k++) {
@@ -123,6 +406,21 @@ bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
   ResourceMark rm;
 
   DEBUG_ONLY(verify_placement(C, platform);)
+
+  // A mask that reaches a check must not be in a mask register across a raw access (see
+  // kill_masks_where_checked(), which gave such accesses the kill before the allocator moved or
+  // copied anything).
+  if (kill_follows_masks(C, platform)) {
+    GrowableArray<MachNode*> lossy_accesses;
+    MaskFlow flow(C, ra, platform);
+    flow.accesses_before_checks(lossy_accesses);
+    if (!lossy_accesses.is_empty()) {
+      log_debug(jit, compilation)("no-trap: a mask that reaches a check is in a mask register across a raw access "
+                                  "of %s, retrying with the kill at every raw access", method_name(C));
+      C->record_failure(C2Compiler::retry_kill_masks_at_every_raw_access());
+      return false;
+    }
+  }
 
   // The implicit null checks (Block::end() is not reliable for every block here, so every node is
   // looked at).
@@ -177,7 +475,9 @@ bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
 
   // The trap sites at which losable state is live.
   const uint64_t always_live = platform->always_live_units(C);
-  DEBUG_ONLY(const uint64_t raw_killed = C->has_unsafe_access() ? platform->raw_access_killed_units() : 0;)
+  // Where every raw access kills them, no killed register is live across one.
+  DEBUG_ONLY(const uint64_t raw_killed = C->has_unsafe_access() && !kill_follows_masks(C, platform) ?
+                                         platform->raw_access_killed_units() : 0;)
   GrowableArray<Node*> polls;
   GrowableArray<Node*> accesses;
   for (uint i = 0; i < cfg->number_of_blocks(); i++) {
@@ -186,7 +486,7 @@ bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
     for (int j = (int)block->number_of_nodes() - 1; j >= 0; j--) {
       Node* n = block->get_node(j);
 #ifdef ASSERT
-      // No mask that could carry a check's result is live across a raw access (see
+      // No register that could carry the result of a check is live across a raw access (see
       // Matcher::kill_masks_at_raw_accesses()).
       if (raw_killed != 0 && n->is_Mach() && Matcher::is_raw_memory_access(n->as_Mach())) {
         uint64_t across = live & raw_killed & ~bit(unit_of(platform, ra, n));

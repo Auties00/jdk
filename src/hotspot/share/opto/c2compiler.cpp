@@ -65,6 +65,9 @@ const char* C2Compiler::retry_no_superword() {
 const char* C2Compiler::retry_no_stringopts() {
   return "retry without StringOpts";
 }
+const char* C2Compiler::retry_kill_masks_at_every_raw_access() {
+  return "retry with the mask registers killed at every raw access";
+}
 
 void compiler_stubs_init(bool in_compiler_thread);
 
@@ -146,6 +149,7 @@ void C2Compiler::compile_method(ciEnv* env, ciMethod* target, int entry_bci, boo
   bool do_locks_coarsening = EliminateLocks;
   bool do_superword = UseSuperWord;
   bool do_stringopts = OptimizeStringConcat;
+  bool kill_masks_at_every_raw_access = false;
   bool aot_compile = env->is_aot_compile();
   bool for_aot_preload = (task->compile_reason() == CompileTask::Reason_AOTCompileForPreload);
   assert(!for_aot_preload || aot_compile, "sanity");
@@ -164,7 +168,8 @@ void C2Compiler::compile_method(ciEnv* env, ciMethod* target, int entry_bci, boo
                     do_stringopts,
                     aot_compile,
                     for_aot_preload,
-                    install_code);
+                    install_code,
+                    kill_masks_at_every_raw_access);
     Compile C(env, target, entry_bci, options, directive);
 
     // Check result and retry if appropriate.
@@ -208,6 +213,12 @@ void C2Compiler::compile_method(ciEnv* env, ciMethod* target, int entry_bci, boo
       if (C.failure_reason_is(retry_no_stringopts())) {
         assert(do_stringopts, "must make progress");
         do_stringopts = false;
+        env->report_failure(C.failure_reason());
+        continue;  // retry
+      }
+      if (C.failure_reason_is(retry_kill_masks_at_every_raw_access())) {
+        assert(!kill_masks_at_every_raw_access, "must make progress");
+        kill_masks_at_every_raw_access = true;
         env->report_failure(C.failure_reason());
         continue;  // retry
       }
