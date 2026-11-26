@@ -3619,5 +3619,6 @@ void PhaseOutput::dump_asm_on(outputStream* st, int* pcs, uint pc_limit) {
 #ifndef PRODUCT
 void PhaseOutput::print_statistics() {
   Scheduling::print_statistics();
+  NoTrapSites::print_statistics();
 }
 #endif

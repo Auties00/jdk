@@ -32,6 +32,8 @@
 #include "opto/opcodes.hpp"
 #include "opto/regalloc.hpp"
 #include "opto/type.hpp"
+#include "runtime/atomicAccess.hpp"
+#include "utilities/ostream.hpp"
 
 // After register allocation only physical registers matter, so the liveness of the losable state
 // is a backward dataflow over the platform's units (at most 64, one word per block).
@@ -266,6 +268,7 @@ bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
   DEBUG_ONLY(const uint64_t raw_killed = C->has_unsafe_access() ? platform->raw_access_killed_units() : 0;)
   GrowableArray<Node*> polls;
   GrowableArray<Node*> accesses;
+  NOT_PRODUCT(int loop_polls = 0;)
   for (uint i = 0; i < cfg->number_of_blocks(); i++) {
     Block* block = cfg->get_block(i);
     uint64_t live = live_out(block);
@@ -283,6 +286,7 @@ bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
       }
 #endif
       if (is_loop_poll(n)) {
+        NOT_PRODUCT(loop_polls++;)
         uint64_t at_trap = always_live | live | bit(unit_of(platform, ra, n));
         for (uint k = 0; k < n->req(); k++) {
           at_trap |= bit(unit_of(platform, ra, n->in(k)));
@@ -305,6 +309,12 @@ bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
       live = step_back(live, n);
     }
   }
+#ifndef PRODUCT
+  AtomicAccess::add(&_null_checks, null_checks.length());
+  AtomicAccess::add(&_explicit_null_checks, accesses.length());
+  AtomicAccess::add(&_loop_polls, loop_polls);
+  AtomicAccess::add(&_branch_polls, polls.length());
+#endif
   if (polls.is_empty() && accesses.is_empty()) {
     return false;
   }
@@ -363,3 +373,18 @@ bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
 #endif
   return true;
 }
+
+#ifndef PRODUCT
+volatile int NoTrapSites::_null_checks = 0;
+volatile int NoTrapSites::_explicit_null_checks = 0;
+volatile int NoTrapSites::_loop_polls = 0;
+volatile int NoTrapSites::_branch_polls = 0;
+
+void NoTrapSites::print_statistics() {
+  if (Matcher::no_trap() != nullptr) {
+    tty->print_cr("AvoidLosableStateAtTraps: %d of %d implicit null checks explicit, %d of %d loop polls branch",
+                  AtomicAccess::load(&_explicit_null_checks), AtomicAccess::load(&_null_checks),
+                  AtomicAccess::load(&_branch_polls), AtomicAccess::load(&_loop_polls));
+  }
+}
+#endif
