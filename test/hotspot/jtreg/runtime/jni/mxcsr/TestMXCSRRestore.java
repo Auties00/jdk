@@ -48,6 +48,15 @@
  *      -XX:TieredStopAtLevel=1 --enable-native-access=ALL-UNNAMED runtime.jni.mxcsr.TestMXCSRRestore
  */
 
+/*
+ * @test id=statusbits
+ * @bug 8365196
+ * @summary The standard MXCSR with its status bits set (EnableX86ECoreOpts).
+ * @requires os.arch == "amd64" | os.arch == "x86_64"
+ * @run main/othervm/native -XX:+UnlockDiagnosticVMOptions -XX:+AvoidLosableStateAtTraps -XX:+EnableX86ECoreOpts
+ *      -Xbatch -XX:-TieredCompilation --enable-native-access=ALL-UNNAMED runtime.jni.mxcsr.TestMXCSRRestore
+ */
+
 package runtime.jni.mxcsr;
 
 import java.lang.foreign.FunctionDescriptor;
@@ -79,8 +88,14 @@ public class TestMXCSRRestore {
     static final MethodHandle CURRENT_CRITICAL = downcall("mxcsr_current", FunctionDescriptor.of(ValueLayout.JAVA_INT), true);
     static final MethodHandle UNMASK = downcall("mxcsr_unmask", FunctionDescriptor.ofVoid(), false);
     static final MethodHandle UNMASK_CRITICAL = downcall("mxcsr_unmask", FunctionDescriptor.ofVoid(), true);
-    static final MethodHandle CALL_UNMASKED =
-        downcall("mxcsr_call_unmasked", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS), false);
+    static final MethodHandle CALL_WITH =
+        downcall("mxcsr_call_with", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS,
+                                                          ValueLayout.JAVA_INT, ValueLayout.JAVA_INT), false);
+
+    // The divide-by-zero and invalid exception masks.
+    static final int TWO_MASKS = 0x0280;
+    // Rounding toward zero.
+    static final int ROUND_TO_ZERO = 0x6000;
 
     static volatile int seenInUpcall;
 
@@ -118,6 +133,20 @@ public class TestMXCSRRestore {
         return infinities;
     }
 
+    static void callUpcall(MemorySegment stub, int clear, int set) throws Throwable {
+        seenInUpcall = -1;
+        int after = (int)CALL_WITH.invokeExact(stub, clear, set);
+        String caller = "a caller with 0x" + Integer.toHexString(clear) + " cleared and 0x" + Integer.toHexString(set) + " set";
+        expectStandard("in an FFM upcall from " + caller, seenInUpcall);
+        if ((after & CONTROL) != ((STANDARD & ~clear) | set)) {
+            throw new RuntimeException("the upcall did not give " + caller + " back its MXCSR: 0x" +
+                                       Integer.toHexString(after));
+        }
+        if (divide(4, 0.0) != 4) {
+            throw new RuntimeException("1 / 0.0 is not infinite");
+        }
+    }
+
     public static void main(String[] args) throws Throwable {
         MemorySegment stub = LINKER.upcallStub(
             MethodHandles.lookup().findStatic(TestMXCSRRestore.class, "upcall", MethodType.methodType(void.class)),
@@ -135,12 +164,13 @@ public class TestMXCSRRestore {
             UNMASK_CRITICAL.invokeExact();
             expectStandard("after a critical FFM downcall", (int)CURRENT_CRITICAL.invokeExact());
 
-            int after = (int)CALL_UNMASKED.invokeExact(stub);
-            expectStandard("in an FFM upcall", seenInUpcall);
-            if ((after & 0x0280) != 0) {
-                throw new RuntimeException("the upcall did not give native code back its MXCSR: 0x" +
-                                           Integer.toHexString(after));
-            }
+            // A caller with the standard control bits (the upcall stub loads and restores nothing),
+            // one with exceptions unmasked, and one with every exception masked but another
+            // rounding mode: each gets its own control bits back, and Java code never sees them.
+            callUpcall(stub, 0, 0);
+            callUpcall(stub, TWO_MASKS, 0);
+            callUpcall(stub, 0, ROUND_TO_ZERO);
+            callUpcall(stub, TWO_MASKS, ROUND_TO_ZERO);
         }
     }
 }

@@ -166,13 +166,28 @@ static void restore_callee_saved_registers(MacroAssembler* _masm, const ABIDescr
 
   if (saves_mxcsr()) {
     const Address mxcsr_save(rsp, offset);
+    Label skip_ldmx;
+    if (AvoidLosableStateAtTraps) {
+      // Java code leaves the control bits standard (every return from native code loads them, see
+      // MacroAssembler::restore_cpu_control_state_after_jni()), so a caller that came with standard
+      // control bits has them back already; the status bits are not preserved across calls.
+      __ movl(rscratch1, mxcsr_save);
+      if (EnableX86ECoreOpts) {
+        __ orl(rscratch1, 0x003f);
+      } else {
+        __ andl(rscratch1, 0xFFC0);
+      }
+      __ cmp32(rscratch1, ExternalAddress(StubRoutines::x86::addr_mxcsr_std()), rscratch2);
+      __ jcc(Assembler::equal, skip_ldmx);
+    }
     __ ldmxcsr(mxcsr_save);
+    __ bind(skip_ldmx);
   }
 
   __ block_comment("} restore_callee_saved_regs ");
 }
 
-static const int upcall_stub_code_base_size = 1200;
+static const int upcall_stub_code_base_size = 1232;
 static const int upcall_stub_size_per_arg = 16;
 
 address UpcallLinker::make_upcall_stub(jobject receiver, Symbol* signature,

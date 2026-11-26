@@ -45,10 +45,13 @@ JNIEXPORT void mxcsr_unmask(void) {
   _mm_setcsr(_mm_getcsr() & ~0x0280u);
 }
 
-/* Runs callback with the exceptions unmasked, then returns the MXCSR it finds after it returns. */
-JNIEXPORT unsigned int mxcsr_call_unmasked(void (*callback)(void)) {
+/*
+ * Runs callback with the given control bits cleared and set, then returns the MXCSR it finds after
+ * the callback returns.
+ */
+JNIEXPORT unsigned int mxcsr_call_with(void (*callback)(void), unsigned int clear, unsigned int set) {
   unsigned int saved = _mm_getcsr();
-  _mm_setcsr(saved & ~0x0280u);
+  _mm_setcsr((saved & ~clear) | set);
   callback();
   unsigned int after = _mm_getcsr();
   _mm_setcsr(saved);
