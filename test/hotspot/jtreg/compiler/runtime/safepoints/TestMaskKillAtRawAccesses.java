@@ -54,9 +54,10 @@
 /*
  * @test id=kills
  * @bug 8365196
- * @summary With the mode, on AVX-512 with VL, BW and DQ, a raw access kills the mask registers
- *          where a mask that reaches a check is live across it, and not where the masks live across
- *          it are only predicates of vector instructions.
+ * @summary With the mode, on AVX-512 with VL, BW and DQ, a mask that is live across a raw access
+ *          and reaches a check afterwards is protected (the check reads a copy that was kept on the
+ *          stack), and no raw access kills the mask registers; where the masks live across a raw
+ *          access are only predicates of vector instructions, nothing is done.
  * @requires (os.arch == "amd64" | os.arch == "x86_64") & vm.compiler2.enabled & vm.flagless
  * @requires vm.cpu.features ~= ".*avx512vl.*" & vm.cpu.features ~= ".*avx512bw.*" & vm.cpu.features ~= ".*avx512dq.*"
  * @modules jdk.incubator.vector
@@ -269,8 +270,10 @@ public class TestMaskKillAtRawAccesses {
     }
 
     static void kills() throws Exception {
-        child("predicate").shouldContain("no-trap: 0 raw accesses of predicateKernel kill the mask registers");
-        child("check").shouldMatch("no-trap: [1-9][0-9]* raw accesses of checkKernel kill the mask registers");
+        child("predicate").shouldContain(
+            "no-trap: 0 raw accesses of predicateKernel kill the mask registers, 0 masks protected for their checks");
+        child("check").shouldMatch(
+            "no-trap: 0 raw accesses of checkKernel kill the mask registers, [1-9][0-9]* masks protected for their checks");
     }
 
     public static void main(String[] args) throws Exception {

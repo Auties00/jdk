@@ -112,18 +112,39 @@ static bool checks_masks(const Node* n) {
   return opcode != Op_StoreVectorMasked && opcode != Op_StoreVectorScatterMasked;
 }
 
+// The index of the first node of block after its head and its Phis.
+static uint first_after_phis(const Block* block) {
+  uint i = 1;
+  while (i < block->number_of_nodes() && block->get_node(i)->is_Phi()) {
+    i++;
+  }
+  return i;
+}
+
+// The inputs of n that are its debug info, as [start, end), or an empty range.
+static void debug_inputs(const Node* n, uint& start, uint& end) {
+  start = 0;
+  end = 0;
+  if (n->is_MachSafePoint() && n->jvms() != nullptr) {
+    start = n->jvms()->debug_start();
+    end = n->jvms()->debug_end();
+  }
+}
+
 // Which masks reach a check, as a backward dataflow over the places a mask can be in: before
 // register allocation each mask value is its own place, afterwards the places are the registers
 // and stack slots that hold mask values. A place reaches a check at a point of the code if on some
 // path from there its mask is read by a node that checks_masks(), or by a node that defines a mask
 // whose place reaches a check after it (the mask operations, the copies and merges of the
 // allocator and, across a block boundary, the Phis). A raw access needs the kill if a place that a
-// resumed fault can lose reaches a check right after the access.
+// resumed fault can lose reaches a check right after the access. Before register allocation every
+// mask value counts as such a place, except the copies that protect_masks() binds to the stack.
 class MaskFlow : public StackObj {
  private:
   PhaseCFG* const _cfg;
   int* _place;                         // by node index: the place the node defines, or -1
   VectorSet _masks;                    // the mask values
+  VectorSet _reaching;                 // the mask values that reach a check (see accesses_before_checks())
   GrowableArray<OptoReg::Name> _regs;  // by place, after register allocation
   GrowableArray<bool> _losable;        // by place: whether a resumed fault can lose its content
   GrowableArray<Node*> _values;        // by place, before register allocation
@@ -146,19 +167,6 @@ class MaskFlow : public StackObj {
 
   uint64_t* top(const Block* block) const {
     return _top + (size_t)block->_pre_order * _words;
-  }
-
-  bool is_mask(const Node* n) const {
-    return _masks.test(n->_idx);
-  }
-
-  // The index of the first node of block after its head and its Phis.
-  static uint first_after_phis(const Block* block) {
-    uint i = 1;
-    while (i < block->number_of_nodes() && block->get_node(i)->is_Phi()) {
-      i++;
-    }
-    return i;
   }
 
   // Sets _live to the places that reach a check at the end of block: those at the top of its
@@ -222,9 +230,8 @@ class MaskFlow : public StackObj {
       // given. (The pending InternalError is also thrown where the interpreter takes over.)
       uint debug_start = 0;
       uint debug_end = 0;
-      if (!is_mask(n) && n->is_MachSafePoint() && n->jvms() != nullptr) {
-        debug_start = n->jvms()->debug_start();
-        debug_end = n->jvms()->debug_end();
+      if (!is_mask(n)) {
+        debug_inputs(n, debug_start, debug_end);
       }
       for (uint k = 1; k < n->req(); k++) {
         const Node* in = n->in(k);
@@ -236,8 +243,19 @@ class MaskFlow : public StackObj {
   }
 
  public:
-  // ra is null before register allocation.
-  MaskFlow(Compile* C, PhaseRegAlloc* ra, const NoTrapPlatform* platform) : _cfg(C->cfg()) {
+  bool is_mask(const Node* n) const {
+    return _masks.test(n->_idx);
+  }
+
+  // After accesses_before_checks(): whether the mask value n is read for a check on some path.
+  bool reaches_check(const Node* n) const {
+    return _reaching.test(n->_idx);
+  }
+
+  // ra is null before register allocation, and stack_bound then holds the mask values that the
+  // allocator can only put on the stack.
+  MaskFlow(Compile* C, PhaseRegAlloc* ra, const NoTrapPlatform* platform, const VectorSet* stack_bound = nullptr)
+      : _cfg(C->cfg()) {
     const uint unique = C->unique();
     _place = NEW_RESOURCE_ARRAY(int, unique);
     for (uint i = 0; i < unique; i++) {
@@ -254,7 +272,7 @@ class MaskFlow : public StackObj {
         }
         _masks.set(n->_idx);
         if (ra == nullptr) {
-          _place[n->_idx] = _losable.append(true);
+          _place[n->_idx] = _losable.append(stack_bound == nullptr || !stack_bound->test(n->_idx));
           _values.append(const_cast<Node*>(n));
           continue;
         }
@@ -329,6 +347,9 @@ class MaskFlow : public StackObj {
       const uint first = first_after_phis(block);
       for (uint j = block->number_of_nodes(); j > first; j--) {
         Node* n = block->get_node(j - 1);
+        if (is_mask(n) && (_place[n->_idx] < 0 || test(_live, _place[n->_idx]))) {
+          _reaching.set(n->_idx);
+        }
         if (n->is_Mach() && Matcher::is_raw_memory_access(n->as_Mach())) {
           bool lost = false;
           for (int place = 0; place < _losable.length(); place++) {
@@ -345,75 +366,168 @@ class MaskFlow : public StackObj {
         }
         step_back(n);
       }
+      for (uint j = 1; j < first; j++) {
+        const Node* phi = block->get_node(j);
+        if (is_mask(phi) && (_place[phi->_idx] < 0 || test(_live, _place[phi->_idx]))) {
+          _reaching.set(phi->_idx);
+        }
+      }
     }
   }
 };
 
-// A mask with every lane set or clear, made from a constant, is the same wherever it is computed,
-// and is usually computed once in front of a loop and kept in a mask register across it: the
-// full-vector mask of a loop whose last iteration takes a partial one. When it reaches a check
-// (through the Phi that merges it with the partial mask, which the Vector API tests in its slow
-// path), every raw access of the loop needs the kill and the mask lives on the stack. For those of
-// masks that are such constants, this gives each use its own copy of the definition instead,
-// right before the use or at the end of the predecessor block of a Phi, so that the mask is not
-// live across a raw access. Returns the number of definitions it replaced.
-static int sink_constant_masks(Compile* C, PhaseCFG* cfg, const GrowableArray<Node*>& masks) {
-  GrowableArray<Node*> defs;
+// Whether a raw access is among the nodes of block after index from and before index to.
+static bool raw_access_between(const Block* block, uint from, uint to) {
+  for (uint i = from + 1; i < to; i++) {
+    const Node* n = block->get_node(i);
+    if (n->is_Mach() && Matcher::is_raw_memory_access(n->as_Mach())) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Whether n is a mask with every lane set or clear made from a constant, by an instruction without
+// TEMPs or kills: a copy of it can be placed anywhere.
+static bool is_constant_mask(const Node* n) {
+  if (!n->is_Mach() || n->as_Mach()->ideal_Opcode() != Op_MaskAll ||
+      n->req() != 2 || n->in(0) != nullptr || n->in(1) == nullptr || !n->in(1)->is_Con()) {
+    return false;
+  }
+  for (DUIterator_Fast kmax, k = n->fast_outs(kmax); k < kmax; k++) {
+    if (n->fast_out(k)->is_Proj()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// The masks that the raw accesses found by MaskFlow would lose (masks, which are in mask registers
+// across such an access and reach a check) usually have many readers that do not check, on the
+// hot path, and a few that do, in the slow paths: the mask of a loop iteration is the predicate of
+// its loads, stores and arithmetic, and the Vector API tests it only where an access is not wholly
+// in bounds. The kill would put the whole live range on the stack (PhaseChaitin::Split() has no
+// place at which to split it: the kill is an interference, not register pressure) and make every
+// reader reload it. Instead, this leaves the mask in its register for the readers that do not
+// check, where a zeroed mask is harmless, and gives each reader that checks a value that a fault
+// cannot have zeroed:
+// - for a constant mask (see is_constant_mask()), a copy of its definition right in front of the
+//   reader;
+// - for any other mask, a copy bound to the stack that is made right after the definition (keep),
+//   and a reload of that copy right in front of the reader. Neither is marked as a copy, so that
+//   the allocator's copy removal, which follows copies to a register that still holds the value,
+//   cannot make a reader read the register of the mask, or an earlier reload, again.
+// A reader that follows the definition in its block with no raw access in between reads the mask
+// itself. The copy for a Phi goes to the end of the predecessor block. Returns the number of masks
+// it protected; the others keep the kill.
+static int protect_masks(Compile* C, PhaseCFG* cfg, const MaskFlow& flow, const GrowableArray<Node*>& masks,
+                         VectorSet& stack_bound, const RegMask& stack) {
+  const RegMask& anywhere = *C->matcher()->idealreg2spillmask[Op_RegVectMask];
+  const RegMask& registers = *C->matcher()->idealreg2regmask[Op_RegVectMask];
+  int count = 0;
   for (int i = 0; i < masks.length(); i++) {
-    Node* n = masks.at(i);
-    if (!n->is_Mach() || n->as_Mach()->ideal_Opcode() != Op_MaskAll ||
-        n->req() != 2 || n->in(0) != nullptr || n->in(1) == nullptr || !n->in(1)->is_Con()) {
+    Node* mask = masks.at(i);
+    Block* block = cfg->get_block_for_node(mask);
+    if (block == nullptr) {
       continue;
     }
-    // Without TEMPs and projections (kills), the copies need nothing but their place.
-    bool plain = true;
-    for (DUIterator_Fast kmax, k = n->fast_outs(kmax); k < kmax && plain; k++) {
-      plain = !n->fast_out(k)->is_Proj();
+    // The last node of the definition, and where a copy of the mask can follow it.
+    const uint def_at = mask->is_Phi() ? first_after_phis(block) - 1 : block->find_node(mask);
+    uint keep_at = def_at + 1;
+    while (keep_at < block->number_of_nodes() && block->get_node(keep_at)->is_Proj() &&
+           block->get_node(keep_at)->in(0) == mask) {
+      keep_at++;
     }
-    if (plain) {
-      defs.append(n);
+    const bool constant = is_constant_mask(mask);
+    if (!constant && (keep_at >= block->number_of_nodes() || block->get_node(keep_at)->is_MachNullCheck())) {
+      continue; // nothing can follow the access of an implicit null check
     }
-  }
-  for (int i = 0; i < defs.length(); i++) {
-    Node* def = defs.at(i);
-    GrowableArray<Node*> uses;
-    for (DUIterator_Fast kmax, k = def->fast_outs(kmax); k < kmax; k++) {
-      uses.append_if_missing(def->fast_out(k));
+
+    // The readers that check, each with the input that reads the mask.
+    GrowableArray<Node*> users;
+    for (DUIterator_Fast kmax, k = mask->fast_outs(kmax); k < kmax; k++) {
+      users.append_if_missing(mask->fast_out(k));
     }
-    for (int u = 0; u < uses.length(); u++) {
-      Node* use = uses.at(u);
-      Block* use_block = cfg->get_block_for_node(use);
-      if (use_block == nullptr) {
+    GrowableArray<Node*> readers;
+    GrowableArray<uint> inputs;
+    for (int u = 0; u < users.length(); u++) {
+      Node* user = users.at(u);
+      Block* user_block = cfg->get_block_for_node(user);
+      if (user_block == nullptr) {
         continue;
       }
-      if (use->is_Phi()) {
-        for (uint k = 1; k < use->req(); k++) {
-          if (use->in(k) == def) {
-            Block* pred = cfg->get_block_for_node(use_block->pred(k));
-            Node* copy = def->clone();
-            pred->add_inst(copy);
-            cfg->map_node_to_block(copy, pred);
-            use->set_req(k, copy);
-          }
+      uint debug_start = 0;
+      uint debug_end = 0;
+      if (flow.is_mask(user)) {
+        if (!flow.reaches_check(user)) {
+          continue;
         }
       } else {
-        Node* copy = def->clone();
-        use_block->insert_node(copy, use_block->find_node(use));
-        cfg->map_node_to_block(copy, use_block);
-        for (uint k = 1; k < use->req(); k++) {
-          if (use->in(k) == def) {
-            use->set_req(k, copy);
+        if (!checks_masks(user)) {
+          continue;
+        }
+        debug_inputs(user, debug_start, debug_end);
+      }
+      for (uint k = 1; k < user->req(); k++) {
+        if (user->in(k) != mask || (k >= debug_start && k < debug_end)) {
+          continue;
+        }
+        if (user->is_Phi()) {
+          if (cfg->get_block_for_node(user_block->pred(k)) == block &&
+              !raw_access_between(block, def_at, block->number_of_nodes())) {
+            continue;
+          }
+        } else if (user_block == block) {
+          const uint user_at = block->find_node(user);
+          if (user_at > def_at && !raw_access_between(block, def_at, user_at)) {
+            continue;
           }
         }
+        readers.append(user);
+        inputs.append(k);
       }
     }
-    if (def->outcnt() == 0) {
-      cfg->get_block_for_node(def)->find_remove(def);
-      cfg->unmap_node_from_block(def);
-      def->disconnect_inputs(C);
+    if (readers.is_empty()) {
+      continue;
     }
+
+    Node* keep = nullptr;
+    if (!constant) {
+      keep = new MachSpillCopyNode(MachSpillCopyNode::RegToMem, mask, anywhere, stack);
+      keep->remove_flag(Node::Flag_is_Copy);
+      block->insert_node(keep, keep_at);
+      cfg->map_node_to_block(keep, block);
+      stack_bound.set(keep->_idx);
+    }
+    for (int r = 0; r < readers.length(); r++) {
+      Node* reader = readers.at(r);
+      const uint k = inputs.at(r);
+      Node* copy;
+      if (constant) {
+        copy = mask->clone();
+      } else {
+        copy = new MachSpillCopyNode(MachSpillCopyNode::MemToReg, keep, stack, registers);
+        copy->remove_flag(Node::Flag_is_Copy);
+      }
+      Block* reader_block = cfg->get_block_for_node(reader);
+      if (reader->is_Phi()) {
+        Block* pred = cfg->get_block_for_node(reader_block->pred(k));
+        pred->add_inst(copy);
+        cfg->map_node_to_block(copy, pred);
+      } else {
+        reader_block->insert_node(copy, reader_block->find_node(reader));
+        cfg->map_node_to_block(copy, reader_block);
+      }
+      reader->set_req(k, copy);
+    }
+    if (mask->outcnt() == 0) {
+      block->find_remove(mask);
+      cfg->unmap_node_from_block(mask);
+      mask->disconnect_inputs(C);
+    }
+    count++;
   }
-  return defs.length();
+  return count;
 }
 
 bool NoTrapSites::kill_follows_masks(const Compile* C, const NoTrapPlatform* platform) {
@@ -427,22 +541,28 @@ void NoTrapSites::kill_masks_where_checked(Compile* C, const NoTrapPlatform* pla
   }
   ResourceMark rm;
   PhaseCFG* cfg = C->cfg();
+  // The stack slots a mask can be spilled to, for the copies of protect_masks().
+  RegMask* stack = new (C->comp_arena()->Amalloc(sizeof(RegMask))) RegMask(C->comp_arena());
+  stack->assignFrom(*C->matcher()->idealreg2spillmask[Op_RegVectMask]);
+  stack->subtract(*C->matcher()->idealreg2regmask[Op_RegVectMask]);
+  VectorSet stack_bound;
   GrowableArray<MachNode*> accesses;
-  int sunk = 0;
+  int protected_masks = 0;
   for (int round = 0; ; round++) {
     accesses.clear();
     GrowableArray<Node*> masks;
-    MaskFlow flow(C, nullptr, platform);
+    MaskFlow flow(C, nullptr, platform, &stack_bound);
     flow.accesses_before_checks(accesses, &masks);
-    // A copy is not live across a raw access, so the second round should sink nothing.
-    if (round == 3) {
+    // The copies of a protected mask are read right where they are made, and a mask computed from
+    // them can itself be found, so a few rounds are enough; whatever is left keeps the kill.
+    if (round == 4) {
       break;
     }
-    const int sunk_now = sink_constant_masks(C, cfg, masks);
-    if (sunk_now == 0) {
+    const int protected_now = protect_masks(C, cfg, flow, masks, stack_bound, *stack);
+    if (protected_now == 0) {
       break;
     }
-    sunk += sunk_now;
+    protected_masks += protected_now;
   }
   const RegMask* kill = platform->raw_access_kill();
   for (int i = 0; i < accesses.length(); i++) {
@@ -456,8 +576,8 @@ void NoTrapSites::kill_masks_where_checked(Compile* C, const NoTrapPlatform* pla
       cfg->map_node_to_block(proj, block);
     }
   }
-  log_debug(jit, compilation)("no-trap: %d raw accesses of %s kill the mask registers, %d constant masks sunk to their uses",
-                              accesses.length(), method_name(C), sunk);
+  log_debug(jit, compilation)("no-trap: %d raw accesses of %s kill the mask registers, %d masks protected for their checks",
+                              accesses.length(), method_name(C), protected_masks);
 }
 
 #ifdef ASSERT
