@@ -2731,8 +2731,12 @@ class X86NoTrap : public NoTrapPlatform {
     return 0;
   }
 
-  virtual bool is_general_purpose_unit(int unit) const {
-    return unit >= 40;
+  virtual bool sets_always_live_units(const Node* n) const {
+    return false;
+  }
+
+  virtual bool ignores_always_live_units(const Node* n) const {
+    return false;
   }
 
   virtual void emit_null_test(C2_MacroAssembler* masm, OptoReg::Name reg, bool narrow, Label& is_null) const {

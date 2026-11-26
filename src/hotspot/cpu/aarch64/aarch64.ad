@@ -2482,7 +2482,37 @@ class AArch64NoTrap : public NoTrapPlatform {
     return UseSVE > 0 && C->max_vector_size() > 0 ? (uint64_t)1 << (32 + 7) : 0;
   }
 
-  virtual bool is_general_purpose_unit(int unit) const {
+  virtual bool sets_always_live_units(const Node* n) const {
+    // An uncommon trap and a Java call read no p7 of their caller: their code is the branch, a
+    // compiled callee sets p7 in its own entry, and the interpreter and the stubs on the way
+    // (resolution, adapters, the uncommon trap and deoptimization blobs, which save the registers
+    // with unpredicated instructions) use no predicate to govern an instruction. An uncommon trap
+    // does not return, and after a Java call the caller sets p7 again
+    // (aarch64_enc_java_static_call, aarch64_enc_java_dynamic_call).
+    return n->is_MachUncommonTrap() || n->is_MachCallJava();
+  }
+
+  virtual bool ignores_always_live_units(const Node* n) const {
+    if (n->is_MachSpillCopy()) {
+      // Moves of general purpose and NEON values are plain moves, loads and stores. A scalable
+      // vector moves through unpredicated instructions too, but is left out with the predicates,
+      // whose stack to stack copy goes through p7.
+      const uint ideal_reg = n->ideal_reg();
+      return ideal_reg != Op_VecA && ideal_reg != Op_RegVectMask;
+    }
+    if (n->is_Mach()) {
+      // The integer and pointer constants, as the argument of an uncommon trap.
+      switch (n->as_Mach()->ideal_Opcode()) {
+        case Op_ConI:
+        case Op_ConL:
+        case Op_ConP:
+        case Op_ConN:
+        case Op_ConNKlass:
+          return true;
+        default:
+          return false;
+      }
+    }
     return false;
   }
 

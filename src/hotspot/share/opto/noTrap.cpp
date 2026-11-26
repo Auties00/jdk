@@ -34,9 +34,24 @@
 #include "opto/type.hpp"
 
 // After register allocation only physical registers matter, so the liveness of the losable state
-// is a backward dataflow over the platform's units (at most 64, one word per block). At a trap
-// site the node's inputs (its TEMPs included) and the node itself count as live, since the fault
-// can happen in the middle of its code, and so do the units the platform keeps live everywhere.
+// is a backward dataflow over the platform's units (at most 64, one word per block).
+//
+// A loop poll that traps is resumed at the poll, so what counts at it is everything live across
+// it, its inputs (its TEMPs included) and the node itself, since the fault can happen in the middle
+// of its code.
+//
+// An implicit null check that traps is not resumed at the access: the handler continues at the null
+// successor of the block (the continuation of the implicit exception table, see
+// PhaseOutput::FillExceptionTables()), and neither the access nor the not-null successor runs. So
+// what counts at it is what is live into the null successor: a value that only the access or the
+// not-null path reads is never read after the trap. That includes the values the debug info of an
+// uncommon trap names, which are inputs of its call, and the values an exception handler of the
+// same frame reads.
+//
+// The units the platform keeps live everywhere count at both, with one exception: they do not count
+// at an implicit null check whose null successor sets them again before anything can read them,
+// which is the case of a null successor that only moves general purpose values and calls (an
+// uncommon trap, which never returns, or a call after which compiled code sets them again).
 
 // Whether n is a machine node without operands whose ideal_reg() would read the operand it does not
 // have: the MachIdealNodes other than those that define their own (spill copies, merges, the
@@ -90,13 +105,17 @@ static bool is_gpr_ideal_reg(uint ideal_reg) {
   return ideal_reg == Op_RegI || ideal_reg == Op_RegN || ideal_reg == Op_RegL || ideal_reg == Op_RegP;
 }
 
-// Checks what the unsafe access window relies on (see NoTrapPlatform): no integer, pointer or
-// narrow oop is in a losable floating point or vector register, and none is in a losable general
-// purpose register in a compilation with unsafe accesses.
+// Checks what the unsafe access window relies on (see NoTrapPlatform): in a compilation with
+// unsafe accesses, no integer, pointer or narrow oop is in a losable register, be it a floating
+// point or vector register (a spill) or a general purpose one. A compilation without unsafe
+// accesses has no such window: there these values are losable state like any other, which the trap
+// sites they are live at account for.
 static void verify_placement(Compile* C, const NoTrapPlatform* platform) {
+  if (!C->has_unsafe_access()) {
+    return;
+  }
   PhaseCFG* cfg = C->cfg();
   PhaseRegAlloc* ra = C->regalloc();
-  const bool unsafe = C->has_unsafe_access();
   for (uint i = 0; i < cfg->number_of_blocks(); i++) {
     Block* block = cfg->get_block(i);
     for (uint j = 0; j < block->number_of_nodes(); j++) {
@@ -105,17 +124,84 @@ static void verify_placement(Compile* C, const NoTrapPlatform* platform) {
         OptoReg::Name reg = ra->get_reg_first(n);
         if (OptoReg::is_reg(reg)) {
           int unit = platform->losable_unit(reg, value_ideal_reg(n));
-          if (unit >= 0 && (unsafe || !platform->is_general_purpose_unit(unit))) {
+          if (unit >= 0) {
             n->dump();
           }
-          assert(unit < 0 || (!unsafe && platform->is_general_purpose_unit(unit)),
-                 "an integer or pointer value in a register that a resumed exception can lose");
+          assert(unit < 0, "an integer or pointer value in a register that a resumed exception can lose");
         }
       }
     }
   }
 }
 #endif // ASSERT
+
+// Whether the units the platform keeps live everywhere are dead at the start of block: the code
+// from there sets them again before any of it can read them. Only straight-line code is followed,
+// and any node that is not known to leave them unread ends the search.
+static bool always_live_units_dead_into(const NoTrapPlatform* platform, const Block* block) {
+  for (int blocks = 0; blocks < 4; blocks++) {
+    for (uint j = 0; j < block->number_of_nodes(); j++) {
+      const Node* n = block->get_node(j);
+      if (n->is_Region() || n->is_Phi() || n->is_MachProj() || n->is_MachTemp() || n->is_MachGoto()) {
+        continue; // no code, or a jump
+      }
+      if (platform->sets_always_live_units(n)) {
+        return true;
+      }
+      if (!platform->ignores_always_live_units(n)) {
+        return false;
+      }
+    }
+    if (block->_num_succs != 1) {
+      return false;
+    }
+    block = block->_succs[0];
+  }
+  return false;
+}
+
+// A branch poll tests the polling word of the thread and does not read the address of the polling
+// page, which the poll took as an input for its faulting form. When that address is a load off the
+// thread in the block of the poll, with no other use, the load is removed, so that the branch poll
+// costs no more instructions than the faulting one. The poll takes the thread, the address of the
+// removed load, in its place: an input whose register holds its value at the poll as it did at the
+// load (the oop maps are built from the inputs of every node, BuildOopMaps), and which the code of
+// the branch form does not read.
+static void remove_poll_address(Compile* C, MachSafePointNode* poll) {
+  PhaseCFG* cfg = C->cfg();
+  const uint address_index = poll->oper_input_base();
+  if (poll->num_opnds() < 2 || poll->req() <= address_index) {
+    return; // no polling page operand
+  }
+  Node* address = poll->in(address_index);
+  // A single use rules out projections and an implicit null check on the load.
+  if (address == nullptr || !address->is_Mach() || address->outcnt() != 1 ||
+      address->as_Mach()->ideal_Opcode() != Op_LoadP) {
+    return;
+  }
+  Block* block = cfg->get_block_for_node(poll);
+  if (block == nullptr || cfg->get_block_for_node(address) != block) {
+    return;
+  }
+  Node* thread = nullptr;
+  for (uint k = address->as_Mach()->oper_input_base(); k < address->req(); k++) {
+    Node* in = address->in(k);
+    if (in == nullptr) {
+      continue;
+    }
+    if (thread != nullptr || !in->is_Mach() || in->as_Mach()->ideal_Opcode() != Op_ThreadLocal) {
+      return; // not a load off the thread alone
+    }
+    thread = in;
+  }
+  if (thread == nullptr) {
+    return;
+  }
+  poll->set_req(address_index, thread);
+  block->find_remove(address);
+  cfg->unmap_node_from_block(address);
+  address->disconnect_inputs(C);
+}
 
 bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
   PhaseCFG* cfg = C->cfg();
@@ -196,15 +282,24 @@ bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
         assert(across == 0, "a mask register is live across a raw access of a compilation with unsafe accesses");
       }
 #endif
-      bool poll = is_loop_poll(n);
-      bool access = null_check_accesses.test(n->_idx);
-      if (poll || access) {
+      if (is_loop_poll(n)) {
         uint64_t at_trap = always_live | live | bit(unit_of(platform, ra, n));
         for (uint k = 0; k < n->req(); k++) {
           at_trap |= bit(unit_of(platform, ra, n->in(k)));
         }
         if (at_trap != 0) {
-          (poll ? polls : accesses).append(n);
+          polls.append(n);
+        }
+      } else if (null_check_accesses.test(n->_idx)) {
+        // The null successor is succs[0] of the block of the null check, which is the block of
+        // its access (checked below).
+        const Block* null_successor = block->_succs[0];
+        uint64_t at_trap = live_in[null_successor->_pre_order];
+        if (always_live != 0 && !always_live_units_dead_into(platform, null_successor)) {
+          at_trap |= always_live;
+        }
+        if (at_trap != 0) {
+          accesses.append(n);
         }
       }
       live = step_back(live, n);
@@ -215,7 +310,9 @@ bool NoTrapSites::apply(Compile* C, const NoTrapPlatform* platform) {
   }
 
   for (int i = 0; i < polls.length(); i++) {
-    polls.at(i)->as_MachSafePoint()->set_branch_poll();
+    MachSafePointNode* poll = polls.at(i)->as_MachSafePoint();
+    poll->set_branch_poll();
+    remove_poll_address(C, poll);
   }
 
   // Emission reads the register of every node from the table: the checks have none.

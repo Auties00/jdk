@@ -89,8 +89,9 @@
 /*
  * @test id=explicit
  * @bug 8365196
- * @summary With the mode, C2 replaces the implicit null checks at which vector state is live by
- *          explicit ones, and without it it does not.
+ * @summary With the mode, C2 replaces the implicit null checks whose null path vector state is
+ *          live into by explicit ones, keeps those whose null path reads none of it, and without
+ *          the mode replaces none.
  * @requires (os.arch == "amd64" | os.arch == "x86_64") & vm.compiler2.enabled & vm.debug & vm.flagless
  * @modules jdk.incubator.vector
  * @library /test/lib /
@@ -179,6 +180,31 @@ public class TestAvoidLosableStateAtTraps {
         return sum * 31 + nulls;
     }
 
+    // A vector that C2 computes ahead of the loop is live across the implicit null check of box.v,
+    // but not into the path its trap resumes at: the uncommon trap there names what the bytecode
+    // holds, the scalar k. The check can stay implicit.
+    static long invariantKernel(long[] a, Box[] b, long k) {
+        long sum = 0;
+        for (int i = 0; i + L.length() <= a.length; i += L.length()) {
+            long x = b[(i / L.length()) & (b.length - 1)].v;
+            sum += LongVector.fromArray(L, a, i).add(LongVector.broadcast(L, k)).reduceLanes(VectorOperators.ADD) + x;
+        }
+        return sum;
+    }
+
+    static long referenceInvariantKernel(long[] a, Box[] b, long k) {
+        int len = L.length();
+        long sum = 0;
+        for (int i = 0; i + len <= a.length; i += len) {
+            long x = b[(i / len) & (b.length - 1)].v;
+            for (int j = 0; j < len; j++) {
+                sum += a[i + j] + k;
+            }
+            sum += x;
+        }
+        return sum;
+    }
+
     // Doubles in vectors live across a null check whose exception leaves the method. Every value
     // is a multiple of 1/8 well below 2^53, so the sums are exact in any order of reduction.
     static double doubleKernel(double[] a, Box box) {
@@ -258,6 +284,7 @@ public class TestAvoidLosableStateAtTraps {
             Box[] withNull = boxes.clone();
             withNull[5] = null;
             final long wantNull = referenceKernel(data, withNull);
+            final long wantInvariant = referenceInvariantKernel(data, boxes, K);
 
             long end = System.currentTimeMillis() + millis;
             for (long iteration = 0; System.currentTimeMillis() < end; iteration++) {
@@ -267,12 +294,19 @@ public class TestAvoidLosableStateAtTraps {
                 check(Double.compare(d, wantDouble) == 0, "doubleKernel", d, wantDouble);
                 long s = segmentKernel(segment, data);
                 check(s == wantSegment, "segmentKernel", s, wantSegment);
+                long v = invariantKernel(data, boxes, K);
+                check(v == wantInvariant, "invariantKernel", v, wantInvariant);
                 if (iteration % 1024 == 1023) {
                     // A rare null: the compiled null check takes its exception and the method goes on.
                     long n = kernel(data, withNull);
                     check(n == wantNull, "kernel with a null", n, wantNull);
                     try {
                         doubleKernel(doubles, null);
+                        throw new RuntimeException("no NullPointerException");
+                    } catch (NullPointerException expected) {
+                    }
+                    try {
+                        invariantKernel(data, withNull, K);
                         throw new RuntimeException("no NullPointerException");
                     } catch (NullPointerException expected) {
                     }
@@ -283,40 +317,50 @@ public class TestAvoidLosableStateAtTraps {
         }
     }
 
-    static void explicit() throws Exception {
-        String[] common = {
-            "-XX:+UnlockDiagnosticVMOptions", "-XX:-TieredCompilation", "-Xbatch",
-            "-XX:CompileCommand=compileonly,*TestAvoidLosableStateAtTraps::kernel",
-            "-XX:CompileCommand=print,*TestAvoidLosableStateAtTraps::kernel",
+    static OutputAnalyzer child(String mode, String method) throws Exception {
+        OutputAnalyzer output = ProcessTools.executeTestJava(
+            "-XX:+UnlockDiagnosticVMOptions", mode, "-XX:-TieredCompilation", "-Xbatch",
+            "-XX:CompileCommand=compileonly,*TestAvoidLosableStateAtTraps::" + method,
+            "-XX:CompileCommand=print,*TestAvoidLosableStateAtTraps::" + method,
             "--add-modules", "jdk.incubator.vector", "--enable-native-access=ALL-UNNAMED",
-            TestAvoidLosableStateAtTraps.class.getName(), "child"
-        };
-        OutputAnalyzer on = ProcessTools.executeTestJava(prepend("-XX:+AvoidLosableStateAtTraps", common));
-        on.shouldHaveExitValue(0);
-        if (L.vectorBitSize() > 128) {
-            // The accumulator then has an upper half live at the check.
-            on.shouldContain("explicit null check");
-        }
-        OutputAnalyzer off = ProcessTools.executeTestJava(prepend("-XX:-AvoidLosableStateAtTraps", common));
-        off.shouldHaveExitValue(0);
-        off.shouldNotContain("explicit null check");
+            TestAvoidLosableStateAtTraps.class.getName(), "child", method);
+        output.shouldHaveExitValue(0);
+        return output;
     }
 
-    static String[] prepend(String first, String[] rest) {
-        String[] all = new String[rest.length + 1];
-        all[0] = first;
-        System.arraycopy(rest, 0, all, 1, rest.length);
-        return all;
+    static void explicit() throws Exception {
+        final String on = "-XX:+AvoidLosableStateAtTraps";
+        final String off = "-XX:-AvoidLosableStateAtTraps";
+        final boolean wide = L.vectorBitSize() > 128;
+
+        // The accumulator has an upper half that the handler of the caught exception reads.
+        OutputAnalyzer kernelOn = child(on, "kernel");
+        if (wide) {
+            kernelOn.shouldContain("explicit null check");
+        }
+        child(off, "kernel").shouldNotContain("explicit null check");
+
+        // The broadcast has an upper half live across the check, which its null path does not read.
+        OutputAnalyzer invariantOn = child(on, "invariantKernel");
+        invariantOn.shouldContain("NullCheck");
+        invariantOn.shouldNotContain("explicit null check");
+        child(off, "invariantKernel").shouldNotContain("explicit null check");
     }
 
     public static void main(String[] args) throws Exception {
         if (args.length > 0 && args[0].equals("explicit")) {
             explicit();
-        } else if (args.length > 0 && args[0].equals("child")) {
+        } else if (args.length > 1 && args[0].equals("child") && args[1].equals("kernel")) {
             long want = referenceKernel(data, boxes);
             for (int i = 0; i < 20_000; i++) {
                 long got = kernel(data, boxes);
                 check(got == want, "kernel", got, want);
+            }
+        } else if (args.length > 1 && args[0].equals("child")) {
+            long want = referenceInvariantKernel(data, boxes, K);
+            for (int i = 0; i < 20_000; i++) {
+                long got = invariantKernel(data, boxes, K);
+                check(got == want, "invariantKernel", got, want);
             }
         } else {
             run(Long.getLong("millis", 20_000));

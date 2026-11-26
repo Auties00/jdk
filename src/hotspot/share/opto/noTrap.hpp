@@ -41,18 +41,22 @@ class RegMask;
 // that the VM resumes while such state is live:
 //
 // - C2 trap sites that resume in the same frame, loop polls and implicit null checks, get a
-//   non-trapping form wherever such state is live after register allocation (NoTrapSites): a
-//   branch to a stub that saves every register, and an explicit test of the value.
+//   non-trapping form wherever such state is live, after register allocation, at the point the trap
+//   would resume at (NoTrapSites): a loop poll, which resumes at the poll, becomes a branch to a
+//   stub that saves every register where such state is live across it; an implicit null check,
+//   which resumes at the null successor, becomes an explicit test of the value where such state is
+//   live into that successor.
 // - C2 code takes no implicit div0 (it tests the divisor) and no min_int / -1 trap.
 // - C1 code and the interpreter hold no such state.
 // - Java code always runs with the standard MXCSR, so no FP exception is resumed in it.
 // - Unsafe access faults are still resumed past the access with an InternalError pending (see
 //   SharedRuntime::handle_unsafe_access()): the writes of that window have unspecified values in
-//   any case, and nothing that steers an access is ever kept in such state while the access can be
-//   reached: integer and pointer values are not spilled there, values are not recomputed from it,
-//   and in compilations with unsafe accesses no live range uses a losable general purpose register,
-//   and no mask that can carry the result of a check is live across a raw access (the access kills
-//   the mask registers, NoTrapPlatform::raw_access_kill()).
+//   any case, and in a compilation with unsafe accesses, the only code such a fault is resumed in
+//   (nmethod::has_unsafe_access()), nothing that steers an access is ever kept in such state while
+//   the access can be reached: integer and pointer values are not spilled there, values are not
+//   recomputed from it, no live range uses a losable general purpose register, and no mask that can
+//   carry the result of a check is live across a raw access (the access kills the mask registers,
+//   NoTrapPlatform::raw_access_kill()).
 //
 // A platform that supports the mode returns an implementation from Matcher::no_trap().
 class NoTrapPlatform {
@@ -61,18 +65,24 @@ class NoTrapPlatform {
   // of ideal register class ideal_reg in register reg occupies, or -1 if the value is never lost.
   // A MachTemp passes 0 for ideal_reg: its width is unknown.
   virtual int losable_unit(OptoReg::Name reg, uint ideal_reg) const = 0;
-  // Units live everywhere in C whatever the allocation (an all-true predicate register).
+  // Units live everywhere in C whatever the allocation (an all-true predicate register), but for
+  // the two exceptions below.
   virtual uint64_t always_live_units(const Compile* C) const = 0;
-  // Whether unit is a general purpose register.
-  virtual bool is_general_purpose_unit(int unit) const = 0;
+  // Whether those units are dead before n: n runs without reading them, and the code after it, if
+  // n returns at all, sets them again before reading them (a call).
+  virtual bool sets_always_live_units(const Node* n) const = 0;
+  // Whether n, a node with code of its own, runs without reading those units.
+  virtual bool ignores_always_live_units(const Node* n) const = 0;
   // Emits a test of the value in reg, a narrow oop when narrow, and a branch to is_null when it is
   // null. Its length does not depend on the label.
   virtual void emit_null_test(C2_MacroAssembler* masm, OptoReg::Name reg, bool narrow, Label& is_null) const = 0;
   // Whether that test kills the condition codes.
   virtual bool null_test_kills_flags() const = 0;
-  // The registers an integer, pointer or narrow oop must not be spilled to, or null.
+  // The registers an integer, pointer or narrow oop must not be spilled to in a compilation with
+  // unsafe accesses, or null.
   virtual const RegMask* gpr_spill_exclusion() const = 0;
-  // Whether an input with this register mask and ideal register class may be in a losable register.
+  // Whether an input with this register mask and ideal register class may be in a losable register
+  // (a compilation with unsafe accesses recomputes no value from such an input).
   virtual bool is_losable_input(const RegMask& mask, uint ideal_reg) const = 0;
   // The registers no live range of C may use, or null: the losable general purpose registers in a
   // compilation with unsafe accesses.
@@ -88,8 +98,9 @@ class NoTrapPlatform {
 // The pass that gives C2 trap sites their non-trapping form after register allocation.
 class NoTrapSites : public AllStatic {
  public:
-  // Marks the loop polls at which losable state is live as branch polls and inserts an explicit
-  // null check before each such implicit null check access. Returns whether it changed anything;
+  // Marks the loop polls across which losable state is live as branch polls and inserts an explicit
+  // null check before each implicit null check access whose null successor losable state is live
+  // into. Returns whether it changed anything;
   // such a compilation is not scheduled after register allocation, which could move the checks.
   static bool apply(Compile* C, const NoTrapPlatform* platform);
 };
