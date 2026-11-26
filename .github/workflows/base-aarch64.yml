@@ -12,8 +12,21 @@ permissions:
   contents: read
 
 jobs:
+  prepare:
+    name: 'Prepare'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+      - name: 'Build JTReg'
+        uses: ./.github/actions/build-jtreg
+
   build-windows-aarch64:
     name: windows-aarch64
+    needs: prepare
     uses: ./.github/workflows/build-windows.yml
     with:
       platform: windows-aarch64
