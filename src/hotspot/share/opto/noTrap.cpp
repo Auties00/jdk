@@ -126,6 +126,7 @@ class MaskFlow : public StackObj {
   VectorSet _masks;                    // the mask values
   GrowableArray<OptoReg::Name> _regs;  // by place, after register allocation
   GrowableArray<bool> _losable;        // by place: whether a resumed fault can lose its content
+  GrowableArray<Node*> _values;        // by place, before register allocation
   uint _words;                         // the words of a set of places
   uint64_t* _top;                      // by block: the places that reach a check after the Phis of the block
   uint64_t* _live;
@@ -242,6 +243,7 @@ class MaskFlow : public StackObj {
         _masks.set(n->_idx);
         if (ra == nullptr) {
           _place[n->_idx] = _losable.append(true);
+          _values.append(const_cast<Node*>(n));
           continue;
         }
         const OptoReg::Name reg = n->_idx < ra->node_regs_max_index() ? ra->get_reg_first(n) : OptoReg::Bad;
@@ -303,8 +305,9 @@ class MaskFlow : public StackObj {
   }
 
   // Appends the raw accesses right after which a place that a resumed fault can lose reaches a
-  // check. The mask that an access defines itself is defined after the point of the fault.
-  void accesses_before_checks(GrowableArray<MachNode*>& accesses) {
+  // check. The mask that an access defines itself is defined after the point of the fault. Before
+  // register allocation, also appends the mask values that are such places to masks, if given.
+  void accesses_before_checks(GrowableArray<MachNode*>& accesses, GrowableArray<Node*>* masks = nullptr) {
     if (_words == 0) {
       return;
     }
@@ -316,8 +319,13 @@ class MaskFlow : public StackObj {
         Node* n = block->get_node(j - 1);
         if (n->is_Mach() && Matcher::is_raw_memory_access(n->as_Mach())) {
           bool lost = false;
-          for (int place = 0; place < _losable.length() && !lost; place++) {
-            lost = _losable.at(place) && place != _place[n->_idx] && test(_live, place);
+          for (int place = 0; place < _losable.length(); place++) {
+            if (_losable.at(place) && place != _place[n->_idx] && test(_live, place)) {
+              lost = true;
+              if (masks != nullptr && place < _values.length()) {
+                masks->append_if_missing(_values.at(place));
+              }
+            }
           }
           if (lost) {
             accesses.append(n->as_Mach());
@@ -328,6 +336,73 @@ class MaskFlow : public StackObj {
     }
   }
 };
+
+// A mask with every lane set or clear, made from a constant, is the same wherever it is computed,
+// and is usually computed once in front of a loop and kept in a mask register across it: the
+// full-vector mask of a loop whose last iteration takes a partial one. When it reaches a check
+// (through the Phi that merges it with the partial mask, which the Vector API tests in its slow
+// path), every raw access of the loop needs the kill and the mask lives on the stack. For those of
+// masks that are such constants, this gives each use its own copy of the definition instead,
+// right before the use or at the end of the predecessor block of a Phi, so that the mask is not
+// live across a raw access. Returns the number of definitions it replaced.
+static int sink_constant_masks(Compile* C, PhaseCFG* cfg, const GrowableArray<Node*>& masks) {
+  GrowableArray<Node*> defs;
+  for (int i = 0; i < masks.length(); i++) {
+    Node* n = masks.at(i);
+    if (!n->is_Mach() || n->as_Mach()->ideal_Opcode() != Op_MaskAll ||
+        n->req() != 2 || n->in(0) != nullptr || n->in(1) == nullptr || !n->in(1)->is_Con()) {
+      continue;
+    }
+    // Without TEMPs and projections (kills), the copies need nothing but their place.
+    bool plain = true;
+    for (DUIterator_Fast kmax, k = n->fast_outs(kmax); k < kmax && plain; k++) {
+      plain = !n->fast_out(k)->is_Proj();
+    }
+    if (plain) {
+      defs.append(n);
+    }
+  }
+  for (int i = 0; i < defs.length(); i++) {
+    Node* def = defs.at(i);
+    GrowableArray<Node*> uses;
+    for (DUIterator_Fast kmax, k = def->fast_outs(kmax); k < kmax; k++) {
+      uses.append_if_missing(def->fast_out(k));
+    }
+    for (int u = 0; u < uses.length(); u++) {
+      Node* use = uses.at(u);
+      Block* use_block = cfg->get_block_for_node(use);
+      if (use_block == nullptr) {
+        continue;
+      }
+      if (use->is_Phi()) {
+        for (uint k = 1; k < use->req(); k++) {
+          if (use->in(k) == def) {
+            Block* pred = cfg->get_block_for_node(use_block->pred(k));
+            Node* copy = def->clone();
+            pred->add_inst(copy);
+            cfg->map_node_to_block(copy, pred);
+            use->set_req(k, copy);
+          }
+        }
+      } else {
+        Node* copy = def->clone();
+        use_block->insert_node(copy, use_block->find_node(use));
+        cfg->map_node_to_block(copy, use_block);
+        for (uint k = 1; k < use->req(); k++) {
+          if (use->in(k) == def) {
+            use->set_req(k, copy);
+          }
+        }
+      }
+    }
+    if (def->outcnt() == 0) {
+      cfg->get_block_for_node(def)->find_remove(def);
+      cfg->unmap_node_from_block(def);
+      def->disconnect_inputs(C);
+    }
+  }
+  return defs.length();
+}
 
 bool NoTrapSites::kill_follows_masks(const Compile* C, const NoTrapPlatform* platform) {
   return C->has_unsafe_access() && platform->raw_access_kill() != nullptr &&
@@ -341,8 +416,22 @@ void NoTrapSites::kill_masks_where_checked(Compile* C, const NoTrapPlatform* pla
   ResourceMark rm;
   PhaseCFG* cfg = C->cfg();
   GrowableArray<MachNode*> accesses;
-  MaskFlow flow(C, nullptr, platform);
-  flow.accesses_before_checks(accesses);
+  int sunk = 0;
+  for (int round = 0; ; round++) {
+    accesses.clear();
+    GrowableArray<Node*> masks;
+    MaskFlow flow(C, nullptr, platform);
+    flow.accesses_before_checks(accesses, &masks);
+    // A copy is not live across a raw access, so the second round should sink nothing.
+    if (round == 3) {
+      break;
+    }
+    const int sunk_now = sink_constant_masks(C, cfg, masks);
+    if (sunk_now == 0) {
+      break;
+    }
+    sunk += sunk_now;
+  }
   const RegMask* kill = platform->raw_access_kill();
   for (int i = 0; i < accesses.length(); i++) {
     MachNode* access = accesses.at(i);
@@ -355,8 +444,8 @@ void NoTrapSites::kill_masks_where_checked(Compile* C, const NoTrapPlatform* pla
       cfg->map_node_to_block(proj, block);
     }
   }
-  log_debug(jit, compilation)("no-trap: %d raw accesses of %s kill the mask registers",
-                              accesses.length(), method_name(C));
+  log_debug(jit, compilation)("no-trap: %d raw accesses of %s kill the mask registers, %d constant masks sunk to their uses",
+                              accesses.length(), method_name(C), sunk);
 }
 
 #ifdef ASSERT
