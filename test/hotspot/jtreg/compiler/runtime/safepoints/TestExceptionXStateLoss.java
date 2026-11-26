@@ -117,7 +117,8 @@ import jdk.incubator.vector.VectorSpecies;
  * exception's context: with AvoidLosableStateAtTraps the loop's safepoint polls (taken under
  * SafepointALot) and its null check do not fault while the accumulators are live, so nothing
  * resumes from such a context. Serial and Parallel do not poll in counted loops by default, so
- * their ids turn the polls on.
+ * their ids turn the polls on. A third kernel keeps a vector live into the handler of its null
+ * check that only the compiler knows, a broadcast hoisted out of the loop.
  */
 public class TestExceptionXStateLoss {
     static final int ITERS = 200_000;
@@ -234,6 +235,28 @@ public class TestExceptionXStateLoss {
         return lost;
     }
 
+    // The sum reads a vector that no bytecode state names: the broadcast, which C2 computes once
+    // ahead of the loop. It is live into the handler of the null check all the same, through the
+    // loop that goes on after the handler, so the check must not trap: lane 3 is in the upper half
+    // that a resumed exception loses, and -0.0 + 0.0 is 0.0.
+    static long kernelHoisted(double neg, Holder[] holders, double[] negs) {
+        ExceptionXState.fillBelowStack();
+        int hmask = holders.length - 1;
+        int count = 0;
+        long changed = 0;
+        for (int i = 0; i < ITERS; i++) {
+            try {
+                count += holders[i & hmask].x;
+            } catch (NullPointerException e) {
+                count--;
+            }
+            DoubleVector r = DoubleVector.fromArray(S256, negs, 0).add(DoubleVector.broadcast(S256, neg));
+            changed |= r.reinterpretAsLongs().lane(3) ^ Long.MIN_VALUE;
+        }
+        sink = count;
+        return changed == 0 ? 0 : 1;
+    }
+
     public static void main(String[] args) throws Exception {
         ExceptionXState.Probe probe = ExceptionXState.probe();
         System.out.println("Native probe: " + probe);
@@ -248,6 +271,7 @@ public class TestExceptionXStateLoss {
         }
         Holder[] withNull = holders.clone();
         withNull[withNull.length / 2] = null;
+        double[] negs = { -0.0, -0.0, -0.0, -0.0 };
 
         Thread gc = new Thread(() -> {
             while (!stop) {
@@ -269,19 +293,23 @@ public class TestExceptionXStateLoss {
         long end = System.nanoTime() + SECONDS * 1_000_000_000L;
         long calls = 0;
         long wrong = 0;
+        long hoisted = 0;
         while (System.nanoTime() < end) {
             Holder[] h = (calls % NULL_PERIOD == NULL_PERIOD - 1) ? withNull : holders;
             long lost = kernel256(-0.0, refs, h);
             if (has512) {
                 lost += kernel512(-0.0, refs, h);
             }
+            long hoistedLost = kernelHoisted(-0.0, h, negs);
+            hoisted += hoistedLost;
+            lost += hoistedLost;
             calls++;
             if (lost != 0 && wrong++ < 5) {
                 System.out.println("call " + calls + ": " + lost + " vector lanes lost");
             }
         }
         stop = true;
-        System.out.println("calls=" + calls + " wrong=" + wrong);
+        System.out.println("calls=" + calls + " wrong=" + wrong + " hoisted=" + hoisted);
         if (wrong != 0) {
             throw new RuntimeException(wrong + " of " + calls + " calls lost vector state across a trap");
         }
