@@ -233,8 +233,10 @@ class MaskFlow : public StackObj {
       if (!is_mask(n)) {
         debug_inputs(n, debug_start, debug_end);
       }
-      for (uint k = 1; k < n->req(); k++) {
-        const Node* in = n->in(k);
+      // A mask that is a projection is computed from the inputs of the node it projects.
+      const Node* reader = n->is_Proj() && n->in(0) != nullptr ? n->in(0) : n;
+      for (uint k = 1; k < reader->req(); k++) {
+        const Node* in = reader->in(k);
         if (in != nullptr && (k < debug_start || k >= debug_end) && is_mask(in) && _place[in->_idx] >= 0) {
           add(_live, _place[in->_idx]);
         }
