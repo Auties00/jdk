@@ -47,14 +47,18 @@ bool IntelJccErratum::is_jcc_erratum_branch(const MachNode* node) {
   if (node->is_MachCall() && !node->is_MachCallJava()) {
     return true;
   }
-  // The non-trapping forms of AvoidLosableStateAtTraps end in a conditional branch: the explicit
-  // null check (a test of a register, which fuses with the branch) and the branch poll (a test of
-  // the polling word).
-  if (node->is_MachExplicitNullCheck() ||
-      (node->is_MachSafePoint() && node->as_MachSafePoint()->is_branch_poll())) {
+  if (is_test_and_branch(node)) {
     return true;
   }
   return node->is_MachBranch();
+}
+
+// The non-trapping forms of AvoidLosableStateAtTraps are a test and a conditional branch in one
+// node: the explicit null check (a test of a register, which fuses with the branch) and the branch
+// poll (a test of the polling word).
+bool IntelJccErratum::is_test_and_branch(const MachNode* node) {
+  return node->is_MachExplicitNullCheck() ||
+         (node->is_MachSafePoint() && node->as_MachSafePoint()->is_branch_poll());
 }
 
 int IntelJccErratum::jcc_erratum_taint_node(MachNode* node, PhaseRegAlloc* regalloc) {
@@ -79,7 +83,7 @@ int IntelJccErratum::tag_affected_machnodes(Compile* C, PhaseCFG* cfg, PhaseRegA
         // Found a root jcc erratum branch, flag it as problematic
         nop_size += jcc_erratum_taint_node(m, regalloc);
 
-        if (!m->is_MachReturn() && !m->is_MachCall() && !m->is_MachExplicitNullCheck()) {
+        if (!m->is_MachReturn() && !m->is_MachCall() && !is_test_and_branch(m)) {
           // We might fuse a problematic jcc erratum branch with a preceding
           // ALU instruction - we must catch such problematic macro fusions
           // and flag the ALU instruction as problematic too.
@@ -102,7 +106,8 @@ int IntelJccErratum::tag_affected_machnodes(Compile* C, PhaseCFG* cfg, PhaseRegA
 
 int IntelJccErratum::compute_padding(uintptr_t current_offset, const MachNode* mach, Block* block, uint index_in_block, PhaseRegAlloc* regalloc) {
   int jcc_size = mach->size(regalloc);
-  if (index_in_block < block->number_of_nodes() - 1) {
+  // A node that holds its own branch does not fuse with the node after it.
+  if (!is_test_and_branch(mach) && index_in_block < block->number_of_nodes() - 1) {
     Node* next = block->get_node(index_in_block + 1);
     if (next->is_Mach() && (next->as_Mach()->flags() & Node::PD::Flag_intel_jcc_erratum)) {
       jcc_size += next->size(regalloc);
