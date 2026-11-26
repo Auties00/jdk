@@ -1,0 +1,66 @@
+name: 'JDK-8365196 kmask diag'
+
+# Review-only. PrintOptoAssembly of the review9 kernels with AvoidLosableStateAtTraps off (F) and forced on (T),
+# with the linux-x64 fastdebug bundle of a run that built them.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-kmask-*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  BUNDLE_RUN: 45856843905
+
+jobs:
+  diag:
+    name: diag (linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review9
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64-debug
+          path: b-debug
+          run-id: ${{ env.BUNDLE_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'PrintOptoAssembly, mode off (F) and forced on (T)'
+        run: |
+          set +e
+          mkdir -p out jdk
+          ls -la b-debug
+          tar -xzf "$(ls b-debug/jdk-linux-x64*.tar.gz | grep -v symbols | head -1)" -C jdk
+          J=$(dirname "$(find jdk -name java -path '*/bin/*' -type f | head -1)")
+          grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //' | tee out/cpu.txt
+          "$J/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|AvoidLosableStateAtTraps) ' | tee out/flags.txt
+          m2=https://repo1.maven.org/maven2
+          for a in org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar; do
+            curl -sfL -o "lib-$(basename $a)" "$m2/$a" || echo "download failed: $a"
+          done
+          cp="lib-jmh-core-1.37.jar:lib-jopt-simple-5.0.4.jar:lib-commons-math3-3.6.1.jar"
+          "$J/javac" --add-modules jdk.incubator.vector -proc:full -cp "$cp:lib-jmh-generator-annprocess-1.37.jar" -d jmhc src/review9/*.java 2>&1 | grep -v -i warning | tail -5
+          for avx in 3 2; do
+            for c in F T; do
+              f=-XX:-AvoidLosableStateAtTraps; [ $c = T ] && f=-XX:+AvoidLosableStateAtTraps
+              "$J/java" -cp "jmhc:$cp" org.openjdk.jmh.Main \
+                -jvmArgsAppend "--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow -XX:+UnlockDiagnosticVMOptions $f -XX:UseAVX=$avx -XX:-TieredCompilation -XX:CompileCommand=PrintOptoAssembly,review9.*::*" \
+                -f 1 -wi 5 -i 1 -w 1 -r 1 "review9" > "out/opto-avx$avx-$c.log" 2>&1
+              grep -c 'Compile' "out/opto-avx$avx-$c.log"
+              tail -12 "out/opto-avx$avx-$c.log"
+            done
+          done
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: kdiag-linux
+          path: out
+          retention-days: 30
