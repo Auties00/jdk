@@ -250,7 +250,7 @@ public class TestExceptionXStateLoss {
             } catch (NullPointerException e) {
                 count--;
             }
-            DoubleVector r = DoubleVector.fromArray(S256, negs, 0).add(DoubleVector.broadcast(S256, neg));
+            DoubleVector r = DoubleVector.fromArray(S256, negs, i & 3).add(DoubleVector.broadcast(S256, neg));
             changed |= r.reinterpretAsLongs().lane(3) ^ Long.MIN_VALUE;
         }
         sink = count;
@@ -271,7 +271,7 @@ public class TestExceptionXStateLoss {
         }
         Holder[] withNull = holders.clone();
         withNull[withNull.length / 2] = null;
-        double[] negs = { -0.0, -0.0, -0.0, -0.0 };
+        double[] negs = { -0.0, -0.0, -0.0, -0.0, -0.0, -0.0, -0.0, -0.0 };
 
         Thread gc = new Thread(() -> {
             while (!stop) {
