@@ -549,8 +549,10 @@ Tests: TestAvoidLosableStateAtTraps, id explicit, checks both directions on x64 
 accumulator, gets explicit checks; `invariantKernel`, with a hoisted broadcast live across the check and an uncommon
 trap on the null path, keeps its implicit check; the round 11 build made that one explicit); the stress ids run
 `invariantKernel` with a null that takes the trap; TestExceptionXStateLoss on a kernel that loses state has eight
-accumulators live into the handler of its null check and fails if that check traps. The debug check of NoTrapSites
-still asserts that a null check is explicit exactly where the rule says so.
+accumulators live into the handler of its null check and fails if that check traps, and its `kernelHoisted` keeps
+live into the handler a vector that no bytecode state names (a broadcast hoisted out of the loop, read again by the
+iterations after the handler), which a rule that looked at the debug info alone would miss. The debug check of
+NoTrapSites still asserts that a null check is explicit exactly where the rule says so.
 
 ### AArch64: p7 does not count where the null successor sets it again first
 
