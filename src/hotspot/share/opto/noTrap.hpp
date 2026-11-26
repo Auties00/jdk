@@ -103,6 +103,18 @@ class NoTrapSites : public AllStatic {
   // into. Returns whether it changed anything;
   // such a compilation is not scheduled after register allocation, which could move the checks.
   static bool apply(Compile* C, const NoTrapPlatform* platform);
+
+#ifndef PRODUCT
+ private:
+  // The trap sites of every compilation, and those that got their non-trapping form.
+  static volatile int _null_checks;
+  static volatile int _explicit_null_checks;
+  static volatile int _loop_polls;
+  static volatile int _branch_polls;
+
+ public:
+  static void print_statistics();
+#endif
 };
 
 #endif // SHARE_OPTO_NOTRAP_HPP
