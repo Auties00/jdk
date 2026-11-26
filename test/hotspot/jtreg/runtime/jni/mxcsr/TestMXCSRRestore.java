@@ -90,10 +90,15 @@ public class TestMXCSRRestore {
                         : LINKER.downcallHandle(symbol, descriptor);
     }
 
-    static void upcall() throws Throwable {
+    // An upcall target may not declare checked exceptions.
+    static void upcall() {
         // Java code entered from native code with the exceptions unmasked: the MXCSR it runs with
         // is the one the next native call starts with.
-        seenInUpcall = (int)CURRENT_CRITICAL.invokeExact();
+        try {
+            seenInUpcall = (int)CURRENT_CRITICAL.invokeExact();
+        } catch (Throwable t) {
+            throw new AssertionError(t);
+        }
     }
 
     static void expectStandard(String where, int mxcsr) {
