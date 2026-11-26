@@ -637,11 +637,13 @@ bool MachNode::rematerialize() const {
 
   // Don't recompute a value from an input that a resumed exception can lose (see
   // AvoidLosableStateAtTraps): after an unsafe access fault is resumed, the copy would differ from
-  // the value a bounds check tested.
-  if (!has_losable_input()) {
-    return true;
+  // the value a bounds check tested. Only a compilation with unsafe accesses has such a fault: in
+  // any other, no exception is resumed while the input is live, wherever its live range is
+  // stretched to (NoTrapSites looks at the allocation it gets).
+  if (Compile::current()->has_unsafe_access() && has_losable_input()) {
+    return false;
   }
-  return false;
+  return true;
 }
 
 bool MachNode::has_losable_input() const {

@@ -725,10 +725,12 @@ void Matcher::init_first_stack_mask() {
 #endif
     // An integer, pointer or narrow oop spilled to a register that a resumed exception can lose
     // could come back as zero after an unsafe access fault is resumed, and steer a later access
-    // (see AvoidLosableStateAtTraps): such values spill to the floating point registers every
-    // exception context keeps.
+    // (see AvoidLosableStateAtTraps): in a compilation with unsafe accesses such values spill to
+    // the floating point registers every exception context keeps. In any other compilation no
+    // exception is resumed while such a spill is live: it counts as losable state at the trap
+    // sites (NoTrapSites).
     const NoTrapPlatform* no_trap = Matcher::no_trap();
-    const RegMask* exclusion = no_trap != nullptr ? no_trap->gpr_spill_exclusion() : nullptr;
+    const RegMask* exclusion = no_trap != nullptr && C->has_unsafe_access() ? no_trap->gpr_spill_exclusion() : nullptr;
     if (exclusion != nullptr) {
       idealreg2spillmask[Op_RegI]->subtract_inner(*exclusion);
       idealreg2spillmask[Op_RegN]->subtract_inner(*exclusion);
