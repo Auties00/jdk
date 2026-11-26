@@ -1,0 +1,23 @@
+name: 'JDK-8365196 base windows-aarch64'
+
+# Review-only. Builds the unpatched base (2b376fb353c) for windows-aarch64, the failing side of the
+# Arm64 reproducer of AvoidLosableStateAtTraps.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-base*'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-aarch64:
+    name: windows-aarch64
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      platform: windows-aarch64
+      runs-on: windows-11-arm
+      architecture: 'ARM64'
+      msvc-toolset-version: '14.51'
+      debug-levels: '[ "release" ]'
