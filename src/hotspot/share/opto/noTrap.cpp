@@ -103,7 +103,7 @@ static bool is_vector_ideal_reg(uint ideal_reg) {
 // counts as a reader that decides.
 static bool checks_masks(const Node* n) {
   if (!n->is_Mach() || n->is_MachReturn()) {
-    return true; // calls and safepoints with their debug info, returns
+    return true; // the arguments of calls, returns (for the debug info see MaskFlow::step_back())
   }
   const int opcode = n->as_Mach()->ideal_Opcode();
   if (is_vector_ideal_reg(value_ideal_reg(n))) {
@@ -214,9 +214,21 @@ class MaskFlow : public StackObj {
       remove(_live, place);
     }
     if (reads_for_a_check) {
+      // The debug info of a safepoint or call is no check. A mask it describes is read only if the
+      // frame is deoptimized there, which makes it a heap object that every later reader sees
+      // alike, and what runs after a deoptimization checks its own accesses: the interpreter, C1
+      // code and the Java code of the Vector API by the bounds checks of the language, and other
+      // compiled code by the checks it carries for its intrinsic accesses, on the objects it is
+      // given. (The pending InternalError is also thrown where the interpreter takes over.)
+      uint debug_start = 0;
+      uint debug_end = 0;
+      if (!is_mask(n) && n->is_MachSafePoint() && n->jvms() != nullptr) {
+        debug_start = n->jvms()->debug_start();
+        debug_end = n->jvms()->debug_end();
+      }
       for (uint k = 1; k < n->req(); k++) {
         const Node* in = n->in(k);
-        if (in != nullptr && is_mask(in) && _place[in->_idx] >= 0) {
+        if (in != nullptr && (k < debug_start || k >= debug_end) && is_mask(in) && _place[in->_idx] >= 0) {
           add(_live, _place[in->_idx]);
         }
       }
