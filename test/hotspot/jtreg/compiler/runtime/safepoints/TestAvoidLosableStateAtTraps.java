@@ -58,7 +58,8 @@
  * @test id=fpu-spilling
  * @bug 8365196
  * @summary The same with UseFPUForSpilling, whose spills of integers and pointers the mode keeps
- *          out of xmm16-31.
+ *          out of xmm16-31 in compilations with unsafe accesses, and counts as losable state at
+ *          the trap sites of the others.
  * @requires (os.arch == "amd64" | os.arch == "x86_64" | os.arch == "aarch64") & vm.compiler2.enabled & vm.debug
  * @modules jdk.incubator.vector
  * @library /test/lib /
