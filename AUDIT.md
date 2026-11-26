@@ -513,3 +513,116 @@ ForceExceptionXStateProtection and ExceptionXStateMitigation with the develop an
 jtreg tests. AvoidLosableStateAtTraps is the only mechanism; -XX:-AvoidLosableStateAtTraps gives compiled code with
 no protection at all (the A/B of the repro). TestExceptionXStateScrub, which plants the stale header and keeps vector
 state live across polls and a faulting null check, stays as TestExceptionXStateLoss, the regression test of the mode.
+
+## Cost of the compiled-code shapes: what each site needs (branch JDK-8365196-cost-checks)
+
+The trap sites were already chosen per site after register allocation. These changes narrow each rule to what
+the resumed code can read, and remove instructions the non-trapping forms did not need. For each, the argument
+that the invariant still holds.
+
+### An implicit null check counts what is live into its null successor
+
+Before: an implicit null check became explicit when losable state was live across the access, was an input or TEMP
+of the access, or was the access's own result. Now: when losable state is live into the null successor of its
+block (opto/noTrap.cpp, NoTrapSites::apply()).
+
+Argument. A fault at the access is not resumed at the access. `continuation_for_implicit_exception()` returns the
+continuation of the nmethod's implicit exception table, which PhaseOutput::FillExceptionTables() sets to the label
+of `non_connector_successor(0)` of the null check's block; the handler puts that pc in the context and returns
+`EXCEPTION_CONTINUE_EXECUTION`. So after the fault the thread runs the null successor and whatever follows it, and
+neither the rest of the access nor the not-null successor from that point. A register the context lost is observed
+only if code reachable from the null successor reads it before writing it, which is the definition of live into
+that block. The liveness is the same backward dataflow as before, over every block and every input of every node,
+so it includes:
+
+- the debug info of an uncommon trap on the null path: its values are inputs of the call (of the MachUncommonTrap
+  node on AArch64), the fields of scalarized vector boxes included;
+- an exception handler of the same frame, and any code after it, loops included: they are successors;
+- Phi inputs, all of them (the dataflow does not tell the predecessors apart, which only adds).
+
+What it leaves out is a value read only by the access itself or on the not-null path: the access's inputs and TEMPs
+(the faulting instruction is abandoned; an access that is several instructions, a late barrier load, faults on its
+first, the load), the access's result (not defined on the null path), and values computed ahead for the not-null
+path, such as a broadcast or another vector that C2 hoisted out of a loop and that no bytecode state names.
+
+Tests: TestAvoidLosableStateAtTraps, id explicit, checks both directions on x64 (`kernel`, whose handler reads the
+accumulator, gets explicit checks; `invariantKernel`, with a hoisted broadcast live across the check and an uncommon
+trap on the null path, keeps its implicit check; the round 11 build made that one explicit); the stress ids run
+`invariantKernel` with a null that takes the trap; TestExceptionXStateLoss on a kernel that loses state has eight
+accumulators live into the handler of its null check and fails if that check traps. The debug check of NoTrapSites
+still asserts that a null check is explicit exactly where the rule says so.
+
+### AArch64: p7 does not count where the null successor sets it again first
+
+Before: with SVE, p7 counted as live everywhere in a compilation with vectors, so every implicit null check of
+such a compilation became explicit. Now p7 does not count at a null check whose null successor, followed through
+straight-line code only, reaches an uncommon trap or a Java call through nothing but moves of general purpose or
+NEON values, integer and pointer constants, Phis, projections and jumps (NoTrapPlatform::sets_always_live_units(),
+ignores_always_live_units(); opto/noTrap.cpp, always_live_units_dead_into()). Any other node, or a block with two
+successors, keeps p7 live. Loop polls are unchanged: p7 counts at every one.
+
+Argument. p7 matters only as the governing predicate of an SVE instruction. After the fault the code that runs is
+the listed nodes and then the trap or the call:
+
+- the moves and constants are `mov`, `ldr`, `str`, `fmov` and NEON moves (MachSpillCopyNode::implementation(),
+  cpu/aarch64/aarch64.ad); moves of scalable vectors and of predicates are not in the list (the stack to stack copy
+  of a predicate goes through p7);
+- an uncommon trap is a `bl` to the uncommon trap blob, which saves the registers with unpredicated `str` of Z and
+  P (MacroAssembler::push_CPU_state()) and does not return;
+- a Java call is the branch; a compiled callee sets p7 in its own entry (MacroAssembler::verified_entry()), the
+  interpreter and the resolution and adapter stubs govern nothing with a predicate, and when the call returns the
+  caller sets p7 again (aarch64_enc_java_static_call, aarch64_enc_java_dynamic_call).
+
+So nothing reads the lost p7. The Z registers above 128 bits and the other predicates are ordinary units of the
+dataflow and still count when live into the null successor.
+
+### The unsafe window rules apply in compilations with unsafe accesses
+
+Before: integer and pointer spills were kept out of xmm16-31, and no value was rematerialized from a losable input,
+in every compilation. Now both apply only when `C->has_unsafe_access()` (opto/matcher.cpp,
+init_first_stack_mask(); MachNode::rematerialize()), as the APX exclusion and the mask kill already did.
+
+Argument. Both rules exist for one window: an unsafe access fault resumed past the access, which the handler does
+only for an nmethod with `has_unsafe_access()` (os/windows/os_windows.cpp, EXCEPTION_IN_PAGE_ERROR), a flag copied
+from the compilation and set while parsing, before matching. In a compilation without it no exception is resumed
+while losable state is live: its only resumed traps are loop polls and null checks, and NoTrapSites decides those
+from the final allocation, where a spilled integer in xmm16-31, or an input whose live range a rematerialization
+stretched, is losable state like any other and gives the site its non-trapping form. Oops in such a spill at a
+poll are found as they are without the mode (the handler blob saves every register and the oop map names it). The
+debug checks moved with the rules: verify_placement() and the assert of split_Rematerialize() test compilations
+with unsafe accesses.
+
+### A branch poll does not load the polling page address
+
+Before: the branch poll kept the load of the thread's polling page address, the input of the faulting form, as a
+dead instruction. Now NoTrapSites removes that load when it is a load off the thread alone, in the block of the
+poll, and the poll is its only use (remove_poll_address()). The branch poll is then a test of the polling word and
+a branch, two instructions as the faulting poll was.
+
+Argument. The branch form reads only `JavaThread::_polling_word`. The load has no other use (checked: one out,
+which also rules out a null check on it and projections), no side effect and cannot fault (its base is the thread).
+The poll takes the thread, the removed load's own input, in place of the load: BuildOopMaps computes the liveness
+of the registers from the inputs of the nodes in the blocks, so an edge to a node that is in no block would mark a
+register live with no definition that reaches it. The thread's register is read at the poll as it was read at the
+load, a few nodes earlier in the same block, and the code of the branch form does not read the operand. A load
+that the allocator split from the poll (a spill copy in between), a load in another block, or one with an index or
+a second use, stays.
+
+### The non-trapping forms take part in the Intel JCC erratum mitigation
+
+The explicit null check and the branch poll are conditional branches that C2's mitigation did not know: on the
+affected processors they could cross a 32 byte boundary, which C2 avoids for every other branch. They are now
+tagged and padded like the others (cpu/x86/c2_intelJccErratum_x86.cpp). No effect on the invariant.
+
+### What was looked at and found to be no cost of the shapes
+
+- The megamorphic kernel (review2, +4.6% on AVX-512): its compiled code has no vector, no losable state and no
+  trap site that the mode changes, and the normal compilation is the same, instruction for instruction, with the
+  mode on and off (PrintOptoAssembly of the round 11 fastdebug build). The kernel's time is multimodal from fork to
+  fork in every configuration: its OSR and JMH stub compilations differ between two runs of one configuration as
+  much as between configurations.
+- UseFPUForSpilling is off by default on every EVEX processor (AMD from family 0x19 on, Intel with AVX2 or later),
+  so the spill rule changes nothing by default.
+- The explicit null check that remains is `test reg, reg` and `jz`, one fused instruction of 8 or 9 bytes, at the
+  sites whose null path reads losable state. No form without it exists: the null path needs the registers the trap
+  would lose.
