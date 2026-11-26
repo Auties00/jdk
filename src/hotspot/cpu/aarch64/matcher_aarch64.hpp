@@ -211,9 +211,6 @@
     return false;
   }
 
-  // No trap scrub is needed (see TrapScrubPlatform).
-  static const TrapScrubPlatform* trap_scrub() { return nullptr; }
-
   // With AvoidLosableStateAtTraps, the trap sites of SVE state (see NoTrapPlatform), else null.
   static const NoTrapPlatform* no_trap();
 

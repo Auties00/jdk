@@ -775,31 +775,6 @@ public:
 
   void safepoint_poll(Label& slow_path, bool at_return, bool in_nmethod);
 
-  // Clears, below a 16-byte aligned stack pointer, the stack location where Windows would read
-  // a stale XSAVE header if the next instruction raised an exception (see
-  // VM_Version::exception_resume_loses_xstate()). The header is at (sp - length) & -64, so
-  // for each of the four values of sp modulo 64 one quadword store clears its XCOMP_BV, which
-  // then no longer passes for a compacted header. Needs no register, keeps the flags.
-  // sp_offset: the stores are placed for the stack pointer rsp + sp_offset (for code that runs
-  // with a return address or other words pushed). check_alignment: in debug builds, stops the VM
-  // when rsp + sp_offset is not 16-byte aligned; false only where the alignment holds by
-  // construction and stop() cannot be used yet (code generated before the AOT code cache is set up).
-  void scrub_exception_xstate_header(int length = VM_Version::exception_xstate_scrub_length(), int sp_offset = 0,
-                                     bool check_alignment = true);
-  // The scrub where it is in use (see VM_Version::exception_xstate_scrub_length()), else nothing:
-  // for the slow paths that call out and then continue in a compiled frame.
-  void scrub_exception_xstate_header_if_enabled(int sp_offset = 0);
-  // Testing (PlantExceptionXStateHeader): leaves a value that passes for a stale compacted header
-  // naming no component at each place scrub_exception_xstate_header() clears, so that a scrub
-  // missing after this point stops VerifyExceptionXStateScrub. Keeps all registers and the flags.
-  void plant_exception_xstate_header_if_enabled(int sp_offset = 0);
-  // The same with one store, where tmp and the condition codes are free.
-  void scrub_exception_xstate_header(Register tmp, int length = VM_Version::exception_xstate_scrub_length());
-  // VerifyExceptionXStateScrub: stops the VM if the stale header position for an exception at
-  // this instruction holds a compacted XSAVE header that leaves out a component that can be lost.
-  // Keeps every register and the flags; writes three words below the stack pointer.
-  void verify_exception_xstate_header(int length = VM_Version::exception_xstate_scrub_length());
-
   void verify_tlab();
 
   static Condition negate_condition(Condition cond);

@@ -794,13 +794,6 @@ const int ObjectAlignmentInBytes = 8;
           "standard MXCSR. No effect on platforms other than x64 and "      \
           "AArch64")                                                        \
                                                                             \
-  product(bool, ExceptionXStateMitigation, true, DIAGNOSTIC,                \
-          "With AvoidLosableStateAtTraps off, protect compiled code on "    \
-          "Windows kernels that can lose vector state when resuming from "  \
-          "an exception by the older means: the stale-header scrub or a "   \
-          "cap on the vector size on x64, no SVE on AArch64. Off: no "      \
-          "protection at all, to compare against")                         \
-                                                                            \
   product(bool, CheckJNICalls, false,                                       \
           "Verify all arguments to JNI calls")                              \
                                                                             \

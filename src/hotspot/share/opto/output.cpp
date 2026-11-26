@@ -50,7 +50,6 @@
 #include "opto/optoreg.hpp"
 #include "opto/output.hpp"
 #include "opto/regalloc.hpp"
-#include "opto/trapScrub.hpp"
 #include "opto/type.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "utilities/macros.hpp"
@@ -226,9 +225,7 @@ PhaseOutput::PhaseOutput()
     _node_bundling_base(nullptr),
     _orig_pc_slot_offset_in_bytes(0),
     _java_callees(nullptr),
-    _has_trap_scrubs(false),
     _has_no_trap_sites(false),
-    DEBUG_ONLY(_trap_scrub_hot_traps(nullptr) COMMA)
     _buf_sizes(),
     _block(nullptr),
     _index(0) {
@@ -332,15 +329,6 @@ void PhaseOutput::Output() {
     if (C->failing()) return;
   }
 
-  const TrapScrubPlatform* trap_scrub = Matcher::trap_scrub();
-  if (trap_scrub != nullptr) {
-#ifdef ASSERT
-    _trap_scrub_hot_traps = new (C->comp_arena()) GrowableArray<Node*>(C->comp_arena(), 8, 0, nullptr);
-#endif
-    _has_trap_scrubs = TrapScrubs::insert(C, trap_scrub, DEBUG_ONLY(_trap_scrub_hot_traps) NOT_DEBUG(nullptr));
-    if (C->failing()) return;
-  }
-
   // Keeper of sizing aspects
   _buf_sizes = BufferSizingData();
 
@@ -380,16 +368,11 @@ void PhaseOutput::Output() {
     }
   }
 
-  // The trap scrubs and the explicit null checks have no dependences that would keep them in place,
-  // so a compilation that placed them is not scheduled.
-  if (!_has_trap_scrubs && !_has_no_trap_sites) {
+  // The explicit null checks have no dependences that would keep them in place, so a compilation
+  // that placed them is not scheduled.
+  if (!_has_no_trap_sites) {
     ScheduleAndBundle();
   }
-#ifdef ASSERT
-  if (_trap_scrub_hot_traps != nullptr) {
-    TrapScrubs::verify(C, Matcher::trap_scrub(), _trap_scrub_hot_traps);
-  }
-#endif
   if (C->failing()) {
     return;
   }

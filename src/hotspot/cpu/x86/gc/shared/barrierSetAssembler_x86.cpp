@@ -37,8 +37,6 @@
 #include "runtime/stubRoutines.hpp"
 #ifdef COMPILER2
 #include "gc/shared/c2/barrierSetC2.hpp"
-#include "opto/compile.hpp"
-#include "opto/output.hpp"
 #endif // COMPILER2
 
 #define __ masm->
@@ -660,15 +658,6 @@ SaveLiveRegisters::~SaveLiveRegisters() {
   // Free stack space
   if (_spill_size > 0) {
     __ addptr(rsp, _spill_size);
-  }
-
-  // The spill area and the runtime call may have left a value that passes for an XSAVE header
-  // where the next exception of the compiled frame would find it (see
-  // MacroAssembler::scrub_exception_xstate_header()). Only a compilation with a trap site that
-  // needs the place clear needs it.
-  __ plant_exception_xstate_header_if_enabled();
-  if (Compile::current()->output()->has_trap_scrubs()) {
-    __ scrub_exception_xstate_header_if_enabled();
   }
 }
 

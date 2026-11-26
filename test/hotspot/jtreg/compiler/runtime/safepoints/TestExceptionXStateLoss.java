@@ -36,7 +36,7 @@
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
  *      -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1
  *      -Xlog:os+cpu=info --add-modules jdk.incubator.vector
- *      compiler.runtime.safepoints.TestExceptionXStateScrub
+ *      compiler.runtime.safepoints.TestExceptionXStateLoss
  */
 
 /*
@@ -52,7 +52,7 @@
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
  *      -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1
  *      -Xlog:os+cpu=info --add-modules jdk.incubator.vector
- *      compiler.runtime.safepoints.TestExceptionXStateScrub
+ *      compiler.runtime.safepoints.TestExceptionXStateLoss
  */
 
 /*
@@ -68,7 +68,7 @@
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
  *      -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1
  *      -Xlog:os+cpu=info --add-modules jdk.incubator.vector
- *      compiler.runtime.safepoints.TestExceptionXStateScrub
+ *      compiler.runtime.safepoints.TestExceptionXStateLoss
  */
 
 /*
@@ -84,7 +84,7 @@
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
  *      -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1
  *      -Xlog:os+cpu=info --add-modules jdk.incubator.vector
- *      compiler.runtime.safepoints.TestExceptionXStateScrub
+ *      compiler.runtime.safepoints.TestExceptionXStateLoss
  */
 
 /*
@@ -100,7 +100,7 @@
  *      -XX:PerMethodTrapLimit=100000 -XX:PerBytecodeTrapLimit=100000
  *      -XX:PerMethodRecompilationCutoff=-1 -XX:PerBytecodeRecompilationCutoff=-1
  *      -Xlog:os+cpu=info --add-modules jdk.incubator.vector
- *      compiler.runtime.safepoints.TestExceptionXStateScrub
+ *      compiler.runtime.safepoints.TestExceptionXStateLoss
  */
 
 package compiler.runtime.safepoints;
@@ -114,11 +114,12 @@ import jdk.incubator.vector.VectorSpecies;
  * exception context becomes +0.0 and stays, so the final AND of the lanes detects any loss.
  * Each kernel starts with a native call that writes 0x8000000000000000 below the compiled
  * frame's stack pointer, where an affected Windows build reads the XSAVE header of the next
- * exception's context: only the clearing after that call keeps the first trap of the loop, a
- * safepoint poll taken under SafepointALot, from losing the vector state. Serial and Parallel
- * do not poll in counted loops by default, so their ids turn the polls on.
+ * exception's context: with AvoidLosableStateAtTraps the loop's safepoint polls (taken under
+ * SafepointALot) and its null check do not fault while the accumulators are live, so nothing
+ * resumes from such a context. Serial and Parallel do not poll in counted loops by default, so
+ * their ids turn the polls on.
  */
-public class TestExceptionXStateScrub {
+public class TestExceptionXStateLoss {
     static final int ITERS = 200_000;
     static final int NULL_PERIOD = 64;
     static final long SECONDS = Long.getLong("seconds", 10);

@@ -36,7 +36,6 @@
 #include "opto/opcodes.hpp"
 #include "opto/output.hpp"
 #include "opto/regalloc.hpp"
-#include "opto/trapScrub.hpp"
 #include "opto/type.hpp"
 #include "utilities/vmError.hpp"
 
@@ -740,39 +739,6 @@ const RegMask &MachNullCheckNode::in_RegMask( uint idx ) const {
   } else {
     return in(1)->as_Mach()->out_RegMask();
   }
-}
-
-//=============================================================================
-#ifndef PRODUCT
-void MachTrapScrubNode::format(PhaseRegAlloc*, outputStream* st) const {
-  if (_check) {
-    st->print("trap scrub check\t# verify that no stale exception context header is below");
-  } else {
-    st->print("trap scrub%s\t# clear the stale exception context header", _free_scratch ? " (one store)" : "");
-  }
-}
-#endif
-
-void MachTrapScrubNode::emit(C2_MacroAssembler* masm, PhaseRegAlloc* ra_) const {
-  // Platforms without a trap scrub return a constant null, which the node never meets there.
-  const TrapScrubPlatform* platform = Matcher::trap_scrub();
-  if (platform == nullptr) {
-    ShouldNotReachHere();
-    return;
-  }
-  if (_check) {
-    platform->emit_check(masm);
-  } else {
-    platform->emit_scrub(masm, _free_scratch);
-  }
-}
-
-uint MachTrapScrubNode::size(PhaseRegAlloc* ra_) const {
-  return MachNode::size(ra_);
-}
-
-const Pipeline* MachTrapScrubNode::pipeline() const {
-  return MachNode::pipeline_class();
 }
 
 //=============================================================================

@@ -240,10 +240,6 @@
            (byte_origin & 3) != 0;
   }
 
-  // The trap scrub where resuming from an exception can lose state (see TrapScrubPlatform and
-  // VM_Version::exception_resume_loses_xstate()), or null.
-  static const TrapScrubPlatform* trap_scrub();
-
   // With AvoidLosableStateAtTraps, the trap sites of AVX, AVX-512 and APX state (see
   // NoTrapPlatform), else null.
   static const NoTrapPlatform* no_trap();

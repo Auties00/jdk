@@ -38,7 +38,6 @@
 class Compile;
 class Node;
 class MachNode;
-class TrapScrubPlatform;
 class NoTrapPlatform;
 class MachOper;
 
@@ -250,7 +249,6 @@ public:
     return _projection_list.size();
   }
 
-  // AvoidLosableStateAtTraps: kills the mask registers at a raw access (see NoTrapPlatform).
   // AvoidLosableStateAtTraps: whether n accesses raw or unknown memory, which in a compilation with
   // unsafe accesses can fault and be resumed past the access.
   static bool is_raw_memory_access(const MachNode* n);

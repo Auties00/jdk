@@ -1459,7 +1459,6 @@ reg_class xmm0_reg(XMM0, XMM0b, XMM0c, XMM0d);
 source_hpp %{
 
 #include "opto/noTrap.hpp"
-#include "opto/trapScrub.hpp"
 #include "peephole_x86_64.hpp"
 
 bool castLL_is_imm32(const Node* n);
@@ -2031,10 +2030,6 @@ void MachEpilogNode::emit(C2_MacroAssembler* masm, PhaseRegAlloc* ra_) const
     __ relocate(relocInfo::poll_return_type);
     __ safepoint_poll(*code_stub, true /* at_return */, true /* in_nmethod */);
   }
-
-  // Testing: what a callee may leave below its caller's stack pointer (the caller's stack pointer
-  // is a word above, at the return address).
-  __ plant_exception_xstate_header_if_enabled(wordSize);
 }
 
 int MachEpilogNode::reloc() const
@@ -2699,77 +2694,6 @@ void MachUEPNode::emit(C2_MacroAssembler* masm, PhaseRegAlloc* ra_) const
 
 
 //=============================================================================
-
-// The trap scrub of x86 (see TrapScrubPlatform and VM_Version::exception_resume_loses_xstate()).
-// APX is off wherever the scrub is on, so the extended general purpose registers never hold
-// state that can be lost.
-class X86TrapScrub : public TrapScrubPlatform {
- public:
-  // A short exception context keeps the legacy SSE state, the low 128 bits of xmm0-xmm15, and
-  // the general purpose registers; it loses the upper halves of the vector registers, xmm16-xmm31
-  // and the opmask registers. Units 0-31 are xmm0-xmm31, 32-39 the opmask registers.
-  virtual int losable_unit(OptoReg::Name reg, uint ideal_reg) const {
-    VMReg r = OptoReg::as_VMReg(reg);
-    if (!r->is_valid()) {
-      return -1;
-    }
-    if (r->is_KRegister()) {
-      return 32 + r->as_KRegister()->encoding();
-    }
-    if (r->is_XMMRegister()) {
-      int encoding = r->as_XMMRegister()->encoding();
-      // A MachTemp (ideal_reg 0) can be used at any width by its instruction.
-      if (encoding >= 16 || ideal_reg == 0 || ideal_reg == Op_VecY || ideal_reg == Op_VecZ) {
-        return encoding;
-      }
-    }
-    return -1;
-  }
-
-  // The instructions, other than calls, that can write deep below the stack pointer and let the
-  // frame's code continue: the secondary supers lookup, which may call a stub (and the stub its
-  // slow path). Everything else writes at most a few words below the stack pointer: stack-to-stack
-  // spill copies ([rsp - 64] at most), pushf in the floating point compare fixups, the string
-  // intrinsics that copy a short string to the stack, and the f2i/d2l fixup stubs that conversions
-  // and Math.round call (four pushes). The stale header position is at least L - 15 >= 305 bytes
-  // below. The out of line slow paths that call the runtime clear the header before they return
-  // (SaveLiveRegisters, the safepoint handler blobs).
-  virtual bool is_writer(const MachNode* n) const {
-    return n->ideal_Opcode() == Op_PartialSubtypeCheck;
-  }
-
-  virtual bool at_traps() const {
-    return ScrubExceptionXStateHeaderAtTraps || VerifyOops; // VerifyOops calls out from instructions
-  }
-
-  virtual bool omit_after_calls() const {
-    return TrapScrubOmitAfterCalls;
-  }
-
-  virtual bool verify() const {
-    return VerifyExceptionXStateScrub;
-  }
-
-  virtual void emit_scrub(C2_MacroAssembler* masm, bool free_scratch) const {
-    if (free_scratch) {
-      // r10 and the flags hold nothing after a call: they are not preserved across it, and the
-      // call returns nothing in them.
-      masm->scrub_exception_xstate_header(r10);
-    } else {
-      masm->scrub_exception_xstate_header();
-    }
-  }
-
-  virtual void emit_check(C2_MacroAssembler* masm) const {
-    masm->verify_exception_xstate_header();
-  }
-};
-
-static const X86TrapScrub x86_trap_scrub;
-
-const TrapScrubPlatform* Matcher::trap_scrub() {
-  return VM_Version::exception_xstate_scrub_length() > 0 ? &x86_trap_scrub : nullptr;
-}
 
 // AvoidLosableStateAtTraps on x86 (see NoTrapPlatform). Every exception context keeps the legacy
 // SSE state, the low 128 bits of xmm0-xmm15, and the legacy general purpose registers; a resumed

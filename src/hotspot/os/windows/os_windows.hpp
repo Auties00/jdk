@@ -66,23 +66,6 @@ class os::win32 {
   static bool   is_windows_11_or_greater();
   static bool   is_windows_server_2022_or_greater();
   static bool   request_lock_memory_privilege();
-  // Runs fn(arg) on a new native thread with a stack of stack_size bytes, under the VM's exception
-  // filter, and waits for it to finish. Needs no Thread: fn must not use one. Returns false if the
-  // thread could not be created.
-  static bool   run_on_native_thread(void (*fn)(void*), void* arg, size_t stack_size);
-  // The build number the running kernel reports (an enablement package raises it above the build
-  // of its line, 26200 on Windows 11 25H2), also inside a container, or 0 on kernels that do not
-  // report it there.
-  static int    running_kernel_build();
-  // The build and the revision (the QFE of the update it booted with) the running kernel reports,
-  // also inside a container, through ntdll's undocumented NtQuerySystemInformationEx
-  // (SystemBuildVersionInformation, layer 0). Returns false if the query fails or returns anything
-  // unexpected.
-  static bool   running_kernel_version(int* build, int* revision);
-  // Whether the machine runs this process's instruction set natively, rather than through an
-  // emulator (an x64 process on an Arm64 machine). False where it cannot be told, except on
-  // Windows versions that predate the emulator.
-  static bool   runs_natively();
   static size_t large_page_init_decide_size();
   static int windows_major_version() {
     assert(_major_version > 0, "windows version not initialized.");

@@ -3090,7 +3090,7 @@ SafepointBlob* SharedRuntime::generate_handler_blob(StubId id, address call_ptr)
   ResourceMark rm;
   OopMapSet *oop_maps = new OopMapSet();
   OopMap* map;
-  CodeBuffer buffer(name, 2600, 1024);
+  CodeBuffer buffer(name, 2548, 1024);
   MacroAssembler* masm = new MacroAssembler(&buffer);
 
   address start   = __ pc();
@@ -3243,13 +3243,6 @@ SafepointBlob* SharedRuntime::generate_handler_blob(StubId id, address call_ptr)
   __ bind(no_adjust);
   // Normal exit, restore registers and exit.
   RegisterSaver::restore_live_registers(masm, save_wide_vectors);
-  if (!cause_return) {
-    // The saved registers may pass for a stale XSAVE header where the next exception of the
-    // compiled frame we return to would find it (see MacroAssembler::scrub_exception_xstate_header()).
-    // That frame's stack pointer is above the return pc.
-    __ plant_exception_xstate_header_if_enabled(wordSize);
-    __ scrub_exception_xstate_header_if_enabled(wordSize);
-  }
   __ ret(0);
 
 #ifdef ASSERT

@@ -108,56 +108,6 @@ define_pd_global(bool, ValueTypeReturnedAsFields, true);
   product(bool, UseAPX, false,                                              \
           "Use Intel Advanced Performance Extensions")                      \
                                                                             \
-  product(bool, ScrubExceptionXStateHeader, true, DIAGNOSTIC,               \
-          "Where resuming from an exception can lose AVX state (some "      \
-          "Windows builds read a stale XSAVE header from the stack), C2 "   \
-          "code keeps that stack location clear wherever a trap site at "   \
-          "which such state is live can be reached. Without it, such "      \
-          "systems run with UseAVX at most 2 and MaxVectorSize at most 16") \
-                                                                            \
-  product(int, ExceptionXStateLength, 0, DIAGNOSTIC,                        \
-          "Length in bytes of the extended processor state the OS saves "   \
-          "below the stack pointer of an exception, used by "               \
-          "ScrubExceptionXStateHeader. 0: from CPUID, verified at "         \
-          "startup, where the running Windows kernel is not known to "      \
-          "keep the state. Any other value enables the scrub, unverified, " \
-          "on every system, for testing")                                   \
-          range(0, 16384)                                                   \
-                                                                            \
-  product(bool, ForceExceptionXStateProtection, false, DIAGNOSTIC,          \
-          "On Windows, protect the AVX state that resuming from an "        \
-          "exception can lose (see ScrubExceptionXStateHeader) also where " \
-          "the running kernel is known to keep it")                         \
-                                                                            \
-  develop(bool, ScrubExceptionXStateHeaderAtTraps, false,                   \
-          "Clear the stale XSAVE header right before each trap site at "    \
-          "which state that can be lost is live, instead of after each "    \
-          "call or other instruction that may write below the stack "       \
-          "pointer")                                                        \
-                                                                            \
-  develop(bool, VerifyExceptionXStateScrub, false,                          \
-          "Before each C2 trap site at which state that can be lost is "    \
-          "live, check that no stale XSAVE header that would lose it is "   \
-          "below the stack pointer. Use with ExceptionXStateLength on "     \
-          "systems that do not need the scrub")                             \
-                                                                            \
-  develop(bool, PlantExceptionXStateHeader, false,                          \
-          "Testing: leave a value that passes for a stale XSAVE header "    \
-          "where the next exception would read it, at the return of every " \
-          "compiled method and in the slow paths that call out, so that "  \
-          "VerifyExceptionXStateScrub stops the VM where a scrub is "       \
-          "missing")                                                        \
-                                                                            \
-  develop(bool, TrapScrubOmitAfterCalls, false,                             \
-          "Testing: do not clear the stale XSAVE header after calls, so "   \
-          "that VerifyExceptionXStateScrub can be seen to fail")            \
-                                                                            \
-  develop(int, ExceptionXStateStaticLengthError, 0,                         \
-          "Testing: add this many bytes to the length of the exception "    \
-          "context that the JVM computes from CPUID, so that the startup "  \
-          "verification of the scrub can be seen to reject it")             \
-          range(-1024, 1024)                                                \
-                                                                            \
   product(bool, UseKNLSetting, false, DIAGNOSTIC,                           \
           "Control whether Knights platform setting should be used")        \
                                                                             \

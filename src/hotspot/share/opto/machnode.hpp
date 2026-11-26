@@ -639,35 +639,6 @@ public:
 #endif
 };
 
-//------------------------------MachTrapScrubNode------------------------------
-// Clears the place where the system may read a stale header when it saves the processor state
-// of an exception (see TrapScrubPlatform), or, as a check, verifies that it is clear. Placed by
-// TrapScrubs::insert() after register allocation: after a writer below the stack pointer, or
-// right before a trap site. Its code uses no register and keeps the condition codes (except where
-// the registers it uses hold nothing), and nothing moves it: a compilation that places scrubs is
-// not scheduled after register allocation.
-class MachTrapScrubNode : public MachIdealNode {
-  const bool _check;
-  const bool _free_scratch; // r10 and the condition codes hold nothing here (after a call)
-public:
-  MachTrapScrubNode(bool check = false, bool free_scratch = false) : _check(check), _free_scratch(free_scratch) {
-    init_class_id(Class_MachTrapScrub);
-  }
-  bool is_check() const { return _check; }
-  virtual void emit(C2_MacroAssembler *masm, PhaseRegAlloc *ra_) const;
-  virtual uint size(PhaseRegAlloc *ra_) const;
-
-  virtual const class Type *bottom_type() const { return Type::CONTROL; }
-
-  virtual const Pipeline *pipeline() const;
-  virtual uint size_of() const { return sizeof(MachTrapScrubNode); }
-#ifndef PRODUCT
-  virtual const char *Name() const { return _check ? "TrapScrubCheck" : "TrapScrub"; }
-  virtual void format( PhaseRegAlloc *, outputStream *st ) const;
-  virtual void dump_spec(outputStream *st) const { } // No per-operand info
-#endif
-};
-
 //------------------------------MachExplicitNullCheckNode----------------------
 // Tests the value a MachNullCheckNode's memop would fault on and branches to the null successor
 // (succs[0] of the block) when it is null, so that the memop cannot fault. Placed right before the

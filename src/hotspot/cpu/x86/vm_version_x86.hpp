@@ -368,21 +368,6 @@ protected:
   static address   _cpuinfo_cont_addr;     // address of instruction after the one which causes SEGV
   static address   _cpuinfo_segv_addr_apx; // address of instruction which causes APX specific SEGV
   static address   _cpuinfo_cont_addr_apx; // address of instruction after the one which causes APX specific SEGV
-  static address   _exception_xstate_segv_addr; // address of the instruction which causes the SEGV of the exception XSTATE check
-  static address   _exception_xstate_cont_addr; // address of the instruction after it
-
-  // Extended processor state of the last exception taken by the exception XSTATE check, as the
-  // exception handler found it: the stack pointer at the fault, and the address and length of
-  // the XSTATE chunk of the context (nullptr and 0 if the context has none). The chunk's length
-  // includes the alignment padding of that trap, so it is not the L of the header position.
-  static address   _exception_xstate_trap_sp;
-  static address   _exception_xstate_chunk;
-  static int       _exception_xstate_chunk_length;
-
-  // Outcome of the exception XSTATE decision.
-  static bool      _exception_resume_loses_xstate;
-  static int       _exception_xstate_scrub_length;
-  static bool      _exception_xstate_capped;
 
   /*
    * Update following files when declaring new flags:
@@ -732,11 +717,6 @@ protected:
     uint32_t          zmm0to15_hi256_xstate_offset;  // EBX: offset of ZMM_Hi256 component
     uint32_t          zmm16to31_xstate_offset;       // EBX: offset of Hi16_ZMM component
 
-    // cpuid function 0xD, subleaf 0 and 1 (sizes of the XSAVE area)
-    uint32_t          xsave_size_xcr0;          // subleaf 0 EBX: features enabled in XCR0
-    uint32_t          xsave_size_max;           // subleaf 0 ECX: all supported features
-    uint32_t          xsave_size_xcr0_xss;      // subleaf 1 EBX: features enabled in XCR0 | IA32_XSS, compacted
-
     VM_Features feature_flags() const;
 
     // Asserts
@@ -777,12 +757,6 @@ private:
 
   static bool os_supports_avx_vectors();
   static bool os_supports_apx_egprs();
-#ifdef _WINDOWS
-  static int  exception_xstate_check_fill_size();
-  static bool verify_exception_xstate_scrub(int length);
-  static int  verified_exception_xstate_scrub_length(int length);
-#endif
-  static void set_exception_xstate_mitigation();
   static void get_processor_features();
   static void apply_aot_cache_cpu_features();
 
@@ -812,9 +786,6 @@ public:
   static ByteSize opmask_xstate_offset_offset() { return byte_offset_of(CpuidInfo, opmask_xstate_offset); }
   static ByteSize zmm0to15_hi256_xstate_offset_offset() { return byte_offset_of(CpuidInfo, zmm0to15_hi256_xstate_offset); }
   static ByteSize zmm16to31_xstate_offset_offset() { return byte_offset_of(CpuidInfo, zmm16to31_xstate_offset); }
-  static ByteSize xsave_size_xcr0_offset() { return byte_offset_of(CpuidInfo, xsave_size_xcr0); }
-  static ByteSize xsave_size_max_offset() { return byte_offset_of(CpuidInfo, xsave_size_max); }
-  static ByteSize xsave_size_xcr0_xss_offset() { return byte_offset_of(CpuidInfo, xsave_size_xcr0_xss); }
 
   static uint32_t apx_xstate_offset() { return _cpuid_info.apx_xstate_offset; }
   static uint32_t apx_xstate_size()   { return _cpuid_info.apx_xstate_size; }
@@ -831,93 +802,6 @@ public:
   static bool  is_cpuinfo_segv_addr(address pc) { return _cpuinfo_segv_addr == pc; }
   static void set_cpuinfo_cont_addr(address pc) { _cpuinfo_cont_addr = pc; }
   static address  cpuinfo_cont_addr()           { return _cpuinfo_cont_addr; }
-
-  static void set_exception_xstate_segv_addr(address pc) { _exception_xstate_segv_addr = pc; }
-  // Only while a verification stub exists: a fault at pc 0 is not one of its traps.
-  static bool  is_exception_xstate_segv_addr(address pc) {
-    return _exception_xstate_segv_addr != nullptr && _exception_xstate_segv_addr == pc;
-  }
-  static void set_exception_xstate_cont_addr(address pc) { _exception_xstate_cont_addr = pc; }
-  static address  exception_xstate_cont_addr()           { return _exception_xstate_cont_addr; }
-#ifdef _WINDOWS
-  // Takes the traps of the verification of the scrub (an ExceptionXStateProbe in vm_version_x86.cpp),
-  // on a native thread of its own.
-  static void probe_exception_xstate(void* probe);
-#endif
-  // Called by the exception handler for the fault of the exception XSTATE check.
-  static void record_exception_xstate(address trap_sp, address xstate_chunk, int xstate_chunk_length) {
-    _exception_xstate_trap_sp = trap_sp;
-    _exception_xstate_chunk = xstate_chunk;
-    _exception_xstate_chunk_length = xstate_chunk_length;
-  }
-
-  // Some Windows builds (Server 2025) copy the context of an exception to the stack with a routine
-  // that trusts the XSAVE header already at the destination, (sp - L) & -64 for the stack pointer
-  // sp of the fault, which is stale stack memory. A stale header that looks like a compacted one
-  // leaves out of the context the state components it does not name, and resuming from that
-  // context resets them: the upper halves of ymm/zmm, xmm16-xmm31, the opmask registers, the APX
-  // registers. The JVM decides from the version of the running kernel (see
-  // classify_exception_xstate_system()) and protects the state wherever that kernel is not known
-  // to keep it. The protection's L comes from CPUID and is verified at startup by exceptions taken
-  // with a header-like value on the stack, on a native thread of its own; one thread suffices: L
-  // is the length of the context's extended state, which depends on the enabled features, not on
-  // the thread. APX is off where the state is protected. Code outside the VM that writes below a
-  // thread's stack pointer asynchronously (a special user APC) can still leave a stale header
-  // between a scrub and a trap.
-  //
-  // Whether resuming from an exception can lose extended processor state.
-  static bool exception_resume_loses_xstate() { return _exception_resume_loses_xstate; }
-  // The length L of the extended state of an exception context when compiled code keeps the
-  // stale header position clear (see MacroAssembler::scrub_exception_xstate_header()), else 0.
-  static int exception_xstate_scrub_length() { return _exception_xstate_scrub_length; }
-  // Whether the state can be lost and the scrub is not used: then UseAVX is at most 2 and
-  // MaxVectorSize at most 16, so that no code keeps such state in registers.
-  static bool exception_xstate_capped() { return _exception_xstate_capped; }
-  // The XSAVE state components a short context can leave out that the JVM may use: the ones
-  // VerifyExceptionXStateScrub requires in a compacted header.
-  static uint64_t exception_xstate_losable_components();
-
-#ifdef _WINDOWS
-  // What a native x64 Windows kernel does with a stale XSAVE header below the stack pointer of a
-  // user-mode exception (JDK-8365196): not known, keeps the state, loses it, or, where the fix is
-  // gated by a feature of the Windows feature configuration, gated. Only keeps leaves the state
-  // unprotected.
-  enum ExceptionXStateKernel {
-    exception_xstate_kernel_unknown,
-    exception_xstate_kernel_keeps,
-    exception_xstate_kernel_loses,
-    exception_xstate_kernel_gated
-  };
-  // The build line of a kernel that reports this build: the build itself, or for an enablement
-  // package (which raises the reported build and keeps the kernel of its line) the line it enables.
-  static int exception_xstate_kernel_line(int reported_build);
-  // Whether the decision for a kernel of this build line needs the kernel's revision.
-  static bool exception_xstate_kernel_needs_revision(int line);
-  // What the kernel of this build line and revision (the QFE the running kernel reports, or -1 when
-  // the line needs none) does, from the tables of updates with an examined kernel in
-  // vm_version_x86.cpp. A revision that is not exactly the one of such an update is not known.
-  // The line is the one of exception_xstate_kernel_line(); what depends on the reported build
-  // itself (build 26300 is the 26100 line only from a revision on) is decided by
-  // classify_exception_xstate_system(), the only caller outside the tests.
-  static ExceptionXStateKernel classify_exception_xstate_kernel(int line, int revision);
-  // Where the decision for the running system comes from (os::win32 on a real system).
-  struct ExceptionXStateSystem {
-    bool (*runs_natively)();
-    int  (*running_build)();                          // KUSER_SHARED_DATA.NtBuildNumber
-    bool (*running_version)(int* build, int* revision); // SystemBuildVersionInformation, layer 0
-  };
-  struct ExceptionXStateDecision {
-    int running_build;  // the build the running kernel reports, or -1 if not read
-    int line;           // its build line, or -1 if not read
-    int revision;       // the revision the running kernel reports, or -1 if not read
-    const char* reason; // why the kernel is not classified, or nullptr
-  };
-  // What the running kernel of a system does with the state. Anything but keeps protects it: an
-  // emulator, a build or revision outside the examined ones, or a query that fails. Reads only
-  // what the decision needs.
-  static ExceptionXStateKernel classify_exception_xstate_system(const ExceptionXStateSystem* system,
-                                                                ExceptionXStateDecision* decision);
-#endif
 
   static void set_cpuinfo_segv_addr_apx(address pc) { _cpuinfo_segv_addr_apx = pc; }
   static bool  is_cpuinfo_segv_addr_apx(address pc) { return _cpuinfo_segv_addr_apx == pc; }
