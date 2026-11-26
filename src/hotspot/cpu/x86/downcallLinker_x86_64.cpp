@@ -34,7 +34,7 @@
 
 #define __ _masm->
 
-static const int native_invoker_code_base_size = 256;
+static const int native_invoker_code_base_size = 320;
 static const int native_invoker_size_per_arg = 16;
 
 RuntimeStub* DowncallLinker::make_downcall_stub(BasicType* signature,
@@ -168,6 +168,13 @@ void DowncallLinker::StubGenerator::generate() {
     locs.set_frame_data(StubLocations::CAPTURED_STATE_BUFFER, allocated_frame_size);
     allocated_frame_size += BytesPerWord;
   }
+  // BENCH ONLY
+  const int mxcsr_variant = AvoidLosableStateAtTraps ? NativeMXCSRVariant : -1;
+  int mxcsr_slot_offset = -1;
+  if (mxcsr_variant == 2) {
+    mxcsr_slot_offset = allocated_frame_size;
+    allocated_frame_size += BytesPerWord;
+  }
 
   // The space we have allocated will look like:
   //
@@ -266,7 +273,16 @@ void DowncallLinker::StubGenerator::generate() {
   if (!_needs_transition && AvoidLosableStateAtTraps) {
     // A critical call returns without the thread state transition, which restores MXCSR (see
     // MacroAssembler::restore_cpu_control_state_after_jni()).
+    if (mxcsr_variant == 1 || mxcsr_variant == 4) {
+      __ ldmxcsr(ExternalAddress(StubRoutines::x86::addr_mxcsr_std()), rscratch1);
+    }
+  }
+  if (mxcsr_variant == 2) {
+    Label L_mxcsr_ok;
+    __ cmp32_mxcsr_std(Address(rsp, mxcsr_slot_offset), rscratch1, rscratch2);
+    __ jcc(Assembler::equal, L_mxcsr_ok);
     __ ldmxcsr(ExternalAddress(StubRoutines::x86::addr_mxcsr_std()), rscratch1);
+    __ bind(L_mxcsr_ok);
   }
 
   if (_needs_return_buffer) {
@@ -314,7 +330,7 @@ void DowncallLinker::StubGenerator::generate() {
   Label L_after_reguard;
   if (_needs_transition) {
     __ block_comment("{ thread native2java");
-    __ restore_cpu_control_state_after_jni(rscratch1);
+    __ restore_cpu_control_state_after_jni(rscratch1, mxcsr_variant != 2 && mxcsr_variant != 3);
 
     // change thread state
     __ movl(Address(r15_thread, JavaThread::thread_state_offset()), _thread_in_Java);
@@ -342,6 +358,9 @@ void DowncallLinker::StubGenerator::generate() {
   }
 
   __ leave(); // required for proper stackwalking of RuntimeStub frame
+  if (mxcsr_variant == 3) {
+    __ ldmxcsr(ExternalAddress(StubRoutines::x86::addr_mxcsr_std()), rscratch1);
+  }
   __ ret(0);
 
   //////////////////////////////////////////////////////////////////////////////

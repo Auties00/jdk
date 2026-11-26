@@ -733,7 +733,7 @@ public:
 #define verify_klass_ptr(reg) _verify_klass_ptr(reg, "broken klass " #reg, __FILE__, __LINE__)
 
   // Verify or restore cpu control state after JNI call
-  void restore_cpu_control_state_after_jni(Register rscratch);
+  void restore_cpu_control_state_after_jni(Register rscratch, bool load_mxcsr = true);
 
   // prints msg, dumps registers and stops execution
   void stop(const char* msg);

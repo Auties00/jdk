@@ -52,7 +52,7 @@ static bool is_valid_gp(Register reg) {
 // unmasked (such an exception in compiled code is resumed and can lose vector state).
 static bool saves_mxcsr() {
 #ifdef _WIN64
-  return AvoidLosableStateAtTraps;
+  return AvoidLosableStateAtTraps && UpcallMXCSRVariant != 0;
 #else
   return true;
 #endif
@@ -167,7 +167,7 @@ static void restore_callee_saved_registers(MacroAssembler* _masm, const ABIDescr
   if (saves_mxcsr()) {
     const Address mxcsr_save(rsp, offset);
     Label skip_ldmx;
-    if (AvoidLosableStateAtTraps) {
+    if (AvoidLosableStateAtTraps && UpcallMXCSRVariant == 2) {
       // Java code leaves the control bits standard (every return from native code loads them, see
       // MacroAssembler::restore_cpu_control_state_after_jni()), so a caller that came with standard
       // control bits has them back already; the status bits are not preserved across calls.

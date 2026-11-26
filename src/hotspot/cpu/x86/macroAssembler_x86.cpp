@@ -5487,7 +5487,19 @@ void MacroAssembler::print_CPU_state() {
   pop_CPU_state();
 }
 
-void MacroAssembler::restore_cpu_control_state_after_jni(Register rscratch) {
+void MacroAssembler::restore_cpu_control_state_after_jni(Register rscratch, bool load_mxcsr) {
+  if (!RestoreMXCSROnJNICalls && AvoidLosableStateAtTraps && !CheckJNICalls) {
+    // BENCH ONLY
+    if (load_mxcsr && NativeMXCSRVariant == 4) {
+      vzeroupper();
+      ldmxcsr(ExternalAddress(StubRoutines::x86::addr_mxcsr_std()), rscratch);
+      return;
+    }
+    if (!load_mxcsr || NativeMXCSRVariant == 0) {
+      vzeroupper();
+      return;
+    }
+  }
   // Either restore the MXCSR register after returning from the JNI Call
   // or verify that it wasn't changed (with -Xcheck:jni flag). With AvoidLosableStateAtTraps
   // Java code never runs with FP exceptions unmasked by native code: such an exception in

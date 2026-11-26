@@ -160,6 +160,19 @@ define_pd_global(bool, ValueTypeReturnedAsFields, true);
   product(bool, UseLibmIntrinsic, true, DIAGNOSTIC,                         \
           "Use Libm Intrinsics")                                            \
                                                                             \
+  product(int, NativeMXCSRVariant, 1, DIAGNOSTIC,                           \
+          "BENCH ONLY. MXCSR after native calls with "                      \
+          "AvoidLosableStateAtTraps: 0 nothing, 1 load after the call, "    \
+          "2 store, compare and load if changed (downcalls), 3 load "       \
+          "before the return (downcalls), 4 load after vzeroupper")         \
+          range(0, 4)                                                       \
+                                                                            \
+  product(int, UpcallMXCSRVariant, 2, DIAGNOSTIC,                           \
+          "BENCH ONLY. MXCSR in upcalls with AvoidLosableStateAtTraps: "    \
+          "0 nothing, 1 always restore on return, 2 restore on return "     \
+          "if the control bits of the caller differed")                     \
+          range(0, 2)                                                       \
+                                                                            \
   /* Autodetected, see vm_version_x86.cpp */                                \
   product(bool, EnableX86ECoreOpts, false, DIAGNOSTIC,                      \
           "Perform Ecore Optimization")                                     \

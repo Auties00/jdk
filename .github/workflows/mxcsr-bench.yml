@@ -1,0 +1,124 @@
+name: 'JDK-8365196 mxcsr bench'
+
+# Review-only. The cost of the MXCSR handling of AvoidLosableStateAtTraps at native calls: builds this
+# branch (windows-x64, release), whose bench-only flags NativeMXCSRVariant and UpcallMXCSRVariant pick
+# the variant at run time, and runs review8 (a JNI call, FFM downcalls with and without the thread
+# state transition, an FFM upcall) under JMH in interleaved rounds, every variant on the same VM.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-mxcsrbench-*'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  prepare:
+    name: 'Prepare'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+      - name: 'Build JTReg'
+        uses: ./.github/actions/build-jtreg
+
+  build-windows-x64:
+    name: windows-x64
+    needs: prepare
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      platform: windows-x64
+      runs-on: windows-2022
+      architecture: 'x86.x64'
+      msvc-toolset-version: '14.44'
+      debug-levels: '[ "release" ]'
+      make-target: 'product-bundles'
+
+  bench:
+    name: bench (${{ matrix.os }}, ${{ matrix.slot }})
+    needs: build-windows-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2025, slot: 1 }
+          - { os: windows-2025, slot: 2 }
+          - { os: windows-2025, slot: 3 }
+          - { os: windows-2025, slot: 4 }
+          - { os: windows-2022, slot: 1 }
+          - { os: windows-2022, slot: 2 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: bundles
+      - name: 'JMH: the MXCSR variants'
+        run: |
+          set +e
+          mkdir -p out jdk
+          unzip -q bundles/jdk-windows-x64.zip -d jdk
+          BIN=$(dirname "$(find jdk -name java.exe -path '*/bin/*' | head -1)")
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" | tee out/build.txt
+          "$BIN/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|AvoidLosableStateAtTraps|NativeMXCSRVariant|UpcallMXCSRVariant|EnableX86ECoreOpts|UseSystemMemoryBarrier) ' | tee out/flags.txt
+          m2=https://repo1.maven.org/maven2
+          for a in org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar; do
+            curl -sfL -o "lib-$(basename $a)" "$m2/$a" || echo "download failed: $a"
+          done
+          cp="lib-jmh-core-1.37.jar;lib-jopt-simple-5.0.4.jar;lib-commons-math3-3.6.1.jar"
+          "$BIN/javac" -proc:full -cp "$cp;lib-jmh-generator-annprocess-1.37.jar" -d jmhc src/review8/R8Bench.java 2>&1 | grep -v -i warning | tail -5
+          JH=$(cd "$BIN/.." && pwd -W)
+          clang -O2 -shared -I"$JH/include" -I"$JH/include/win32" -o r8bench.dll src/review8/r8bench.c
+          U="-XX:+UnlockDiagnosticVMOptions"
+          declare -A FLAGS
+          # O: the mode off. Dd-Uu: the mode on, NativeMXCSRVariant d and UpcallMXCSRVariant u.
+          FLAGS[O]="$U -XX:-AvoidLosableStateAtTraps"
+          FLAGS[D0U0]="$U -XX:NativeMXCSRVariant=0 -XX:UpcallMXCSRVariant=0"
+          FLAGS[D1U1]="$U -XX:NativeMXCSRVariant=1 -XX:UpcallMXCSRVariant=1"
+          FLAGS[D1U2]="$U -XX:NativeMXCSRVariant=1 -XX:UpcallMXCSRVariant=2"
+          FLAGS[D2U2]="$U -XX:NativeMXCSRVariant=2 -XX:UpcallMXCSRVariant=2"
+          FLAGS[D3U2]="$U -XX:NativeMXCSRVariant=3 -XX:UpcallMXCSRVariant=2"
+          FLAGS[D4U2]="$U -XX:NativeMXCSRVariant=4 -XX:UpcallMXCSRVariant=2"
+          for round in 1 2 3; do
+            order="O D0U0 D1U1 D1U2 D2U2 D3U2 D4U2"
+            [ $round = 2 ] && order="D1U2 D2U2 D3U2 D4U2 O D0U0 D1U1"
+            [ $round = 3 ] && order="D4U2 D3U2 D2U2 D1U2 D1U1 D0U0 O"
+            for c in $order; do
+              "$BIN/java" -Djava.library.path=. -cp "jmhc;$cp" org.openjdk.jmh.Main \
+                -jvmArgsAppend "--enable-native-access=ALL-UNNAMED -Djava.library.path=. ${FLAGS[$c]}" \
+                -rf csv -rff "out/jmh-$c-$round.csv" -f 3 -wi 4 -i 6 -w 1 -r 1 \
+                "review8.R8Bench" > "out/jmh-$c-$round.log" 2>&1
+              echo "== $c round $round"; tail -6 "out/jmh-$c-$round.log"
+            done
+          done
+          {
+            echo "### $(cat out/cpu.txt) | $(cat out/build.txt)"; echo '```'; cat out/flags.txt
+            for c in O D0U0 D1U1 D1U2 D2U2 D3U2 D4U2; do
+              for b in jni downcall downcallCritical upcall; do
+                echo "$c $b $(for r in 1 2 3; do grep "R8Bench.$b\"" out/jmh-$c-$r.csv | cut -d, -f5; done | tr '\n' ' ')"
+              done
+            done
+            echo '```'
+          } | tee out/summary.txt >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: bench-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
