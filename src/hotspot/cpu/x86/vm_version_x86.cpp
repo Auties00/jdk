@@ -2688,6 +2688,10 @@ void VM_Version::set_exception_xstate_mitigation() {
     log_info(os, cpu)("Compiled code takes no resumed exception with AVX, AVX-512 or APX state live");
     return;
   }
+  if (!ExceptionXStateMitigation) {
+    log_info(os, cpu)("Compiled code is not protected from resumed exceptions that lose AVX, AVX-512 or APX state");
+    return;
+  }
   bool forced = ExceptionXStateLength > 0;
   int scrub = 0;
 #ifdef _WINDOWS

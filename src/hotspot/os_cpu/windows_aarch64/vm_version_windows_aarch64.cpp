@@ -166,7 +166,8 @@ void VM_Version::get_os_cpu_info() {
     int build = -1;
     int revision = -1;
     bool version_read = false;
-    bool use_sve = AvoidLosableStateAtTraps;
+    // Without ExceptionXStateMitigation nothing protects SVE state either (a comparison mode).
+    bool use_sve = AvoidLosableStateAtTraps || !ExceptionXStateMitigation;
     if (!use_sve) {
       running_build = os::win32::running_kernel_build();
       version_read = os::win32::running_kernel_version(&build, &revision);
