@@ -513,3 +513,151 @@ ForceExceptionXStateProtection and ExceptionXStateMitigation with the develop an
 jtreg tests. AvoidLosableStateAtTraps is the only mechanism; -XX:-AvoidLosableStateAtTraps gives compiled code with
 no protection at all (the A/B of the repro). TestExceptionXStateScrub, which plants the stale header and keeps vector
 state live across polls and a faulting null check, stays as TestExceptionXStateLoss, the regression test of the mode.
+
+## The cost of the mask kill, and which raw accesses need it (branch JDK-8365196-cost-kmask)
+
+### What the kill costs, and where
+
+- **Only compilations that inline a scalar unsafe access have it.** `Compile::has_unsafe_access()` is set by the
+  scalar Unsafe intrinsics alone (opto/library_call.cpp); the Vector API's segment loads and stores
+  (opto/vectorIntrinsics.cpp) do not set it. A method whose only raw accesses are Vector API segment accesses is
+  therefore not "a compilation with unsafe accesses": none of its accesses kills anything, and a page error in it
+  is not resumed at all (the nmethod has no `has_unsafe_access`, so the handler does not take the unsafe path and
+  the VM reports the fault, as upstream does). The kill matters where vector code and a scalar segment or Unsafe
+  access share a compilation: a vector loop with a scalar tail loop, a header read in front of a vector loop.
+- **The +5-9% of the off-heap masked kernels of review9 is not the kill.** `segmentMaskedSum` and
+  `segmentCompareBlendStore` are not unsafe compilations (see above). PrintOptoAssembly of their hot loops with the
+  mode off and on (linux-x64 fastdebug, UseAVX=3 and UseAVX=2, run 45898446266) differs only in explicit null
+  checks: two per iteration in `segmentMaskedSum` (the klass load of the segment, the load of
+  `scope.owner`), four in `segmentCompareBlendStore`, one in `unsafeWithLiveMask` and `heapMaskedSum` (the
+  range load of the heap array). That is the cost-checks area.
+- **The kill is expensive because of where the allocator puts a killed mask.** A mask live range that crosses a
+  kill cannot be colored. The kill is an interference, not register pressure (the mask registers count in
+  neither pressure class), so PhaseChaitin::Split() has no place at which to split it: after the first failed
+  round the live range is forced down everywhere (`_was_spilled1`), it lives in a stack slot for its whole
+  extent, every use reloads it, and a Phi of it is a memory-to-memory copy. In `unsafeWithLiveMask` the live
+  range is the all-true mask of the full iterations, which C2 computes once in front of the loop; the scalar read
+  of the loop kills it on every iteration, although the loop's own masks are dead at the read.
+
+### The rule: a mask that a fault can zero must not reach a check
+
+Counterexample 3 needs a mask that was computed before the fault and is *tested* after it. The unconditional kill
+protected every mask, including the ones that are only predicates. The rule that the branch implements, on x64
+with AVX-512 VL, BW and DQ (where every mask is an opmask register value; elsewhere, AVX-512 without them and
+AArch64 SVE, every raw access still kills, as before):
+
+> In a compilation with unsafe accesses, no mask that is in a mask register across a raw access is read
+> afterwards by a reader that checks, directly or through the masks computed from it.
+
+A reader *checks* unless it only applies the mask as a predicate (`checks_masks()`, opto/noTrap.cpp):
+
+- **Predicates (not checks):** an instruction that computes a vector (a masked load, gather, arithmetic or
+  compare with a vector result, a blend, a compress or expand), and the masked vector stores and scatters. With a
+  zeroed mask they compute a vector with lanes dropped or passed through, or store nothing. The vector is a value
+  of the unsafe access window, like the upper halves the fault zeroes in any case.
+- **Checks:** everything else that reads a mask. Flags producers (VectorTest, that is `anyTrue`/`allTrue`),
+  conversions to an integer (`toLong`, `trueCount`, `firstTrue`, `lastTrue`), VectorStoreMask (it computes a
+  vector, but one that holds the mask itself: the payload of a boxed mask), the arguments of calls, returns.
+- **Mask to mask:** mask logic, masked compares with a mask result, casts, the allocator's copies and merges, Phis.
+  They pass the question on: their input is read for a check exactly if their result is.
+- **Debug info (not a check).** A mask in the debug info of a safepoint, call or uncommon trap is read only if the
+  frame is deoptimized there. Deoptimization turns it into a heap object, which every later reader sees alike,
+  and whatever runs after a deoptimization checks its own accesses: the interpreter, C1 code and the Java bodies
+  of the Vector API (the fallbacks of `VectorSupport`) by the bounds checks of the language, and other compiled
+  code by the checks it carries for its own intrinsic accesses, on the objects it is given. No check of the
+  Vector API is split from its intrinsic access by a deoptimization with the *result* of the check as state
+  other than in a mask, and an intrinsic access is only reached from compiled code of the method that also
+  contains its check. Independently, the pending InternalError is thrown where the interpreter takes over
+  (`uncommon_trap_inner` is a JRT_ENTRY, whose return to Java installs the asynchronous exception, and the
+  interpreter's deoptimization entries throw a pending exception before the next bytecode), except where the
+  thread has asynchronous exceptions blocked (Thread.exit, the virtual thread transitions).
+
+Why this keeps (c):
+
+- Every reader that checks sees a mask that was not in a mask register at the fault: it was on the stack, in a
+  general purpose register, or is computed afterwards from masks of which the same holds, because the question is
+  followed backwards through the mask operations (an operation whose result reaches a check makes its inputs
+  reach it). That is exactly what the unconditional kill gave these readers.
+- So a mask that reaches a check holds, at every reader, either the value the program computed or, in its
+  register after a fault, zero. Never more lanes.
+- A mask that reaches no check can hold anything after a fault (zero, or a value computed from zeroed masks, such
+  as all lanes for the negation of a lost mask). It is only ever a predicate, and the masked access it governs is
+  one whose mask the compilation never tests: the Vector API tests the mask of an access exactly when the access
+  is not wholly in bounds (`checkMaskFromIndexSize`, in the slow path of each masked load and store, on the same
+  mask value that the access of that path takes), so an access with an untested mask is the access of the fast
+  path, whose lanes are all in bounds by the scalar test of its offset. Any mask is safe for it. Gathers and
+  scatters test their index vector, not their mask.
+- What changes for values is that a predicate can differ from the program's mask where the kill would have
+  reloaded it: lanes of a value of the window dropped or passed through, or a store of the window that does not
+  happen or stores unspecified lanes in bounds.
+
+The residual of the earlier section is unchanged and the same kind: a check that the program carries through
+vector registers (here also: a mask turned into a vector by a blend, `VectorMask.toVector()`, and compared
+again) is not protected, with the kill or without.
+
+### How the rule is enforced
+
+1. **Before register allocation, on the scheduled code** (`NoTrapSites::kill_masks_where_checked()`, called from
+   `Compile::Code_Gen()` after global code motion): `MaskFlow` is a backward dataflow over the mask values,
+   "reaches a check"; it finds the masks that are live across a raw access and reach a check afterwards.
+   `protect_masks()` then gives each reader of such a mask that checks a value the fault cannot have zeroed,
+   and leaves the mask in its register for the other readers:
+   - a constant mask (MaskAll of a constant, the all-true mask of the full iterations of a loop with a masked
+     tail): a copy of its definition right in front of the reader;
+   - any other mask: a copy bound to the stack, made right after the definition, and a reload of it right in
+     front of the reader. Neither node carries the copy flag, so the allocator's copy removal, which follows
+     copies back to a register that still holds the value, cannot point the reader at the mask's register again.
+   A reader that follows the definition in its block with no raw access in between reads the mask itself. For a
+   Phi the copy or reload goes to the end of the predecessor block. A mask it cannot protect (the result of the
+   access of an implicit null check) leaves the kill on the accesses it is live across, as a projection added
+   after scheduling.
+2. **After register allocation, on the final code** (`NoTrapSites::apply()`): the same dataflow over the
+   registers and stack slots that hold masks. If a mask register that is live across a raw access reaches a
+   check, the compilation is abandoned with `C2Compiler::retry_kill_masks_at_every_raw_access()` and compiled
+   again with the unconditional kill of the matcher (`Matcher::kill_masks_at_raw_accesses()`), whose debug
+   check is the earlier one (no killed register live across a raw access). This is a product check, not an
+   assert: the allocator may stretch a mask across an access after step 1 (the masks of a flags producer it
+   clones), and step 2 is what makes the rule hold whatever it did.
+
+The cost that remains at a protected mask is one store of the mask per execution of its definition, and a reload
+only on the paths that check, which in Vector API code are the slow paths (an access that is not wholly in
+bounds). The unconditional kill cost a store and a reload at every use, and a memory-to-memory copy at every
+Phi, because the allocator can only spill such a live range everywhere.
+
+### Found on the way, outside this branch
+
+These are in the design the branch starts from, and the branch does not change them. I stopped at the description.
+
+1. **Counterexample 4 to (c): the check of a masked access reads a vector the fault can zero (x64, AVX2 and
+   AVX-512; AArch64 SVE by the same reading).** The slow path of every masked load and store tests its mask
+   against the lanes that are in bounds: `AbstractMask.checkIndexByLane()` computes
+   `badMask = iotaScaled.compare(GE, broadcast(indexLimit))` (`checkIndex0()`, AbstractMask.java:292-354),
+   ands it with the access mask and throws if any lane is left. `iotaScaled` comes from the species' iota
+   vector, a loop invariant that C2 loads once and keeps in a vector register across the loop. After a resumed
+   fault at a raw access of the loop, that register comes back with its lanes above 128 bits zeroed (all of them
+   in xmm16-31), and a zero lane compares as in bounds wherever `indexLimit > 0`. The check then passes for
+   lanes that are out of bounds, and the masked access that follows takes the access mask, which is intact: the
+   loop computes it again on every iteration (the iota is not computed again), and for the iteration of the fault
+   the mask kill reloads it on AVX-512, and on AVX2 it is intact whenever it sits in a stack slot. The frame runs
+   on until its next poll, which in a strip-mined loop is many iterations away. A program whose mask has a lane
+   beyond the array or segment, which must get an
+   IndexOutOfBoundsException, instead reads or writes past the end. Same kind and same preconditions as
+   counterexample 3 (a wrong program, an I/O error on a mapped page, a compilation with unsafe accesses), but the
+   value that is lost is a vector operand of the check, not its mask result, so the mask kill does not cover it.
+   The argument "a mask in xmm0-15 loses the same lanes as the vector it checks" does not help: here the check
+   compares a vector with nothing the access uses.
+   Possible fixes, cheapest first: compute the bounds mask of `checkIndex0()` from the general purpose
+   registers where the platform can (the VectorMaskGen intrinsic behind `indexPartiallyInUpperRange`), so that
+   the check has no vector operand; or extend the search of this branch from masks to the vectors that reach a
+   check (a compare whose mask reaches one) and keep those on the stack for the compare. The second is general
+   but puts a reload in front of every such compare whose operand is live across a raw access, including the
+   needle of a search loop (`v.compare(EQ, needle).anyTrue()`).
+2. **The same shape for the index vector of a gather or scatter, if the allocator gives the check and the access
+   different copies.** `checkIndex(vix, length)` and the scatter both read `vix`. If one reads a register
+   copy and the other a stack copy made before the fault (post-allocation copy removal points a use at a
+   register that still holds the value, postaloc.cpp `elide_copy()`), the check can see zeroed upper lanes
+   (index 0, in bounds) while the scatter uses the intact ones. I did not construct a case; the argument of (c)
+   for gathers ("a zeroed lane becomes index 0, which a passed check implies is in range") assumes one copy.
+3. **Vector API segment accesses do not make a compilation "unsafe"** (see the top of this section), so a page
+   error at such an access in a method without a scalar unsafe access is not resumed but reported as a crash.
+   That is upstream behaviour and outside the invariant, but it bounds where the unsafe window exists.
