@@ -1,0 +1,126 @@
+name: 'JDK-8365196 cost-checks bench 2'
+
+# Review-only. A second, short pass of the cost-checks bench on windows-2025: the register pressure kernels with the
+# unsafe read inside the compilation that holds the registers, and the null check kernels with loops aligned to 64
+# bytes. Configurations: B the unpatched base, N the notrap branch (round 11 bundles), C the cost-checks branch, O the
+# cost-checks branch with the mode off.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-checksbench2-*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  # The notrap CI run whose bundles are N (notrap) and B (base).
+  NOTRAP_RUN: 45856843905
+  # The cost-checks CI run whose bundles are C.
+  CHECKS_RUN: 45905096158
+
+jobs:
+  bench:
+    name: bench (${{ matrix.os }}, ${{ matrix.slot }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025]
+        slot: [1, 2, 3, 4, 5]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review2
+            review3
+            review5
+            review6
+            review7
+            review10
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-notrap
+          run-id: ${{ env.NOTRAP_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-base
+          path: b-base
+          run-id: ${{ env.NOTRAP_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-checks
+          run-id: ${{ env.CHECKS_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-debug
+          path: b-checks-debug
+          run-id: ${{ env.CHECKS_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'Opto assembly and JMH: base (B), notrap (N), cost-checks (C), cost-checks mode off (O)'
+        run: |
+          set +e
+          mkdir -p out notrap base checks checksd
+          unzip -q b-notrap/jdk-windows-x64.zip -d notrap; unzip -q b-base/jdk-windows-x64.zip -d base
+          unzip -q b-checks/jdk-windows-x64.zip -d checks; unzip -q "$(ls b-checks-debug/jdk-windows-x64*.zip | head -1)" -d checksd
+          bin() { dirname "$(find "$1" -name java.exe -path '*/bin/*' | head -1)"; }
+          NBIN=$(bin notrap); BBIN=$(bin base); CBIN=$(bin checks); DBIN=$(bin checksd)
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" | tee out/build.txt
+          "$CBIN/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|AvoidLosableStateAtTraps|UseFPUForSpilling|IntelJccErratumMitigation|OptoLoopAlignment|CodeEntryAlignment) ' | tee out/flags.txt
+          m2=https://repo1.maven.org/maven2
+          for a in org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar; do
+            curl -sfL -o "lib-$(basename $a)" "$m2/$a" || echo "download failed: $a"
+          done
+          cp="lib-jmh-core-1.37.jar;lib-jopt-simple-5.0.4.jar;lib-commons-math3-3.6.1.jar"
+          "$BBIN/javac" --add-modules jdk.incubator.vector -proc:full -cp "$cp;lib-jmh-generator-annprocess-1.37.jar" -d jmhc \
+            src/review2/R2Bench.java src/review3/R3Bench.java src/review5/R5Bench.java src/review6/R6Bench.java \
+            src/review7/R7Bench.java src/review10/R10Bench.java 2>&1 | grep -v -i warning | tail -5
+          declare -A JAVA FLAGS
+          JAVA[B]="$BBIN/java"; FLAGS[B]=""
+          JAVA[N]="$NBIN/java"; FLAGS[N]=""
+          JAVA[C]="$CBIN/java"; FLAGS[C]=""
+          JAVA[O]="$CBIN/java"; FLAGS[O]="-XX:+UnlockDiagnosticVMOptions -XX:-AvoidLosableStateAtTraps"
+          jmh() { # tag config forks extra-jvm-args pattern
+            local tag=$1 c=$2 forks=$3 extra=$4 pattern=$5
+            "${JAVA[$c]}" -cp "jmhc;$cp" org.openjdk.jmh.Main \
+              -jvmArgsAppend "--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED ${FLAGS[$c]} $extra" \
+              -rf csv -rff "out/$tag.csv" -f $forks -wi 3 -i 5 -w 1 -r 1 "$pattern" > "out/$tag.log" 2>&1
+          }
+          # 1. The opto assembly of the pressure kernels, cost-checks fastdebug, mode on
+          "$DBIN/java" -cp "jmhc;$cp" org.openjdk.jmh.Main             -jvmArgsAppend "--add-modules jdk.incubator.vector -XX:+UnlockDiagnosticVMOptions -XX:+AvoidLosableStateAtTraps -XX:-TieredCompilation -XX:+PrintOptoStatistics -XX:CompileCommand=print,*R10Bench::*Inside"             -f 1 -wi 3 -i 1 -w 2 -r 1 "R10Bench.*Inside" > "out/asm-on.log" 2>&1
+          echo "SUMMARY asm on explicit-null-checks=$(grep -c 'explicit null check' out/asm-on.log) null-checks=$(grep -c 'NullCheck' out/asm-on.log)" | tee -a out/summary.txt
+          # 2. review10 and the null check kernels, interleaved rounds
+          for round in 1 2 3; do
+            order="B N C O"; [ $round = 2 ] && order="N C O B"; [ $round = 3 ] && order="C O B N"
+            for c in $order; do
+              jmh "jmh-$c-$round" $c 2 "" "review10.R10Bench|R7Bench.nullCheck"
+              tail -20 "out/jmh-$c-$round.log"
+            done
+          done
+          # 3. The null check kernels with loops and entries aligned to 64 bytes
+          for round in 1 2 3; do
+            order="B N C O"; [ $round = 2 ] && order="C O B N"; [ $round = 3 ] && order="O B N C"
+            for c in $order; do
+              jmh "align-$c-$round" $c 2 "-XX:+UnlockExperimentalVMOptions -XX:CodeEntryAlignment=64 -XX:OptoLoopAlignment=64" "R7Bench.nullCheckVectorLive|R7Bench.nullCheckScalar|R10Bench.nullCheckVectorDeadOnNullPath"
+            done
+          done
+          { echo "### $(cat out/cpu.txt) | $(cat out/build.txt)"; echo '```'; cat out/flags.txt out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: bench-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
