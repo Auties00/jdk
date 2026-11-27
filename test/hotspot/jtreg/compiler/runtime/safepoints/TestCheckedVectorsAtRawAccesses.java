@@ -118,9 +118,11 @@ public class TestCheckedVectorsAtRawAccesses {
 
     static final int ITERS = 256;
     static final long LIMIT = 256;           // the bytes of the segment the masked store writes to
-    static final long STORE_AT = LIMIT - 28; // lanes 0-6 are inside, lane 7 is outside
-    static final long GOOD_BITS = 0x7F;
-    static final long BAD_BITS = 0xFF;
+    static final long STORE_AT = LIMIT - 24; // lanes 0-5 are inside, lanes 6 and 7 are outside
+    // Lane 0 is never set: a mask with every lane set is checked as a whole range, not by lane, and
+    // the test for that case must fail in the lanes that a resumed exception keeps.
+    static final long GOOD_BITS = 0x3E;
+    static final long BAD_BITS = 0xBE;       // and lane 7
 
     // The check of the masked store compares the lane numbers, a vector the loop keeps in a
     // register, with the lanes left before the limit. The store is never wholly in bounds, so
@@ -238,7 +240,7 @@ public class TestCheckedVectorsAtRawAccesses {
         if (only == null || only.equals("laneCheck")) {
             int sum = laneCheckKernel(in, a.pos, a.out, a.at, a.bits, ITERS);
             check(sum == 0, "laneCheckKernel: " + sum);
-            for (long at = STORE_AT; at < LIMIT; at += 4) {
+            for (long at = STORE_AT + 4; at < LIMIT; at += 4) {
                 check(a.whole.get(INT, at) == 0x5A5A5A5A, "laneCheckKernel did not store at " + at);
             }
             a.checkGuard();
