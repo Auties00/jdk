@@ -20,9 +20,9 @@ permissions:
 
 env:
   # The unpatched base (2b376fb353c), as copied by run 45043642784.
-  BASE_RUN: 45043642784
+  BASE_RUN: 46023299763
   # scrub14 (c6f997c2c66), as built by run 45112930164.
-  SCRUB14_RUN: 45112930164
+  SCRUB14_RUN: 46023299763
   # A notrap CI run of the branch before the cost branches (2fc793f7a63), for the bench.
   NOTRAP_RUN: 45896947412
   # The CI run of cost-kmask (73360dc3de3): the mode without the protection of the vectors that reach a check.
@@ -87,7 +87,7 @@ jobs:
           github-token: ${{ github.token }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: bundles-windows-x64
+          name: bundles-windows-x64-scrub14
           path: scrub14
           run-id: ${{ env.SCRUB14_RUN }}
           github-token: ${{ github.token }}
@@ -361,9 +361,13 @@ jobs:
               tail -40 "out/jmh-$c-$round.log"
             done
           done
+          "${JAVA[N]}" -Djava.library.path=. -cp "jmhc;$cp" org.openjdk.jmh.Main             -jvmArgsAppend "--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow -Djava.library.path=. -Xlog:jit+compilation=debug"             -f 1 -wi 3 -i 1 -w 1 -r 1 "review9|review10" > out/decisions.log 2>&1
+          grep "no-trap:" out/decisions.log | sed 's/^.*no-trap/no-trap/' | sort | uniq -c | sort -rn > out/decisions.txt
+          echo "retried or without a copy: $(grep -c -E 'retrying|no copy|cannot be kept' out/decisions.txt)" | tee -a out/decisions.txt
+          rm -f out/decisions.log
           RB="scrabble future-genetic mnemonics fj-kmeans dotty"
-          for round in 1 2; do
-            order="P N"; [ $round = 2 ] && order="N P"
+          for round in 1 2 3; do
+            order="B O N"; [ $round = 2 ] && order="O N B"; [ $round = 3 ] && order="N B O"
             for b in $RB; do
               for c in $order; do
                 timeout 900 "${JAVA[$c]}" ${FLAGS[$c]} -Xms2g -Xmx2g -jar renaissance.jar -r 12 --csv "out/ren-$b-$c-$round.csv" $b > "out/ren-$b-$c-$round.log" 2>&1 || echo "renaissance $b $c failed: $(tail -3 out/ren-$b-$c-$round.log | tr '\n' ' ')"
@@ -437,60 +441,15 @@ jobs:
               tail -30 "out/jmh-$c-$round.log"
             done
           done
+          # Whether any compilation of the kernels was made again, or a value got no copy
+          "${JAVA[N]}" -cp "jmhc:$cp" org.openjdk.jmh.Main             -jvmArgsAppend "--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow -XX:+UnlockDiagnosticVMOptions ${FLAGS[N]} -Xlog:jit+compilation=debug"             -f 1 -wi 3 -i 1 -w 1 -r 1 "review9|review10" > out/decisions.log 2>&1
+          grep "no-trap:" out/decisions.log | sed 's/^.*no-trap/no-trap/' | sort | uniq -c | sort -rn > out/decisions.txt
+          echo "retried or without a copy: $(grep -c -E 'retrying|no copy|cannot be kept' out/decisions.txt)" | tee -a out/decisions.txt
+          head -40 out/decisions.txt; rm -f out/decisions.log
           exit 0
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: kbench-linux-${{ matrix.slot }}
-          path: out
-          retention-days: 30
-
-  opto-linux:
-    name: opto (linux)
-    needs: build-linux-x64
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          path: src
-          sparse-checkout: |
-            review9
-            kmask
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: bundles-linux-x64
-          path: n-release
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: bundles-linux-x64-debug
-          path: n-debug
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: bundles-linux-x64
-          path: b-release
-          run-id: ${{ env.NOTRAP_RUN }}
-          github-token: ${{ github.token }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: bundles-linux-x64-debug
-          path: b-debug
-          run-id: ${{ env.NOTRAP_RUN }}
-          github-token: ${{ github.token }}
-      - name: 'PrintOptoAssembly of the bench kernels'
-        run: |
-          set +e
-          mkdir -p out base-release base-debug new-release new-debug jtreg
-          for l in release debug; do
-            tar -xzf "$(ls b-$l/jdk-linux-x64*.tar.gz | grep -v symbols | grep -v static | head -1)" -C base-$l
-            tar -xzf "$(ls n-$l/jdk-linux-x64*.tar.gz | grep -v symbols | grep -v static | head -1)" -C new-$l
-          done
-          export SLOT=opto
-          bash src/kmask/run.sh
-          exit 0
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
-        with:
-          name: kexp-opto
           path: out
           retention-days: 30
