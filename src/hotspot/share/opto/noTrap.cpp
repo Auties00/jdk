@@ -389,11 +389,11 @@ static bool raw_access_between(const Block* block, uint from, uint to) {
   return false;
 }
 
-// Whether n is a mask with every lane set or clear made from a constant, by an instruction without
-// TEMPs or kills: a copy of it can be placed anywhere.
+// Whether n is a mask with every lane set or clear made from a constant (an immediate, or a constant
+// in a register), by an instruction without TEMPs or kills: a copy of it can be placed anywhere.
 static bool is_constant_mask(const Node* n) {
-  if (!n->is_Mach() || n->as_Mach()->ideal_Opcode() != Op_MaskAll ||
-      n->req() != 2 || n->in(0) != nullptr || n->in(1) == nullptr || !n->in(1)->is_Con()) {
+  if (!n->is_Mach() || n->as_Mach()->ideal_Opcode() != Op_MaskAll || n->req() > 2 || n->in(0) != nullptr ||
+      (n->req() == 2 && (n->in(1) == nullptr || !n->in(1)->is_Con()))) {
     return false;
   }
   for (DUIterator_Fast kmax, k = n->fast_outs(kmax); k < kmax; k++) {
@@ -504,6 +504,10 @@ static int protect_masks(Compile* C, PhaseCFG* cfg, const MaskFlow& flow, const 
     for (int r = 0; r < readers.length(); r++) {
       Node* reader = readers.at(r);
       const uint k = inputs.at(r);
+      if (r > 0 && readers.at(r - 1) == reader && !reader->is_Phi()) {
+        reader->set_req(k, reader->in(inputs.at(r - 1))); // the copy made for its other input
+        continue;
+      }
       Node* copy;
       if (constant) {
         copy = mask->clone();

@@ -24817,6 +24817,38 @@ instruct mask_all_evexI_LE32(kReg dst, rRegI src) %{
   ins_pipe( pipe_slow );
 %}
 
+// The all-true mask of up to 16 lanes, without a general purpose register: with
+// AvoidLosableStateAtTraps this mask is computed again in front of the readers that check it (see
+// NoTrapSites::kill_masks_where_checked()), which in a loop with a masked tail is once per
+// iteration.
+instruct mask_all_true_evexI_LE16(kReg dst, immI_M1 src) %{
+  predicate(Matcher::vector_length(n) <= 16);
+  match(Set dst (MaskAll src));
+  format %{ "mask_all_true_evexI_LE16 $dst \t" %}
+  ins_encode %{
+    int mask_len = Matcher::vector_length(this);
+    __ kxnorwl($dst$$KRegister, $dst$$KRegister, $dst$$KRegister);
+    if (mask_len != 16) {
+      __ kshiftrwl($dst$$KRegister, $dst$$KRegister, 16 - mask_len);
+    }
+  %}
+  ins_pipe( pipe_slow );
+%}
+
+instruct mask_all_true_evexL_LE16(kReg dst, immL_M1 src) %{
+  predicate(Matcher::vector_length(n) <= 16);
+  match(Set dst (MaskAll src));
+  format %{ "mask_all_true_evexL_LE16 $dst \t" %}
+  ins_encode %{
+    int mask_len = Matcher::vector_length(this);
+    __ kxnorwl($dst$$KRegister, $dst$$KRegister, $dst$$KRegister);
+    if (mask_len != 16) {
+      __ kshiftrwl($dst$$KRegister, $dst$$KRegister, 16 - mask_len);
+    }
+  %}
+  ins_pipe( pipe_slow );
+%}
+
 instruct mask_not_immLT8(kReg dst, kReg src, rRegI rtmp, kReg ktmp, immI_M1 cnt) %{
   predicate(Matcher::vector_length(n) < 8 && VM_Version::supports_avx512dq());
   match(Set dst (XorVMask src (MaskAll cnt)));
