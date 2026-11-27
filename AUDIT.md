@@ -519,6 +519,16 @@ compilation with unsafe accesses), but the value that is lost is a vector operan
 result, and the check compares that vector with nothing the access uses, so "the mask loses the same lanes as the
 vector it checks" does not help.
 
+What the compiled code looks like (x64, -XX:UseAVX=2, PrintOptoAssembly of the masked store of
+TestCheckedVectorsAtRawAccesses.laneCheckKernel): the lane numbers are a memory operand of a multiply by a
+broadcast of the lane size, `vpmulld ymm2, ymm7, [iota]`, and it is that broadcast, `replicateI ymm7, #4`, which
+the loop keeps in a register; zeroed above bit 128 it gives the lanes 4 to 7 the scaled number 0. Three things
+decide whether the hole is reached, and a test of it has to get all three right. The limit of the lanes must not
+be a vector of the loop too (zeroed with the lane numbers, 0 >= 0 reports every lane and the check fails safe).
+The mask must not have every lane set: the Vector API tests `allTrue` first and checks such a mask as a whole
+range, in general purpose registers. And the mask must have a clear lane below bit 128: the `allTrue` test reads
+an all-ones vector of the loop, and with only upper lanes clear a zeroed all-ones vector reports "all true".
+
 ### The same shape for the index vector of a gather or scatter
 
 `checkIndex(vix, length)` and the gather or scatter both read `vix`. The argument of (c) for them ("a zeroed lane
@@ -614,6 +624,12 @@ a memory segment, the common case, for the sake of that one.
    - a constant mask (MaskAll of a constant, the all-true mask of the full iterations of a loop with a masked
      tail): a copy of its definition right in front of the reader. On x64 the all-true mask of up to 16 lanes
      is a kxnor (cpu/x86/x86.ad, mask_all_true_evexI_LE16), so the copy needs no general purpose register;
+   - a mask or vector whose instruction can be run again (no TEMPs, kills, control or memory input; inputs that
+     are constants, integer or pointer values, and other masks and vectors: the mask of a loop iteration, a
+     compare of the lane numbers with a broadcast of the lanes left): a copy of that instruction right in front of
+     the reader. The integer inputs are never in losable registers in these compilations, and the masks and
+     vectors among the inputs are then read for the reader's check, so they are found and protected in turn. The
+     paths that do not check pay nothing;
    - any other mask or vector: a copy bound to the stack, made right after the definition, and one reload of it
      right in front of each reader. Neither node carries the copy flag, so the allocator's copy removal, which
      follows copies back to a register that still holds the value, cannot point the reader at the value's
@@ -641,8 +657,9 @@ access of such a compilation kills the mask registers, or xmm16-31 too (NoTrapPl
 the vectors are followed. On AVX2 there are no mask registers; masks are vectors and are followed as such. p7 is
 never killed: losing it only stops the accesses it governs.
 
-What a protected value costs: for a constant mask, one kxnor in front of each reader that checks it; for any other
-mask or vector, one store to the stack after its definition and one load in front of each reader that checks it,
+What a protected value costs: for a constant mask, one kxnor in front of each reader that checks it; for a value
+that can be computed again, its instruction once more in front of each such reader; for any other mask or vector,
+one store to the stack after its definition and one load in front of each reader that checks it,
 which in Vector API code is on the slow paths (an access that is not wholly in bounds) and at explicit tests. A
 value that no check reads costs nothing, whatever raw accesses it is live across.
 
@@ -769,41 +786,68 @@ toward zero, and checks the sum that method computes next.
 
 ### The integrated build
 
-The three cost changes and the rule for vectors together, run 46048738808
-(https://github.com/Auties00/jdk/actions/runs/46048738808) with the builds of run 46043336189: JMH, three
-interleaved rounds of two forks on each machine, the median of the rounds, as a percentage against the same build
-with -XX:-AvoidLosableStateAtTraps. "before" is the branch at 2fc793f7a63 (before the cost changes), "now" the
-integrated build. windows-2025 is the kernel that loses the state.
+The three cost changes and the rule for masks and vectors together. JMH, three interleaved rounds of two forks on
+each machine, the median of the rounds, as a percentage against the same build with
+-XX:-AvoidLosableStateAtTraps. "before" is the branch at 2fc793f7a63 (before the cost changes), "now" the
+integrated build. windows-2025 is the kernel that loses the state. Runs 46048738808
+(https://github.com/Auties00/jdk/actions/runs/46048738808, the EPYC 9V74 column, measured before the values that
+can be computed again were) and 46062686610 (https://github.com/Auties00/jdk/actions/runs/46062686610, the other
+columns, the final code).
 
-| kernel | EPYC 9V74 (AVX-512, 3 machines) before -> now | Xeon 8573C (AVX-512) | EPYC 7763 (AVX2), windows-2025 | EPYC 7763 (AVX2), windows-2022 |
+| kernel | EPYC 9V74 (AVX-512, 3 machines) before -> now | Xeon 8573C (AVX-512) | EPYC 9V45 (AVX-512, windows-2022) | EPYC 7763 (AVX2, 2 machines) |
 |---|---|---|---|---|
-| unsafeWithLiveMask | +98% -> +2% | +44% -> +2% | +6% -> +5% | +7% -> +5% |
-| constantMaskPredicate | +62% -> +2% | +50% -> 0% | 0% -> 0% | 0% -> 0% |
-| tailMaskedCopy | +17% -> +6% | +20% -> +5% | +6% -> +16% | +6% -> +14% |
-| compareAcrossLoad | +4% -> +3% | -2% -> -3% | 0% -> +1% | +1% -> +1% |
-| compareAcrossLoadMaskedStore | +11% -> +10% | +21% -> +12% | +7% -> +4% | +9% -> +6% |
-| segmentMaskedSum | +7% -> +1% | +18% -> +11% | +7% -> +10% | +4% -> +9% |
-| segmentCompareBlendStore | +7% -> +10% | +18% -> +3% | +9% -> +1% | +9% -> +4% |
-| heapMaskedSum (control) | -2% -> +3% | -4% -> -1% | -1% -> +2% | -1% -> +1% |
-| heapCompareBlendStore (control) | -1% -> +1% | +1% -> +1% | 0% -> 0% | 0% -> 0% |
-| nullCheckVectorDeadOnNullPath | +2% -> -3% | 0% -> 0% | +7% -> +2% | +6% -> +2% |
-| scalarFpPressure | -3% -> 0% | -6% -> 0% | +10% -> 0% | 0% -> 0% |
-| scalarFpPressureUnsafe | -3% -> 0% | -6% -> 0% | 0% -> 0% | 0% -> 0% |
-| gprPressureUnsafe | 0% -> 0% | 0% -> 0% | 0% -> 0% | 0% -> 0% |
-| JNI call | +1% -> +1% | 0% -> 0% | 0% -> 0% | 0% -> 0% |
-| FFM downcall | +7% -> +7% | +3% -> +3% | +7% -> +7% | +6% -> +6% |
-| FFM critical downcall | +8% -> +8% | +19% -> +19% | +7% -> +8% | +7% -> +7% |
-| FFM upcall | +1% -> +1% | +5% -> +4% | +1% -> +2% | -3% -> -3% |
+| unsafeWithLiveMask | +98% -> +2% | +43% -> +5% | +74% -> +1% | +6% -> +6% |
+| constantMaskPredicate | +62% -> +2% | +44% -> -1% | +93% -> +2% | 0% -> 0% |
+| tailMaskedCopy | +17% -> +6% | +14% -> +2% | +22% -> +6% | +7% -> +8% |
+| compareAcrossLoad | +4% -> +3% | -3% -> -4% | 0% -> +2% | +1% -> +1% |
+| compareAcrossLoadMaskedStore | +11% -> +10% | +22% -> +7% | +13% -> +22% | +8% -> +5% |
+| segmentMaskedSum | +7% -> +1% | +16% -> +11% | +1% -> -2% | +4% -> +9% |
+| segmentCompareBlendStore | +7% -> +10% | +19% -> +5% | +8% -> -1% | +5% -> +7% |
+| heapMaskedSum (control) | -2% -> +3% | 0% -> -2% | -4% -> -3% | -1% -> +1% |
+| heapCompareBlendStore (control) | -1% -> +1% | -2% -> 0% | -12% -> -6% | 0% -> 0% |
+| nullCheckVectorDeadOnNullPath | +2% -> -3% | 0% -> 0% | +2% -> +1% | +6% -> +3% |
+| scalarFpPressure | -3% -> 0% | -7% -> -1% | -1% -> +2% | +1% -> 0% |
+| JNI call | +1% -> +1% | -1% -> -1% | -4% -> 0% | 0% -> 0% |
+| FFM downcall | +7% -> +7% | +3% -> +3% | -5% -> -4% | +6% -> +6% |
+| FFM critical downcall | +8% -> +8% | +18% -> +18% | -2% -> -2% | +7% -> +7% |
+| FFM upcall | +1% -> +1% | +5% -> +3% | +10% -> +10% | 0% -> 0% |
 
 The gains of each change are in the integrated build: the mask kernels on AVX-512, the null check and spill
-kernels, the upcall. The vectorPressure kernels of review10 are left out: they differ by 10% to 30% between forks
-of one configuration, the unpatched base included. What the rule for vectors adds shows on AVX2, where masks are
-vectors and are now kept on the stack for their checks like the masks of AVX-512: tailMaskedCopy is 8 to 10 points
-slower than before on the 7763, and segmentMaskedSum 3 to 5; on AVX-512 the same kernels are faster than before.
-On Linux (run 46043336189, mode forced, against the build before with the mode off): unsafeWithLiveMask +83% ->
-+6% (EPYC 9V45) and +19% -> +3% (Xeon 6975P-C), constantMaskPredicate +107% -> +3% and +34% -> -2%,
-tailMaskedCopy +22% -> +12% and +10% -> +3%. No compilation of a bench kernel was made again without vectors or
-with the kill at every raw access, and no value was left without a copy (the decisions log of the same run).
+kernels, the upcall on the Xeon. The vectorPressure kernels of review10 are left out: they differ by 10% to 30%
+between forks of one configuration, the unpatched base included, and the 9V45 column is one machine whose controls
+move by as much as its kernels.
+
+AVX2. With the first form of the rule for vectors (a copy on the stack for every protected value), tailMaskedCopy
+was +16% and +14% on the two 7763 of run 46048738808 against +6% before: the reader that needs the mask of the
+iteration really checks (the mask is live across the masked load of the segment and is tested in the slow path of
+the store, and the lane numbers feed it), so the rule was not narrowed; the mask and the compare that makes it
+are computed again in the slow path instead, and tailMaskedCopy is +8% (before +7%; the same build measures +2%
+and +6% on AVX-512, where it was +14% to +22%). segmentMaskedSum stays at +9% on the 7763 against +4% before,
+in both runs: its compilation has no unsafe access (no decision of the rule is logged for it), so the rule for
+vectors does not touch it, and the difference is not explained here.
+
+On Linux (the same runs, mode forced, against the build before with the mode off): unsafeWithLiveMask +20% -> -4%,
+constantMaskPredicate +35% -> -2%, tailMaskedCopy +14% -> +1% (two Xeon 6975P-C). No compilation of a bench kernel
+was made again without vectors or with the kill at every raw access, and no value was left without a copy, on
+Linux and on the four Windows machines (the decisions logs of run 46062686610).
+
+Renaissance (run 46062686610; scrabble, future-genetic, mnemonics, fj-kmeans, dotty; three interleaved rounds of
+12 repetitions, the second half of each, the median of the rounds, against the unpatched base on the same machine;
+each cell is the mode off / the mode on):
+
+| | Xeon 8573C | EPYC 7763 | EPYC 7763 | EPYC 9V45 (windows-2022) |
+|---|---|---|---|---|
+| dotty | 0% / -3% | +2% / +2% | +2% / +4% | +9% / -4% |
+| fj-kmeans | 0% / +1% | -2% / -2% | -1% / 0% | +4% / +5% |
+| future-genetic | 0% / 0% | 0% / +1% | +1% / 0% | +4% / +4% |
+| mnemonics | 0% / -4% | +2% / +2% | +2% / -1% | -5% / -5% |
+| scrabble | 0% / +2% | 0% / +4% | -1% / -1% | +2% / +7% |
+
+The rounds of one configuration on one machine differ by up to 13% (dotty and scrabble on the 9V45), and the mode
+off moves against the base by as much as the mode on does, so nothing here is outside the scatter. scrabble is the
+one benchmark where the mode on is above the mode off on three of the four machines (by 2 to 5 points). mnemonics,
+which was 7% to 9% slower than the branch before on two of three 9V74 in run 46048738808, is not slower than the
+base on any machine of this run.
 
 ### MXCSR
 
@@ -1040,7 +1084,7 @@ Tests (test/hotspot/jtreg):
   the decisions from the log, and its `fault` id takes a real page error at the raw access.
 - runtime/jni/mxcsr/TestMXCSRRestore (JNI, FFM downcalls and upcalls) and TestMXCSRAfterJVMTICallback.
 
-CI of the integrated branch: run 46043336189 (https://github.com/Auties00/jdk/actions/runs/46043336189), builds
+CI of the integrated branch: run 46062686610 (https://github.com/Auties00/jdk/actions/runs/46062686610), builds
 of windows-x64, windows-aarch64 and linux-x64, release and fastdebug; on linux-x64 with the mode forced the
 compiler tier1 groups, tier2, the vector tests, compiler/runtime/safepoints and jdk/foreign; on windows-2025 the
 vector tests, jdk/incubator/vector, jdk/foreign, compiler/runtime/safepoints, runtime/jni/mxcsr, compiler/c1 and
@@ -1049,28 +1093,29 @@ compiler/vectorapi. All pass but compiler/vectorapi/TestMaskedNotAllOnes.java on
 the matcher (`duplicating node that's already been matched`) with the mode off as well: it is JDK-8386697 of
 mainline, open at the base of this branch.
 
-The reproducers, runs 46048738808 and 46058917474, on windows-2025 (26100.33828, native probe: bug present; EPYC
-9V74, Xeon 8573C and two EPYC 7763) and windows-2022 (not affected):
+The reproducers, in the same run and in run 46078200747 (https://github.com/Auties00/jdk/actions/runs/46078200747,
+the final test), on windows-2025 (26100.33828, native probe: bug present; EPYC 9V74 and 9V45) and windows-2022
+(not affected):
 
 - TestExceptionXStateLoss passes with the mode (5 of 5 ids, twice per machine) and fails with
   -XX:-AvoidLosableStateAtTraps and on the unpatched base (a quarter to three quarters of the calls wrong);
   TestExceptionXStateLossC1 passes with the mode and fails without it on the AVX-512 machines.
 - TestCheckedVectorsAtRawAccesses, id `fault`, takes a real page error at the raw access of each kernel, resumed
   in the compiled frame: a file mapped from a virtual disk that is then detached (it needs an administrator and
-  runs only with -Dtest.xstate.vhd=true), with -XX:UseAVX=2 so that every machine keeps masks in vectors. On the
-  affected kernel `userCheckKernel` (a check kept in long-lane vectors across the read) lets the failed check pass
-  on the build of cost-kmask, which is this branch without the rule for vectors (2 of 2 runs on each of 4
-  machines), with the mode off and on the unpatched base, and reports the bad index with the rule (8 of 8). On
-  windows-2022 every build passes.
-- The same id did not fail without the rule for the other two kernels. `gatherKernel` cannot: with one copy of
-  the index vector, which is what this compilation has, a zeroed lane is index 0 and the gather stays in bounds;
-  the case needs the allocator to give the check and the access different copies, which no source construction
-  forces. `laneCheckKernel` (counterexample 4) threw InternalError and wrote nothing outside its segment on every
-  build: with the limit of the lanes broadcast after the read, the compiled code of -XX:UseAVX=2 evidently still
-  does not hold the lane numbers in a register across the read in a way that lets the check pass. What is
-  deterministic for these two is the id `protects`: on every kernel, their compilations have values that are live
-  across the raw access and reach a check, and with the rule each gets its copy; that id fails on the build
-  without the rule.
+  runs only with -Dtest.xstate.vhd=true), with -XX:UseAVX=2 so that every machine keeps masks in vectors, and
+  without on-stack replacement so that the kernels run compiled from their first iteration. On the affected
+  kernel, on the build of cost-kmask (this branch without the rule for vectors), with the mode off and on the
+  unpatched base, in 10 of 10 runs on two machines:
+  - `laneCheckKernel` (counterexample 4): the masked store, whose mask has a lane outside the segment from the
+    iteration of the page error on, passes its check in that iteration and in all 127 after it, and writes
+    outside the segment;
+  - `userCheckKernel` (a check kept in long-lane vectors across the read) lets the failed check pass.
+  With the rule both stop at the iteration of the page error (4 of 4 runs), as every build does on windows-2022.
+- `gatherKernel` cannot fail there: with one copy of the index vector, which is what this compilation has, a
+  zeroed lane is index 0 and the gather stays in bounds; the case needs the allocator to give the check and the
+  access different copies, which no source construction forces. Its guard is the id `protects`: on every kernel,
+  the compilations of the three kernels have values that are live across the raw access and reach a check, each
+  gets its copy, and nothing is compiled again; that id fails on the build without the rule.
 
 ## 10. History
 
