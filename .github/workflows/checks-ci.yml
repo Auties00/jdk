@@ -1,0 +1,247 @@
+name: 'JDK-8365196 cost-checks CI'
+
+# Review-only. Builds the cost-checks branch (windows-x64, linux-x64 and windows-aarch64) and tests
+# AvoidLosableStateAtTraps: the compiler groups, the vector tests and the foreign tests on linux-x64
+# with the mode forced (so that its debug checks run on every compilation), the same with
+# UseFPUForSpilling, the compiler tier1 and tier2 groups and the vector and foreign tests on
+# windows-2025 (whose kernel loses the state) and the compiler tier1 groups and the vector tests on
+# windows-11-arm with the mode on by default, and the reproducers on windows-2025 with the mode on
+# (must pass) and off (fails where the kernel loses state).
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-checks-*'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  prepare:
+    name: 'Prepare'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+      - name: 'Build JTReg'
+        uses: ./.github/actions/build-jtreg
+
+  build-windows-x64:
+    name: windows-x64
+    needs: prepare
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      platform: windows-x64
+      runs-on: windows-2022
+      architecture: 'x86.x64'
+      msvc-toolset-version: '14.44'
+
+  build-linux-x64:
+    name: linux-x64
+    needs: prepare
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      platform: linux-x64
+      gcc-major-version: '10'
+
+  build-windows-aarch64:
+    name: windows-aarch64
+    needs: prepare
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      platform: windows-aarch64
+      runs-on: windows-11-arm
+      architecture: 'ARM64'
+      msvc-toolset-version: '14.51'
+      debug-levels: '[ "debug" ]'
+
+  compiler-forced-linux-x64:
+    name: 'compiler, mode forced, linux-x64'
+    needs: [prepare, build-linux-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: linux-x64
+      bootjdk-platform: linux-x64
+      runs-on: ubuntu-24.04
+      debug-suffix: -debug
+      tag: forced
+      java-options: '-XX:+UnlockDiagnosticVMOptions -XX:+AvoidLosableStateAtTraps'
+      tests: '[{"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}, {"test-name": "hs/tier2 compiler", "test-suite": "test/hotspot/jtreg/:tier2_compiler", "debug-suffix": "-debug"}, {"test-name": "hs/vector", "test-suite": "test/hotspot/jtreg/compiler/vectorapi test/hotspot/jtreg/compiler/vectorization", "debug-suffix": "-debug"}, {"test-name": "jdk/foreign", "test-suite": "test/jdk/java/foreign", "debug-suffix": "-debug"}]'
+
+  compiler-fpu-linux-x64:
+    name: 'compiler, mode forced, FPU spilling, linux-x64'
+    needs: [prepare, build-linux-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: linux-x64
+      bootjdk-platform: linux-x64
+      runs-on: ubuntu-24.04
+      debug-suffix: -debug
+      tag: forced-fpu
+      java-options: '-XX:+UnlockDiagnosticVMOptions -XX:+AvoidLosableStateAtTraps -XX:+UseFPUForSpilling'
+      tests: '[{"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}, {"test-name": "hs/vector", "test-suite": "test/hotspot/jtreg/compiler/vectorapi test/hotspot/jtreg/compiler/vectorization", "debug-suffix": "-debug"}, {"test-name": "jdk/foreign", "test-suite": "test/jdk/java/foreign", "debug-suffix": "-debug"}]'
+
+  compiler-windows-2025:
+    name: 'tier1, compiler tier2, vector, foreign, windows-2025'
+    needs: [prepare, build-windows-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: windows-x64
+      bootjdk-platform: windows-x64
+      architecture: 'x86.x64'
+      runs-on: windows-2025
+      debug-suffix: -debug
+      tag: compiler-2025
+      tests: '[{"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}, {"test-name": "hs/tier2 compiler", "test-suite": "test/hotspot/jtreg/:tier2_compiler", "debug-suffix": "-debug"}, {"test-name": "hs/vector", "test-suite": "test/hotspot/jtreg/compiler/vectorapi test/hotspot/jtreg/compiler/vectorization", "debug-suffix": "-debug"}, {"test-name": "jdk/vector", "test-suite": "test/jdk/jdk/incubator/vector"}, {"test-name": "jdk/foreign", "test-suite": "test/jdk/java/foreign"}, {"test-name": "hs/tier1 runtime", "test-suite": "test/hotspot/jtreg/:tier1_runtime", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 gc", "test-suite": "test/hotspot/jtreg/:tier1_gc", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 serviceability", "test-suite": "test/hotspot/jtreg/:tier1_serviceability", "debug-suffix": "-debug"}, {"test-name": "jdk/tier1 part 1", "test-suite": "test/jdk/:tier1_part1"}, {"test-name": "jdk/tier1 part 2", "test-suite": "test/jdk/:tier1_part2"}, {"test-name": "jdk/tier1 part 3", "test-suite": "test/jdk/:tier1_part3"}]'
+
+  compiler-windows-aarch64:
+    name: 'compiler tier1, vector, windows-aarch64'
+    needs: [prepare, build-windows-aarch64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: windows-aarch64
+      bootjdk-platform: windows-aarch64
+      architecture: 'ARM64'
+      runs-on: windows-11-arm
+      debug-suffix: -debug
+      tag: compiler-aarch64
+      tests: '[{"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}, {"test-name": "hs/vector", "test-suite": "test/hotspot/jtreg/compiler/vectorapi test/hotspot/jtreg/compiler/vectorization", "debug-suffix": "-debug"}]'
+
+  flags-windows-aarch64:
+    name: 'flags, windows-aarch64'
+    needs: [prepare, build-windows-aarch64]
+    runs-on: windows-11-arm
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-aarch64-debug
+          path: bundles
+      - name: 'The processor, the Windows build and the flags of the mode'
+        run: |
+          set +e
+          mkdir -p jdk
+          unzip -q "$(ls bundles/jdk-windows-aarch64*.zip | head -1)" -d jdk
+          JAVA="$(find jdk -name java.exe -path '*/bin/*' | head -1)"
+          {
+            powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()"
+            powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\""
+            "$JAVA" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseSVE|MaxVectorSize|AvoidLosableStateAtTraps) '
+            "$JAVA" -Xlog:os+cpu=info -version 2>&1 | grep -i -E 'sve|cpu' | head -10
+          } | tee out.txt
+          { echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+  repro:
+    name: repro (${{ matrix.os }}, ${{ matrix.slot }})
+    needs: [prepare, build-windows-x64]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025]
+        slot: [1, 2, 3, 4]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - id: jtreg
+        uses: ./.github/actions/get-jtreg
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: bundles
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-debug
+          path: bundles-debug
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Auties00/jdk-c2-avx512-windows-repro
+          path: xstate-repro
+      - name: 'The reproducers with the mode on (must pass) and off (fails where the kernel loses state)'
+        run: |
+          set +e
+          mkdir -p out jdk jdkd tests classes
+          unzip -q bundles/jdk-windows-x64.zip -d jdk
+          unzip -q "$(ls bundles-debug/jdk-windows-x64*.zip | head -1)" -d jdkd
+          tar -xzf bundles/tests-windows-x64.tar.gz -C tests
+          home() { (cd "$(dirname "$(find "$1" -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W); }
+          JDK=$(home jdk); JDKD=$(home jdkd)
+          NAT=$(cd "$(dirname "$(find tests -name ExceptionXState.dll | head -1)")" && pwd -W)
+          JT='${{ steps.jtreg.outputs.path }}'
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" | tee out/build.txt
+          "$JDK/bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|UseAPX|AvoidLosableStateAtTraps|UseFPUForSpilling) ' | tee out/flags.txt
+          clang -O2 -mxsave -o probe.exe xstate-repro/native/xstate_stale_header.c -ladvapi32 -lversion
+          ./probe.exe > out/probe.txt 2>&1
+          echo "SUMMARY native probe: $(grep -m1 '^RESULT' out/probe.txt)" | tee out/summary.txt
+          jt() {
+            local tag=$1 jdk=$2 opts=$3 test=$4
+            "$JDK/bin/java" -jar "$JT/lib/jtreg.jar" -jdk:"$jdk" -nativepath:"$NAT" -w "wk/$tag" -r "rp/$tag" \
+              -timeoutFactor:4 -verbose:summary -vmoptions:"-XX:-CreateCoredumpOnCrash $opts" $test > "out/jtreg-$tag.txt" 2>&1
+            local pass=$(grep -c '^Passed: ' "out/jtreg-$tag.txt")
+            local fail=$(grep -c -E '^(FAILED|Error): ' "out/jtreg-$tag.txt")
+            mkdir -p "out/jtr/$tag"; find "wk/$tag" -name '*.jtr' -exec cp {} "out/jtr/$tag/" \; 2>/dev/null
+            local wrong=$(cat out/jtr/$tag/*.jtr 2>/dev/null | grep -o 'calls=[0-9]* wrong=[0-9]*' | tr '\n' ' ')
+            echo "SUMMARY [$tag] passed=$pass failed=$fail $(grep -E '^(FAILED|Error): ' "out/jtreg-$tag.txt" | sed 's/.*#//' | tr '\n' ' ') :: $wrong" | tee -a out/summary.txt
+          }
+          LOSS=test/hotspot/jtreg/compiler/runtime/safepoints/TestExceptionXStateLoss.java
+          STRESS=test/hotspot/jtreg/compiler/runtime/safepoints/TestAvoidLosableStateAtTraps.java
+          OFF="-XX:+UnlockDiagnosticVMOptions -XX:-AvoidLosableStateAtTraps"
+          for r in 1 2 3; do
+            jt "on-$r" "$JDK" "" "$LOSS"
+            jt "off-$r" "$JDK" "$OFF" "$LOSS"
+          done
+          jt "ondebug" "$JDKD" "" "$LOSS"
+          C1LOSS=test/hotspot/jtreg/compiler/runtime/safepoints/TestExceptionXStateLossC1.java
+          for r in 1 2; do
+            jt "c1on-$r" "$JDK" "" "$C1LOSS"
+            jt "c1off-$r" "$JDK" "$OFF" "$C1LOSS"
+          done
+          jt "c1ondebug" "$JDKD" "" "$C1LOSS"
+          jt "stress" "$JDK" "" "$STRESS"
+          jt "stressdebug" "$JDKD" "" "$STRESS"
+          "$JDK/bin/javac" --add-modules jdk.incubator.vector -d classes xstate-repro/Repro.java 2>&1 | grep -v -i warning
+          repro() {
+            local tag=$1 java=$2 seed=$3; shift 3
+            local code=0 result
+            rm -f hs_err_*.log
+            "$java/bin/java" -XX:+UnlockDiagnosticVMOptions -XX:+SafepointALot -XX:GuaranteedSafepointInterval=1 \
+              -XX:+StressGCM -XX:+StressLCM -XX:StressSeed="$seed" "$@" -XX:-CreateCoredumpOnCrash -XX:ErrorFile=hs_err_%p.log \
+              --add-modules jdk.incubator.vector -cp classes Repro 10 4 > "out/repro-$tag-$seed.log" 2>&1 || code=$?
+            if ls hs_err_*.log > /dev/null 2>&1; then
+              result="CRASH ($(grep -m1 '^siginfo' hs_err_*.log | sed 's/^siginfo: //'))"; mv "$(ls hs_err_*.log | head -1)" "out/repro-$tag-$seed.hs_err.log"
+            elif [ $code = 3 ]; then result="WRONG ($(grep -m1 '^calls' "out/repro-$tag-$seed.log"))"
+            elif [ $code = 0 ]; then result="ok ($(grep -m1 '^calls' "out/repro-$tag-$seed.log"))"
+            else result="exit $code"; fi
+            echo "SUMMARY [repro $tag seed $seed ${*:-}] $result" | tee -a out/summary.txt
+          }
+          for seed in 13 18 25 39 54; do
+            repro on "$JDK" $seed
+            repro off "$JDK" $seed -XX:-AvoidLosableStateAtTraps
+          done
+          for seed in 13 25; do
+            repro onfpu "$JDK" $seed -XX:+UseFPUForSpilling
+          done
+          { echo "### $(cat out/cpu.txt) | $(cat out/build.txt)"; echo '```'; cat out/flags.txt out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          # The gate: with the mode on, every jtreg run passes and no reproducer run is wrong or crashes
+          bad=0
+          if grep -E '^SUMMARY \[(on-[0-9]|ondebug|c1on-[0-9]|c1ondebug|stress|stressdebug)\]' out/summary.txt | grep -v -E 'passed=[1-9][0-9]* failed=0 '; then bad=1; fi
+          if grep -E '^SUMMARY \[repro on' out/summary.txt | grep -v '\] ok '; then bad=1; fi
+          exit $bad
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: repro-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
