@@ -2857,9 +2857,14 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
       //   live across a raw access in a register that would lose it while the checked indices keep
       //   their low lanes: such an access kills the opmask registers (and, on AVX-512 without VL, BW
       //   and DQ, xmm16-31) or the SVE predicates other than p7, so a mask computed before it is
-      //   spilled and reloaded intact (Matcher::kill_masks_at_raw_accesses(); without it a failed
-      //   check of a scatter's indices could pass and the scatter write out of bounds). A mask in
-      //   xmm0-15 has the lane width of the vector it checks, so it loses the same lanes.
+      //   spilled and reloaded intact (without that a failed check of a scatter's indices could pass
+      //   and the scatter write out of bounds). Where every mask is an opmask register value, only
+      //   the accesses across which a mask is live that reaches a check have the kill
+      //   (NoTrapSites::kill_masks_where_checked()): a mask that is only applied as the predicate of
+      //   instructions that compute or store vectors can come back zeroed, which drops lanes of
+      //   values of this window and stores nothing. Elsewhere every raw access has it
+      //   (Matcher::kill_masks_at_raw_accesses()). A mask in xmm0-15 has the lane width of the
+      //   vector it checks, so it loses the same lanes.
       nmethod* nm = nullptr;
       if (in_java) {
         CodeBlob* cb = CodeCache::find_blob(pc);

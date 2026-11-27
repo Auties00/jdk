@@ -461,10 +461,13 @@ bool Matcher::is_raw_memory_access(const MachNode* n) {
 // (the check of a scatter's indices, whose low lanes survive in the vector registers). The allocator
 // then spills any such mask live across the access, and reloads it intact. The kill is a projection
 // of the access, so the copies the allocator makes of the access (rematerialized flags producers)
-// keep it.
+// keep it. Where the masks can be followed to their uses, only the accesses across which a mask
+// that reaches a check is live get the kill, after scheduling
+// (NoTrapSites::kill_masks_where_checked()).
 void Matcher::kill_masks_at_raw_accesses() {
   const NoTrapPlatform* no_trap = Matcher::no_trap();
-  if (no_trap == nullptr || !C->has_unsafe_access() || no_trap->raw_access_kill() == nullptr) {
+  if (no_trap == nullptr || !C->has_unsafe_access() || no_trap->raw_access_kill() == nullptr ||
+      NoTrapSites::kill_follows_masks(C, no_trap)) {
     return;
   }
   const RegMask* kill = no_trap->raw_access_kill();

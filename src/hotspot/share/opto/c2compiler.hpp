@@ -59,6 +59,7 @@ public:
   static const char* retry_no_locks_coarsening();
   static const char* retry_no_superword();
   static const char* retry_no_stringopts();
+  static const char* retry_kill_masks_at_every_raw_access();
 
   // Print compilation timers and statistics
   void print_timers();

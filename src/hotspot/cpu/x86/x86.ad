@@ -2787,6 +2787,12 @@ class X86NoTrap : public NoTrapPlatform {
     }
     return units;
   }
+
+  // With VL, BW and DQ every mask is an opmask register value; without them xmm16-31 are killed
+  // too, for the masks that are vectors.
+  virtual bool raw_access_kill_follows_masks() const {
+    return VM_Version::supports_avx512vlbwdq();
+  }
 };
 
 static const X86NoTrap x86_no_trap;

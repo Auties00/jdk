@@ -54,9 +54,11 @@ class RegMask;
 //   any case, and in a compilation with unsafe accesses, the only code such a fault is resumed in
 //   (nmethod::has_unsafe_access()), nothing that steers an access is ever kept in such state while
 //   the access can be reached: integer and pointer values are not spilled there, values are not
-//   recomputed from it, no live range uses a losable general purpose register, and no mask that can
-//   carry the result of a check is live across a raw access (the access kills the mask registers,
-//   NoTrapPlatform::raw_access_kill()).
+//   recomputed from it, no live range uses a losable general purpose register, and no mask that
+//   reaches a check is in a mask register across a raw access: the access kills the mask registers
+//   (NoTrapPlatform::raw_access_kill()) wherever such a mask is live across it
+//   (NoTrapSites::kill_masks_where_checked()), or every raw access does where masks cannot be told
+//   from other values.
 //
 // A platform that supports the mode returns an implementation from Matcher::no_trap().
 class NoTrapPlatform {
@@ -93,6 +95,11 @@ class NoTrapPlatform {
   virtual const RegMask* raw_access_kill() const = 0;
   // The units of raw_access_kill(), for the debug check that none is live across a raw access.
   virtual uint64_t raw_access_killed_units() const = 0;
+  // Whether every value that can be in a register of raw_access_kill() has the ideal register
+  // class Op_RegVectMask. The raw accesses that need the kill are then found by following the mask
+  // values to their uses (NoTrapSites::kill_masks_where_checked()); otherwise every raw access of
+  // a compilation with unsafe accesses kills them.
+  virtual bool raw_access_kill_follows_masks() const = 0;
 };
 
 // The pass that gives C2 trap sites their non-trapping form after register allocation.
@@ -102,6 +109,9 @@ class NoTrapSites : public AllStatic {
   // null check before each implicit null check access whose null successor losable state is live
   // into. Returns whether it changed anything;
   // such a compilation is not scheduled after register allocation, which could move the checks.
+  // Where kill_follows_masks(), it first repeats the search of kill_masks_where_checked() on the
+  // allocated code, and if a mask that reaches a check is in a mask register across a raw access,
+  // records C as failing with C2Compiler::retry_kill_masks_at_every_raw_access().
   static bool apply(Compile* C, const NoTrapPlatform* platform);
 
 #ifndef PRODUCT
@@ -115,6 +125,18 @@ class NoTrapSites : public AllStatic {
  public:
   static void print_statistics();
 #endif
+
+  // Whether the raw accesses of C that need the kill of NoTrapPlatform::raw_access_kill() are found
+  // by following the mask values, instead of every raw access getting it in the matcher.
+  static bool kill_follows_masks(const Compile* C, const NoTrapPlatform* platform);
+
+  // After scheduling and before register allocation, where kill_follows_masks(): gives the kill to
+  // each raw access across which a mask is live that reaches a check, which is any use other than
+  // as the predicate of an instruction that computes a vector or stores one. A mask that reaches
+  // only such uses may be lost at the access: a zero predicate drops lanes of a value of the
+  // unsafe access window, or stores nothing. The allocator can still stretch a mask across an
+  // access without the kill (the masks of a flags producer it clones), so apply() searches again.
+  static void kill_masks_where_checked(Compile* C, const NoTrapPlatform* platform);
 };
 
 #endif // SHARE_OPTO_NOTRAP_HPP
