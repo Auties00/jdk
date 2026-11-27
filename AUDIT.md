@@ -513,3 +513,78 @@ ForceExceptionXStateProtection and ExceptionXStateMitigation with the develop an
 jtreg tests. AvoidLosableStateAtTraps is the only mechanism; -XX:-AvoidLosableStateAtTraps gives compiled code with
 no protection at all (the A/B of the repro). TestExceptionXStateScrub, which plants the stale header and keeps vector
 state live across polls and a faulting null check, stays as TestExceptionXStateLoss, the regression test of the mode.
+
+## MXCSR at native calls: the cost, and why each path stays correct (cost-mxcsr)
+
+The invariant: compiled Java code never runs with a floating point exception unmasked, so no FP trap is taken and
+resumed in it (os_cpu/windows_x86/os_windows_x86.cpp, handle_FLT_exception()). Only native code can change MXCSR,
+so it is enough to establish the standard control bits at every point where control passes from native code to
+Java code. Those points, and what each does with the mode on:
+
+- **Return from a JNI call** (the native wrapper, cpu/x86/sharedRuntime_x86_64.cpp; the interpreter's native
+  entry, cpu/x86/templateInterpreterGenerator_x86.cpp) and **from an FFM downcall with a transition**:
+  MacroAssembler::restore_cpu_control_state_after_jni() loads the standard MXCSR, unconditionally.
+- **Return from a critical FFM downcall**: the same load, in the stub (cpu/x86/downcallLinker_x86_64.cpp).
+- **Entry from native code through the call stub** (JNI Call<Type>Method, thread start): the stub saves the
+  caller's MXCSR and loads the standard one if the control bits differ (cpu/x86/stubGenerator_x86_64.cpp,
+  unchanged by the mode).
+- **Entry through an FFM upcall stub** (cpu/x86/upcallLinker_x86_64.cpp): stmxcsr to the frame, the standard
+  MXCSR loaded if the control bits differ. On return the caller's value is loaded back **only if its control
+  bits were not the standard ones** (this change).
+
+Why the conditional restore on upcall return is correct. The Windows x64 convention makes the MXCSR control bits
+(masks, rounding, DAZ, FTZ: 0xFFC0) preserved across calls and the status bits (0x3F) volatile, so the stub owes
+its caller the control bits only. Between the stub's entry and its exit run Java code and UpcallLinker::on_entry()
+and on_exit() (VM code compiled by MSVC, which follows the convention). Java code leaves the control bits
+standard: the only code of its own that changes them is C2's rounding conversions
+(cpu/x86/c2_MacroAssembler_x86.cpp) and the fmod stub (cpu/x86/stubGenerator_x86_64_fmod.cpp), which load the
+standard value back before they end, and every return from native code inside the upcall is one of the points
+above. So at the exit the control bits are the standard ones. If the saved value had standard control bits, the
+register already holds what the caller is owed and the load would only rewrite the status bits, which the caller
+may not rely on; if it had others, the stub loads the saved value as before. The test is on the saved value in
+the frame, with the same mask as the entry (MacroAssembler::cmp32_mxcsr_std(): the status bits are ignored, also
+with EnableX86ECoreOpts, whose standard value has them set). TestMXCSRRestore covers a caller with standard
+control bits, one with exceptions unmasked, one with every exception masked and rounding toward zero, and both,
+and runs once with EnableX86ECoreOpts.
+
+Why the load after a downcall stays unconditional. The alternative, stmxcsr, compare, and ldmxcsr only if the
+control bits changed, reads MXCSR on every call. On AMD (Zen 2 to Zen 5) stmxcsr is microcoded and takes 14 to 16
+cycles, against 1 to 2 for ldmxcsr; on Intel it is the reverse (stmxcsr 1 cycle, ldmxcsr 3 to 5). Measured on
+Zen 3, Zen 4 and Zen 5 the conditional form costs 3 to 10 ns per call where the unconditional load costs 0 to
+0.3 ns (table below). No condition under which the load could be skipped without reading MXCSR is provable: the
+convention obliges a native function to give the control bits back, but the functions this exists for are the
+ones that do not (a library that unmasks exceptions and returns), and nothing tells them apart before the call.
+Where the load sits in the stub (after the call, after vzeroupper, before ret) makes no difference.
+
+Why the upcall entry keeps its stmxcsr. The stub must give its caller's control bits back, and the only way to
+know them is to read them; a native caller may legitimately run with other bits (a rounding mode set around the
+callback). This is what the stub does on every other platform already.
+
+Windows/AArch64: the mode adds nothing to the JNI and FFM paths. HotSpot resumes no FP exception there
+(handle_FLT_exception() is x64 only, os/windows/os_windows.cpp), so a trap enabled through FPCR by native code
+ends the process as before instead of resuming with SVE state lost, and
+MacroAssembler::restore_cpu_control_state_after_jni() touches FPCR only with RestoreMXCSROnJNICalls.
+
+Measured (review8 kernels, ns/op, median of 9 forks per VM, all variants from one build on the same VM; "floor"
+is the mode on with no MXCSR handling at all):
+
+| CPU (Windows VM) | kernel | mode off | floor | load after call | store, compare, load if changed |
+|---|---|---|---|---|---|
+| EPYC 9V74, Zen 4 | downcall | 4.14 | 4.14 | 4.43 | 12.90 |
+| EPYC 9V74, Zen 4 | critical downcall | 3.57 | 3.57 | 3.85 | 6.86 |
+| EPYC 7763, Zen 3 | downcall | 5.06 | 5.07 | 5.39 | 15.04 |
+| EPYC 7763, Zen 3 | critical downcall | 4.41 | 4.41 | 4.73 | 8.15 |
+| EPYC 9V45, Zen 5 | downcall | 6.26 | 6.31 | 6.35 | 11.06 |
+| EPYC 9V45, Zen 5 | critical downcall | 2.16 | 2.13 | 2.12 | 6.14 |
+
+The JNI call is unchanged under every variant. The upcall kernel (qsort of two ints, 35 to 60 ns) varies by a
+few ns between rounds on these VMs, which hides both the stmxcsr of the entry and the load the conditional
+restore removes.
+
+**Residual, not closed: native code the VM itself calls on a Java thread.** A JVMTI event callback posted from a
+runtime call of compiled code (SampledObjectAlloc, VMObjectAlloc, the monitor and class events;
+JvmtiJavaThreadEventTransition and JvmtiThreadEventTransition, prims/jvmtiExport.cpp), and the other
+ThreadToNativeFromVM excursions, return to the VM through C++ transitions that do not load MXCSR. An agent
+callback that unmasks FP exceptions and returns would leave compiled code running with them unmasked. Closing it
+costs nothing on the JNI and FFM paths: load the standard MXCSR in the destructors of those transitions (x64,
+mode on). Not done here; it needs a JVMTI agent test.
