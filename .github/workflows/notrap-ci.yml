@@ -20,9 +20,11 @@ permissions:
 
 env:
   # The unpatched base (2b376fb353c), as copied by run 45043642784.
-  BASE_RUN: 45043642784
+  BASE_RUN: 46023299763
   # scrub14 (c6f997c2c66), as built by run 45112930164.
-  SCRUB14_RUN: 45112930164
+  SCRUB14_RUN: 46023299763
+  # The builds of round 14.
+  BUILD_RUN: 46043336189
   # A notrap CI run of the branch before the cost branches (2fc793f7a63), for the bench.
   NOTRAP_RUN: 45896947412
   # The CI run of cost-kmask (73360dc3de3): the mode without the protection of the vectors that reach a check.
@@ -42,39 +44,6 @@ jobs:
       - name: 'Build JTReg'
         uses: ./.github/actions/build-jtreg
 
-  build-windows-x64:
-    name: windows-x64
-    needs: prepare
-    uses: ./.github/workflows/build-windows.yml
-    with:
-      platform: windows-x64
-      runs-on: windows-2022
-      architecture: 'x86.x64'
-      msvc-toolset-version: '14.44'
-
-  build-windows-aarch64:
-    name: windows-aarch64
-    needs: prepare
-    uses: ./.github/workflows/build-windows.yml
-    with:
-      platform: windows-aarch64
-      runs-on: windows-11-arm
-      architecture: 'ARM64'
-      msvc-toolset-version: '14.51'
-
-  compiler-windows-aarch64:
-    name: 'safepoints, vector, windows-aarch64'
-    needs: [prepare, build-windows-aarch64]
-    uses: ./.github/workflows/test-scrub5.yml
-    with:
-      platform: windows-aarch64
-      bootjdk-platform: windows-aarch64
-      architecture: 'ARM64'
-      runs-on: windows-11-arm
-      debug-suffix: -debug
-      tag: compiler-arm
-      tests: '[{"test-name": "hs/safepoints, mxcsr", "test-suite": "test/hotspot/jtreg/compiler/runtime/safepoints test/hotspot/jtreg/runtime/jni/mxcsr", "debug-suffix": "-debug"}, {"test-name": "hs/vectorapi", "test-suite": "test/hotspot/jtreg/compiler/vectorapi", "debug-suffix": "-debug"}]'
-
   copy-bundles:
     name: 'Copy the base and scrub14 bundles'
     runs-on: ubuntu-24.04
@@ -87,7 +56,7 @@ jobs:
           github-token: ${{ github.token }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: bundles-windows-x64
+          name: bundles-windows-x64-scrub14
           path: scrub14
           run-id: ${{ env.SCRUB14_RUN }}
           github-token: ${{ github.token }}
@@ -104,43 +73,9 @@ jobs:
           retention-days: 30
           compression-level: 0
 
-  build-linux-x64:
-    name: linux-x64
-    needs: prepare
-    uses: ./.github/workflows/build-linux.yml
-    with:
-      platform: linux-x64
-      gcc-major-version: '10'
-
-  compiler-forced-linux-x64:
-    name: 'compiler, mode forced, linux-x64'
-    needs: [prepare, build-linux-x64]
-    uses: ./.github/workflows/test-scrub5.yml
-    with:
-      platform: linux-x64
-      bootjdk-platform: linux-x64
-      runs-on: ubuntu-24.04
-      debug-suffix: -debug
-      tag: forced
-      java-options: '-XX:+UnlockDiagnosticVMOptions -XX:+AvoidLosableStateAtTraps'
-      tests: '[{"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}, {"test-name": "hs/tier2 compiler", "test-suite": "test/hotspot/jtreg/:tier2_compiler", "debug-suffix": "-debug"}, {"test-name": "hs/vector", "test-suite": "test/hotspot/jtreg/compiler/vectorapi test/hotspot/jtreg/compiler/vectorization", "debug-suffix": "-debug"}, {"test-name": "hs/safepoints", "test-suite": "test/hotspot/jtreg/compiler/runtime/safepoints", "debug-suffix": "-debug"}, {"test-name": "jdk/foreign", "test-suite": "test/jdk/java/foreign", "debug-suffix": "-debug"}]'
-
-  compiler-windows-2025:
-    name: 'vector, foreign, windows-2025'
-    needs: [prepare, build-windows-x64]
-    uses: ./.github/workflows/test-scrub5.yml
-    with:
-      platform: windows-x64
-      bootjdk-platform: windows-x64
-      architecture: 'x86.x64'
-      runs-on: windows-2025
-      debug-suffix: -debug
-      tag: compiler-2025
-      tests: '[{"test-name": "hs/vector", "test-suite": "test/hotspot/jtreg/compiler/vectorapi test/hotspot/jtreg/compiler/vectorization", "debug-suffix": "-debug"}, {"test-name": "jdk/vector", "test-suite": "test/jdk/jdk/incubator/vector"}, {"test-name": "jdk/foreign", "test-suite": "test/jdk/java/foreign"}, {"test-name": "hs/safepoints, mxcsr, c1", "test-suite": "test/hotspot/jtreg/compiler/runtime/safepoints test/hotspot/jtreg/runtime/jni/mxcsr test/hotspot/jtreg/compiler/c1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}]'
-
   repro:
     name: repro (${{ matrix.os }}, ${{ matrix.slot }})
-    needs: [prepare, build-windows-x64, copy-bundles]
+    needs: [prepare, copy-bundles]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     strategy:
@@ -161,6 +96,8 @@ jobs:
         with:
           name: bundles-windows-x64
           path: bundles
+          run-id: ${{ env.BUILD_RUN }}
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: bundles-windows-x64-base
@@ -275,7 +212,7 @@ jobs:
 
   bench:
     name: bench (${{ matrix.os }}, ${{ matrix.slot }})
-    needs: [build-windows-x64, copy-bundles]
+    needs: [copy-bundles]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 240
     strategy:
@@ -313,6 +250,8 @@ jobs:
         with:
           name: bundles-windows-x64
           path: b-new
+          run-id: ${{ env.BUILD_RUN }}
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         if: steps.cpu.outputs.run == 'true'
         with:
@@ -375,77 +314,5 @@ jobs:
         if: always() && steps.cpu.outputs.run == 'true'
         with:
           name: kbench-${{ matrix.os }}-${{ matrix.slot }}
-          path: out
-          retention-days: 30
-
-  bench-linux:
-    name: bench (linux, ${{ matrix.slot }})
-    needs: build-linux-x64
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        slot: [1, 2]
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          path: src
-          sparse-checkout: |
-            review9
-            review10
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: bundles-linux-x64
-          path: b-new
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: bundles-linux-x64
-          path: b-prev
-          run-id: ${{ env.NOTRAP_RUN }}
-          github-token: ${{ github.token }}
-      - name: 'JMH: notrap before with the mode off (F) and forced on (T), integrated forced on (N)'
-        run: |
-          set +e
-          mkdir -p out new prev
-          tar -xzf "$(ls b-new/jdk-linux-x64*.tar.gz | grep -v symbols | grep -v debug | grep -v static | head -1)" -C new
-          tar -xzf "$(ls b-prev/jdk-linux-x64*.tar.gz | grep -v symbols | grep -v debug | grep -v static | head -1)" -C prev
-          NJ=$(dirname "$(find new -name java -path '*/bin/*' -type f | head -1)")
-          PJ=$(dirname "$(find prev -name java -path '*/bin/*' -type f | head -1)")
-          grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //' | tee out/cpu.txt
-          echo "Linux $(uname -r)" | tee out/build.txt
-          "$NJ/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|AvoidLosableStateAtTraps) ' | tee out/flags.txt
-          m2=https://repo1.maven.org/maven2
-          for a in org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar; do
-            curl -sfL --retry 6 --retry-all-errors --retry-delay 5 -o "lib-$(basename $a)" "$m2/$a" || echo "download failed: $a"
-          done
-          cp="lib-jmh-core-1.37.jar:lib-jopt-simple-5.0.4.jar:lib-commons-math3-3.6.1.jar"
-          "$PJ/javac" --add-modules jdk.incubator.vector -proc:full -cp "$cp:lib-jmh-generator-annprocess-1.37.jar" -d jmhc src/review9/*.java src/review10/*.java 2>&1 | grep -v -i warning | tail -5
-          declare -A JAVA FLAGS
-          JAVA[F]="$PJ/java"; FLAGS[F]="-XX:-AvoidLosableStateAtTraps"
-          JAVA[T]="$PJ/java"; FLAGS[T]="-XX:+AvoidLosableStateAtTraps"
-          JAVA[N]="$NJ/java"; FLAGS[N]="-XX:+AvoidLosableStateAtTraps"
-          for round in 1 2 3; do
-            order="F T N"; [ $round = 2 ] && order="N F T"; [ $round = 3 ] && order="T N F"
-            for c in $order; do
-              "${JAVA[$c]}" -cp "jmhc:$cp" org.openjdk.jmh.Main \
-                -jvmArgsAppend "--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow -XX:+UnlockDiagnosticVMOptions ${FLAGS[$c]}" \
-                -rf csv -rff "out/jmh-$c-$round.csv" $JMH_ARGS "review9|review10" > "out/jmh-$c-$round.log" 2>&1
-              tail -30 "out/jmh-$c-$round.log"
-            done
-          done
-          # Whether any compilation of the kernels was made again, or a value got no copy
-          "${JAVA[N]}" -cp "jmhc:$cp" org.openjdk.jmh.Main             -jvmArgsAppend "--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow -XX:+UnlockDiagnosticVMOptions ${FLAGS[N]} -Xlog:jit+compilation=debug"             -f 1 -wi 3 -i 1 -w 1 -r 1 "review9|review10" > out/decisions.log 2>&1
-          grep "no-trap:" out/decisions.log | sed 's/^.*no-trap/no-trap/' | sort | uniq -c | sort -rn > out/decisions.txt
-          echo "retried or without a copy: $(grep -c -E 'retrying|no copy|cannot be kept' out/decisions.txt)" | tee -a out/decisions.txt
-          head -40 out/decisions.txt; rm -f out/decisions.log
-          exit 0
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
-        with:
-          name: kbench-linux-${{ matrix.slot }}
           path: out
           retention-days: 30
