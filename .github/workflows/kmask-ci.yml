@@ -1,0 +1,126 @@
+name: 'JDK-8365196 kmask exp'
+
+# Review-only. Fast loop for the k1-k7 kill work: builds only libjvm.so (linux-x64, fastdebug and release),
+# puts it into the JDK bundles of an earlier notrap CI run, and runs kmask/run.sh (PrintOptoAssembly of the
+# review9 kernels, JMH with the mode off and forced on, and a few jtreg tests with the mode forced on).
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-kmask-*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  BUNDLE_RUN: 45856843905
+
+jobs:
+  build:
+    name: libjvm (${{ matrix.level }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        level: [debug, release]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - id: bootjdk
+        uses: ./.github/actions/get-bootjdk
+        with:
+          platform: linux-x64
+      - name: 'Install toolchain'
+        run: |
+          sudo apt update
+          sudo apt install gcc-10 g++-10 libasound2-dev libcups2-dev libfontconfig1-dev libx11-dev libxext-dev libxrandr-dev libxrender-dev libxt-dev libxtst-dev
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100 --slave /usr/bin/g++ g++ /usr/bin/g++-10
+      - name: 'Configure'
+        run: >
+          bash configure --with-conf-name=linux-x64
+          ${{ matrix.level == 'debug' && '--with-debug-level=fastdebug' || '' }}
+          --with-version-opt=${GITHUB_ACTOR}-${GITHUB_SHA}
+          --with-boot-jdk=${{ steps.bootjdk.outputs.path }}
+          --with-zlib=system --with-native-debug-symbols=none
+          || (cat config.log && exit 1)
+      - name: 'Build libjvm'
+        run: |
+          make LOG=info hotspot > build.log 2>&1
+          rc=$?
+          grep -E "Compiling up|Linking|Finished building" build.log | head -40
+          if [ $rc != 0 ]; then grep -B3 -A14 -E "error:|Error [0-9]" build.log | head -500; exit 1; fi
+          mkdir -p out
+          cp "$(find build/linux-x64 -name libjvm.so -path '*modules_libs*' | head -1)" out/libjvm.so
+          ls -la out
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: libjvm-${{ matrix.level }}
+          path: out
+          retention-days: 10
+
+  exp:
+    name: exp (${{ matrix.slot }})
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [opto, jtreg, jmh1, jmh2, jmh3]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64
+          path: b-release
+          run-id: ${{ env.BUNDLE_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64-debug
+          path: b-debug
+          run-id: ${{ env.BUNDLE_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-jtreg-8.3+1
+          path: b-jtreg
+          run-id: ${{ env.BUNDLE_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64
+          path: b-prev
+          run-id: 45922041286
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: libjvm-debug
+          path: jvm-debug
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: libjvm-release
+          path: jvm-release
+      - name: 'Run'
+        run: |
+          set +e
+          mkdir -p out base-release base-debug new-release new-debug jtreg prev-release
+          tar -xzf "$(ls b-prev/jdk-linux-x64*.tar.gz | grep -v symbols | grep -v static | head -1)" -C prev-release
+          for l in release debug; do
+            f="$(ls b-$l/jdk-linux-x64*.tar.gz | grep -v symbols | grep -v static | head -1)"
+            tar -xzf "$f" -C base-$l; tar -xzf "$f" -C new-$l
+            cp jvm-$l/libjvm.so "$(find new-$l -name libjvm.so -path '*server*' | head -1)"
+            find new-$l -name 'classes*.jsa' -delete
+          done
+          ls b-jtreg; (cd jtreg && (tar -xzf ../b-jtreg/*.tar.gz 2>/dev/null || unzip -q ../b-jtreg/*.zip))
+          export SLOT=${{ matrix.slot }}
+          bash src/kmask/run.sh
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: kexp-${{ matrix.slot }}
+          path: out
+          retention-days: 30
