@@ -294,7 +294,9 @@ class CheckFlow : public StackObj {
       // A mask without a place is not followed: its inputs count as checked.
       reads_for_a_check = place < 0 || test(_live, place) || always_checks(n);
     } else {
-      reads_for_a_check = checks_values(n);
+      // A projection that defines no mask or vector (a kill, another result) reads nothing: the node
+      // it projects is asked itself.
+      reads_for_a_check = !n->is_Proj() && checks_values(n);
     }
     if (place >= 0) {
       end(_live, place);
