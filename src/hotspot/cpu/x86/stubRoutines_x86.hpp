@@ -107,6 +107,10 @@ public:
   static address _k512_W_addr;
 
  public:
+  // Loads the standard MXCSR on the return from native code that the VM itself called, where the
+  // return from a JNI call loads it (MacroAssembler::restore_cpu_control_state_after_jni()).
+  static void restore_mxcsr_after_native();
+
   static address addr_mxcsr_std()        { return (address)&_mxcsr_std; }
   static address addr_mxcsr_rz()        { return (address)&_mxcsr_rz; }
   static address crc_by128_masks_addr()  { return (address)_crc_by128_masks; }

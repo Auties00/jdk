@@ -581,10 +581,19 @@ The JNI call is unchanged under every variant. The upcall kernel (qsort of two i
 few ns between rounds on these VMs, which hides both the stmxcsr of the entry and the load the conditional
 restore removes.
 
-**Residual, not closed: native code the VM itself calls on a Java thread.** A JVMTI event callback posted from a
-runtime call of compiled code (SampledObjectAlloc, VMObjectAlloc, the monitor and class events;
-JvmtiJavaThreadEventTransition and JvmtiThreadEventTransition, prims/jvmtiExport.cpp), and the other
-ThreadToNativeFromVM excursions, return to the VM through C++ transitions that do not load MXCSR. An agent
-callback that unmasks FP exceptions and returns would leave compiled code running with them unmasked. Closing it
-costs nothing on the JNI and FFM paths: load the standard MXCSR in the destructors of those transitions (x64,
-mode on). Not done here; it needs a JVMTI agent test.
+**Native code the VM itself calls on a Java thread (closed).** A JVMTI event callback posted from a runtime call
+of compiled code (SampledObjectAlloc, VMObjectAlloc, the monitor and class events) returns to the VM through a C++
+transition, not through a JNI wrapper, and the runtime call then returns to the compiled code: a callback that
+unmasked FP exceptions left that code running with them unmasked. The transitions that bring a Java thread back
+from such native code now load the standard MXCSR under the condition of the JNI return (RestoreMXCSROnJNICalls or
+AvoidLosableStateAtTraps, x64 on every OS): ThreadStateTransition::restore_cpu_control_state_after_native()
+(runtime/interfaceSupport.cpp, StubRoutines::x86::restore_mxcsr_after_native()), called by ~ThreadToNativeFromVM()
+(which JvmtiJavaThreadEventTransition, the agent transitions of prims/jvmtiAgent.cpp, the library load of
+prims/jvm.cpp and the class loader's library calls go through) and by ~JvmtiThreadEventTransition(). With these,
+the list of points above is complete for user native code: it runs on a Java thread only under a JNI wrapper, a
+downcall stub, or one of these transitions, and Java code is entered from it only through the call stub or an upcall stub.
+Not covered, by choice: ZipLibrary's own transition (utilities/zipLibrary.cpp) calls the JDK's zip library only,
+and JNI functions (ThreadInVMfromNative) are VM code called by native code, which returns to that native code.
+The load is not on any JNI or FFM call path: the stubs are unchanged. TestMXCSRAfterJVMTICallback has an agent
+whose SampledObjectAlloc callback, posted from the allocation slow path of a C2 method, returns with rounding
+toward zero, and checks the sum that method computes next.

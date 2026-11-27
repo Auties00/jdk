@@ -27,8 +27,18 @@
 #include "runtime/javaThread.hpp"
 #include "runtime/stubRoutines.hpp"
 
+#include <xmmintrin.h>
+
 // Implementation of the platform-specific part of StubRoutines - for
 // a description of how to extend it, see the stubRoutines.hpp file.
 
 jint    StubRoutines::x86::_mxcsr_std = 0;
+
+void StubRoutines::x86::restore_mxcsr_after_native() {
+  // Zero until the initial stubs are generated: native code called earlier (the OnLoad function
+  // of an agent) returns before any Java code can run.
+  if ((RestoreMXCSROnJNICalls || AvoidLosableStateAtTraps) && _mxcsr_std != 0) {
+    _mm_setcsr((unsigned int)_mxcsr_std);
+  }
+}
 jint    StubRoutines::x86::_mxcsr_rz = 0;
