@@ -505,6 +505,12 @@ static bool is_constant_mask(const Node* n) {
   return true;
 }
 
+// Logs why value, which reaches a check across a raw access, gets no copy.
+static void log_unprotected(const Node* value, const char* reason) {
+  log_debug(jit, compilation)("no-trap: no copy for %s %u (%s): %s", NodeClassNames[value->Opcode()], value->_idx,
+                              value->is_Mach() ? NodeClassNames[value->as_Mach()->ideal_Opcode()] : "-", reason);
+}
+
 // The masks and vectors that the raw accesses found by CheckFlow would lose (values, which can be in
 // losable registers across such an access and reach a check) usually have many readers that do not
 // check, on the hot path, and a few that do, in the slow paths: the mask of a loop iteration is the
@@ -532,6 +538,7 @@ static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, cons
     Node* mask = masks.at(i);
     Block* block = cfg->get_block_for_node(mask);
     if (block == nullptr) {
+      log_unprotected(mask, "in no block");
       continue;
     }
     const uint ideal_reg = value_ideal_reg(mask);
@@ -553,7 +560,8 @@ static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, cons
     }
     const bool constant = is_mask_value(mask) && is_constant_mask(mask);
     if (!constant && (keep_at >= block->number_of_nodes() || block->get_node(keep_at)->is_MachNullCheck())) {
-      continue; // nothing can follow the access of an implicit null check
+      log_unprotected(mask, "nothing can follow it in its block"); // the access of an implicit null check
+      continue;
     }
 
     // The readers that check, each with the input that reads the mask.
@@ -601,6 +609,7 @@ static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, cons
       }
     }
     if (readers.is_empty()) {
+      log_unprotected(mask, "no reader that checks after a raw access");
       continue;
     }
 

@@ -295,13 +295,14 @@ public class TestCheckedVectorsAtRawAccesses {
             OutputAnalyzer out = ProcessTools.executeTestJava(
                 "-XX:+UnlockDiagnosticVMOptions", "-XX:+AvoidLosableStateAtTraps", "-XX:-TieredCompilation", "-Xbatch",
                 "-XX:CompileCommand=compileonly,*TestCheckedVectorsAtRawAccesses::" + kernel + "Kernel",
-                "-Xlog:jit+compilation=debug",
+                "-Xlog:jit+compilation=debug", "-Dtest.xstate.fill=false",
                 "--add-modules", "jdk.incubator.vector", "--enable-native-access=ALL-UNNAMED",
                 TestCheckedVectorsAtRawAccesses.class.getName(), "child", kernel);
             out.shouldHaveExitValue(0);
             out.shouldMatch("no-trap: [0-9]+ raw accesses of " + kernel + "Kernel kill the mask registers, "
                             + "[1-9][0-9]* values protected for their checks");
             out.shouldNotContain("retrying");
+            out.shouldNotContain("no copy for");
         }
     }
 
@@ -342,7 +343,7 @@ public class TestCheckedVectorsAtRawAccesses {
             throw new SkippedException("needs -Dtest.xstate.fill=true");
         }
         System.out.println("Native probe: " + ExceptionXState.probe());
-        Path dir = Files.createTempDirectory(Path.of("."), "vhd").toAbsolutePath();
+        Path dir = Files.createTempDirectory(Path.of("").toAbsolutePath(), "vhd").normalize();
         Path vhd = dir.resolve("xstate.vhd");
         char letter = freeLetter();
         String select = "select vdisk file=\"" + vhd + "\"";
