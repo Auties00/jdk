@@ -124,8 +124,10 @@ public class TestCheckedVectorsAtRawAccesses {
 
     // The check of the masked store compares the lane numbers, a vector the loop keeps in a
     // register, with the lanes left before the limit. The store is never wholly in bounds, so
-    // every iteration runs the check.
-    static int laneCheckKernel(MemorySegment in, long[] pos, MemorySegment out, long[] bits, int iters) {
+    // every iteration runs the check. The offset of the store, and so the limit of the lanes,
+    // depends on the value read: were the limit a vector of the loop like the lane numbers, a
+    // resumed fault would zero both, and zero is not below zero.
+    static int laneCheckKernel(MemorySegment in, long[] pos, MemorySegment out, long[] at, long[] bits, int iters) {
         if (FILL) {
             ExceptionXState.fillBelowStack();
         }
@@ -135,7 +137,7 @@ public class TestCheckedVectorsAtRawAccesses {
             int x = in.get(INT, pos[i]);
             sum += x;
             VectorMask<Integer> m = VectorMask.fromLong(S, bits[i + (x & 1)]);
-            v.intoMemorySegment(out, STORE_AT, ORDER, m);
+            v.intoMemorySegment(out, at[i + (x & 1)], ORDER, m);
         }
         return sum;
     }
@@ -185,6 +187,7 @@ public class TestCheckedVectorsAtRawAccesses {
     static final class Arguments {
         final long[] pos = new long[ITERS];
         final long[] bits = new long[ITERS + 1];
+        final long[] at = new long[ITERS + 1];
         final int[][] from = new int[4][];
         final int[] sel = new int[ITERS];
         // Index 60 is in the arrays of 64 elements and not in those of 32.
@@ -198,6 +201,7 @@ public class TestCheckedVectorsAtRawAccesses {
 
         Arguments(Arena arena, int badFrom) {
             Arrays.fill(bits, GOOD_BITS);
+            Arrays.fill(at, STORE_AT);
             for (int i = badFrom; i < bits.length; i++) {
                 bits[i] = BAD_BITS;
             }
@@ -232,7 +236,7 @@ public class TestCheckedVectorsAtRawAccesses {
     static void good(Arena arena, MemorySegment in, String only) {
         Arguments a = new Arguments(arena, ITERS + 1);
         if (only == null || only.equals("laneCheck")) {
-            int sum = laneCheckKernel(in, a.pos, a.out, a.bits, ITERS);
+            int sum = laneCheckKernel(in, a.pos, a.out, a.at, a.bits, ITERS);
             check(sum == 0, "laneCheckKernel: " + sum);
             for (long at = STORE_AT; at < LIMIT; at += 4) {
                 check(a.whole.get(INT, at) == 0x5A5A5A5A, "laneCheckKernel did not store at " + at);
@@ -261,7 +265,7 @@ public class TestCheckedVectorsAtRawAccesses {
         final int badFrom = ITERS / 2;
         Arguments a = new Arguments(arena, badFrom);
         try {
-            laneCheckKernel(in, a.pos, a.out, a.bits, ITERS);
+            laneCheckKernel(in, a.pos, a.out, a.at, a.bits, ITERS);
             throw new RuntimeException("laneCheckKernel: no IndexOutOfBoundsException");
         } catch (IndexOutOfBoundsException expected) {
         }
@@ -382,7 +386,7 @@ public class TestCheckedVectorsAtRawAccesses {
             a.pos[faultAt] = 100 * PAGE;
             String outcome;
             try {
-                laneCheckKernel(mapped, a.pos, a.out, a.bits, ITERS);
+                laneCheckKernel(mapped, a.pos, a.out, a.at, a.bits, ITERS);
                 outcome = "returned";
             } catch (IndexOutOfBoundsException | InternalError e) {
                 outcome = e.getClass().getSimpleName();
