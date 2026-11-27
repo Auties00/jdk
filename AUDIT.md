@@ -623,6 +623,14 @@ so it includes:
 - an exception handler of the same frame, and any code after it, loops included: they are successors;
 - Phi inputs, all of them (the dataflow does not tell the predecessors apart, which only adds).
 
+The common case it frees: a null check whose exception leaves the method. Its null successor is an uncommon trap
+that must throw, and GraphKit::add_safepoint_edges() prunes the locals and the stack of such a trap down to the
+inputs of the bytecode in every frame without exception handlers (opto/graphKit.cpp, `can_prune_locals`): the trap
+names no vector, so nothing losable is live into it, whatever is live across the access. In review7's
+nullCheckVectorLive the four checks of the unrolled loop are implicit again, as without the mode (the round 11
+build made 8 of that kernel's 14 null checks explicit, this one 2: those whose trap is a loop predicate's and
+keeps the accumulator in its debug info).
+
 What it leaves out is a value read only by the access itself or on the not-null path: the access's inputs and TEMPs
 (the faulting instruction is abandoned; an access that is several instructions, a late barrier load, faults on its
 first, the load), the access's result (not defined on the null path), and values computed ahead for the not-null
