@@ -558,6 +558,19 @@ int LIR_Assembler::store_value_type_fields_to_buf(ciValueKlass* vk) {
 int LIR_Assembler::safepoint_poll(LIR_Opr tmp, CodeEmitInfo* info) {
   guarantee(info != nullptr, "Shouldn't be null");
   int offset = __ offset();
+  if (FrameMap::uses_losable_xmm_regs()) {
+    // Values can be live in xmm16-xmm31 here, which a resumed exception can lose (see
+    // AvoidLosableStateAtTraps): test the polling word and branch to a stub that saves every
+    // register instead of faulting. The safepoint's pc is the test, to which the handler returns.
+    C1SafepointPollStub* stub = new C1SafepointPollStub(false /* at_return */);
+    append_code_stub(stub);
+    add_debug_info_for_branch(info);
+    stub->set_safepoint_offset(__ offset());
+    __ relocate(relocInfo::poll_type);
+    __ testb(Address(r15_thread, JavaThread::polling_word_offset()), SafepointMechanism::poll_bit());
+    __ jcc(Assembler::notZero, *stub->entry());
+    return offset;
+  }
   const Register poll_addr = rscratch1;
   __ movptr(poll_addr, Address(r15_thread, JavaThread::polling_page_offset()));
   add_debug_info_for_branch(info);

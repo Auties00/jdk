@@ -83,12 +83,16 @@ class CodeStubList: public GrowableArray<CodeStub*> {
 class C1SafepointPollStub: public CodeStub {
  private:
   uintptr_t _safepoint_offset;
+  // Whether the poll is the one before a return. Else it is a loop poll that branches to the stub
+  // (see AvoidLosableStateAtTraps), whose handler returns to the poll.
+  const bool _at_return;
 
  public:
-  C1SafepointPollStub() :
-      _safepoint_offset(0) {
+  C1SafepointPollStub(bool at_return = true) :
+      _safepoint_offset(0), _at_return(at_return) {
   }
 
+  bool at_return() const { return _at_return; }
   uintptr_t safepoint_offset() { return _safepoint_offset; }
   void set_safepoint_offset(uintptr_t safepoint_offset) { _safepoint_offset = safepoint_offset; }
 

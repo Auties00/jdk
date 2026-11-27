@@ -44,10 +44,14 @@ void C1SafepointPollStub::emit_code(LIR_Assembler* ce) {
   __ lea(rscratch1, safepoint_pc);
   __ movptr(Address(r15_thread, JavaThread::saved_exception_pc_offset()), rscratch1);
 
-  assert(SharedRuntime::polling_page_return_handler_blob() != nullptr,
-         "polling page return stub not created yet");
+  // The poll before a return goes to the handler that returns for the method. A loop poll that
+  // branches here (LIR_Assembler::safepoint_poll()) goes to the handler that saves every register
+  // and returns to the poll.
+  SafepointBlob* blob = at_return() ? SharedRuntime::polling_page_return_handler_blob()
+                                    : SharedRuntime::polling_page_branch_safepoint_handler_blob();
+  assert(blob != nullptr, "polling page stub not created yet");
 
-  address stub = SharedRuntime::polling_page_return_handler_blob()->entry_point();
+  address stub = blob->entry_point();
   __ jump(RuntimeAddress(stub));
 }
 

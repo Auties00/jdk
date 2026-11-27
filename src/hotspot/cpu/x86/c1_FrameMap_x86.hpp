@@ -136,6 +136,21 @@
     return XMMRegister::available_xmm_registers();
   }
 
+  // AvoidLosableStateAtTraps: whether C1 code may keep values in xmm16-xmm31, which a resumed
+  // exception can lose on some Windows kernels. It may where its loop polls branch to a stub
+  // instead of faulting (LIR_Assembler::safepoint_poll()), which takes the handler blob that C2
+  // has for its own branch polls, and then it uses these registers across no operation whose
+  // exception a handler of the frame can catch (LinearScan::pd_add_temps()). Elsewhere C1 code
+  // stays in xmm0-xmm15, whose low halves every exception context has
+  // (LinearScanWalker::pd_init_regs_for_alloc()).
+  static bool uses_losable_xmm_regs() {
+#ifdef COMPILER2
+    return AvoidLosableStateAtTraps && XMMRegister::available_xmm_registers() > 16;
+#else
+    return false;
+#endif
+  }
+
   static int nof_caller_save_cpu_regs() { return adjust_reg_range(pd_nof_caller_save_cpu_regs_frame_map); }
   static int last_cpu_reg()             { return adjust_reg_range(pd_last_cpu_reg);  }
   static int last_byte_reg()            { return adjust_reg_range(pd_last_byte_reg); }
