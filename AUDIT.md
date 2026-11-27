@@ -763,3 +763,133 @@ without the mode (C1 then keeps its faulting polls and xmm16-xmm31).
 - The explicit null check that remains is `test reg, reg` and `jz`, one fused instruction of 8 or 9 bytes, at the
   sites whose null path reads losable state. No form without it exists: the null path needs the registers the trap
   would lose.
+
+## Cost of the compiled-code shapes: measurements (branch JDK-8365196-cost-checks)
+
+Runs on windows-2025 runners (kernel 26100.33828, which loses the state). Configurations: B the unpatched base, N
+the notrap branch before these changes (round 11 bundles), C this branch, O this branch with
+-XX:-AvoidLosableStateAtTraps. JMH, average time, interleaved rounds, medians of the forks pooled by processor;
+percentages are against B. Processors: AMD EPYC 7763 (AVX2), AMD EPYC 9V74 and 9V45 and Intel Xeon 8573C (AVX-512).
+
+- Bench 1 (run 45913396018, six VMs, every review kernel, Renaissance, C1 only, UseFPUForSpilling, code size):
+  C is the build of CI run 45905096158, before the C1 change.
+- Bench 2 (run 45946446923, five VMs): the register pressure kernels with the unsafe read inside the compilation,
+  the null check kernels again and with loops and entries aligned to 64 bytes.
+- Bench 3 (run 45954224299, five VMs): C is the build of CI run 45948142657, with the C1 change: C1 only, review7
+  and review10 with every tier, Renaissance.
+
+### Null checks
+
+| kernel, processor | N | C | O |
+| --- | --- | --- | --- |
+| review7 nullCheckVectorLive, 7763 (bench 1, 6 medians) | +1.6% | -0.1% | -0.2% |
+| the same, fork by fork (16 forks) | +1.6% | -0.1% | -0.1% |
+| the same, bench 2 (6 medians) | +1.6% | +0.2% | +0.0% |
+| nullCheckVectorLive, Xeon 8573C (bench 1) | +0.3% | +0.3% | -0.7% |
+| the same, fork by fork | +2.3% | +0.9% | +0.1% |
+| nullCheckVectorLive, 9V45 (bench 2, 3 medians) | +4.8% | +0.4% | +1.1% |
+| nullCheckVectorLive, 9V74 (bench 1; 92 to 103 ns in every configuration) | -0.8% | +1.3% | +0.5% |
+| review10 nullCheckVectorDeadOnNullPath, 7763 (bench 1) | +6.5% | +2.0% | +0.2% |
+| the same, bench 2 | +5.5% | +1.3% | -0.1% |
+| the same, loops aligned to 64 bytes | +3.0% | +1.0% | +0.1% |
+| nullCheckVectorDeadOnNullPath, Xeon 8573C | +0.6% | -0.2% | -0.0% |
+| nullCheckVectorDeadOnNullPath, 9V74 | -0.7% | -4.4% | -1.2% |
+
+The explicit checks are gone from both kernels' loops (PrintOptoAssembly of C: nullCheckVectorLive has 2 explicit of
+14 null checks, both outside the loop; N had 8; nullCheckVectorDeadOnNullPath has none of 12; N had 6). What is left
+in nullCheckVectorDeadOnNullPath on the 7763, about 3 ns per call of 233, is in code that differs from O by the
+form of one loop poll per call; it is there with 64 byte alignment too, and not on the other processors, nor in the
+list walks, which take a branch poll on every iteration.
+
+Sites that take the non-trapping form, counted by the fastdebug build of C (PrintOptoStatistics): -Xcomp -version,
+0 of 201 to 203 implicit null checks and 0 of 31 loop polls; Renaissance scrabble, 0 of 816 to 1000 and 0 of 119 to 133;
+fj-kmeans, 0 of 753 to 851 and 1 of 148 to 199; the stress test under -Xcomp on an AVX2 host, 0 of 10669 and 4
+of 778.
+
+### The megamorphic kernel
+
+Fork by fork, 16 forks per configuration and processor (ns): on the 9V74 every configuration, B included, falls on
+the same three levels, about 2920, 3230 and 3400 to 3500; on the 7763 on 3650, 4030 and 4300; on the Xeon on 2110
+and 2450. The medians move with the mix: bench 1 pooled N -4.7%, C -4.8%, O -4.9% on the 9V74, +2.0%, +3.0%, +2.2%
+on the 7763; fork by fork N -0.1%, C -9.0%, O -4.3% on the 9V74 and N -9.2%, C +0.2%, O -6.0% on the Xeon. The
+normal compilation of the kernel is the same code with the mode on and off; its OSR and JMH stub compilations
+differ from run to run within one configuration. The +4.6% of the earlier run was that mix.
+
+### Loop polls, divisions, list walks
+
+Bench 1, C against B: listWalkVectorLive -0.1% (7763), -0.1% (9V74), -0.1% (Xeon); uncountedListWalkVector +0.9%,
++0.5%, +0.1%; listWalkVector +/-0.4%; countedLoopVectorLive 0.0%, +0.1%, +0.7%; divisionVectorLive 0.0%, +0.2%,
+-0.0%. O is within the same range.
+
+### Register pressure: rematerialization and spills
+
+review10 vectorPressure (twenty-two live vectors, a call every few iterations, no unsafe access) and
+vectorPressureUnsafeInside (the same with an unsafe read in the compilation). Both are multimodal from fork to fork
+in every configuration (for example B on the 7763: 1855 to 2666 ns).
+
+| kernel, processor | N | C | O |
+| --- | --- | --- | --- |
+| vectorPressure, 7763 (bench 2) | +25.5% | +3.0% | +1.4% |
+| vectorPressure, 9V74 | -14.5% | +1.0% | +0.7% |
+| vectorPressure, 9V45 | -29.6% | -0.8% | +1.0% |
+| vectorPressure, Xeon 8573C (bench 1) | -30.0% | -2.4% | -2.3% |
+| vectorPressureUnsafeInside, 7763 | +3.0% | +28.3% | -0.2% |
+| vectorPressureUnsafeInside, 9V74 | -14.2% | -15.7% | +0.3% |
+| vectorPressureUnsafeInside, 9V45 | -27.8% | -36.0% | -6.8% |
+| scalarFpPressure, 9V74 / Xeon (bench 1) | -2.6% / -5.6% | -0.3% / +0.8% | -0.0% / +1.0% |
+| scalarFpPressureUnsafeInside, 9V74 / 9V45 | -3.1% / -1.3% | -3.2% / -2.8% | +0.1% / +0.7% |
+
+The rule that refuses rematerialization from a losable input changes what the allocator does under pressure, in
+both directions: it made these kernels faster on AVX-512 and slower on the 7763. C applies it only in compilations
+with unsafe accesses, so vectorPressure is as without the mode, and vectorPressureUnsafeInside behaves as N did.
+gprPressureUnsafe with -XX:+UseFPUForSpilling: N +0.3%, -0.5%, +1.2%; C +0.5%, -0.3%, +1.1% (7763, 9V74, Xeon).
+
+### C1
+
+C1 only (-XX:TieredStopAtLevel=1), twenty live doubles:
+
+| kernel, processor | N | C before the C1 change (bench 1) | C (bench 3) | O |
+| --- | --- | --- | --- | --- |
+| scalarFpPressure, 9V74 | +6.1% | +6.3% | -0.1% | +0.1% |
+| scalarFpPressure, Xeon 8573C | +15.5% | +16.2% | | +0.4% |
+| scalarFpPressureUnsafeInside, 9V74 | +7.8% | | -1.2% | -0.3% |
+| scalarFpPressureUnsafeInside, 9V45 | +12.3% | | -0.3% | +1.3% |
+| scalarFpPressure, Xeon 8370C | +3.8% | | -3.2% | +0.3% |
+| scalarFpPressure, 7763 (no xmm16-31) | -0.4% | -0.5% | | -0.3% |
+
+The other C1 kernels of bench 3, C against B on the 9V74, the 9V45 and the Xeon 8370C: saxpy -4.8%, -12.9% and
+-22.8%; fieldChain -2.0%, -5.8% and -9.2%; shortInner -0.2%, -3.6% and -40.8%; nullCheckScalar -0.3%, -7.9% and
+-2.5%; listWalk -0.8%, -0.4% and -1.1%; hashMapGet -0.3%, -0.1% and -0.8%; megamorphic 0.0%, +2.0% and -0.2%;
+countedSum -1.0%, +0.9% and +2.2% (N and O are within 4% of B on all of them): in C1 loops the branch poll is no
+slower than the faulting one, and on the Intel processor it is faster.
+
+### Renaissance and code size
+
+Renaissance (last five of ten repetitions, against O): bench 1, C: dotty +1.4%, +0.8%, +1.0%; fj-kmeans -0.4%,
++0.1%, -1.6%; future-genetic -1.5%, -0.1%, +0.1%; mnemonics +2.6%, +2.8%, -0.5%; scrabble +1.3%, +0.4%, +0.5%
+(7763, 9V74, Xeon; four runs each, which scatter by 3% to 5%). Bench 3, C with the C1 change: dotty +0.8%, -2.6%,
+-0.2%; fj-kmeans +0.5%, -0.5%, -0.7%; future-genetic +1.5%, 0.0%, -0.3%; mnemonics -2.0%, -5.1%, -0.7%; scrabble
+-3.1%, -0.2%, +0.6% (9V45, 9V74, Xeon 8370C).
+
+C2 code size of -Xcomp -XX:-TieredCompilation -version (bytes; B, N, C, O) on a 9V74: Serial 160344, 160344,
+160424, 160344; G1 197816, 197896, 197816, 197896; Z 229784, 228728, 228544, 228728; Shenandoah 229768, 229880,
+229880, 229880. On linux (mode off, notrap forced, cost-checks forced): Serial 145792, 145792, 145872; G1 178112,
+178032, 178112; Z 205016, 205016, 205192; Shenandoah 207440 in all three.
+
+### Tests
+
+CI run 45905096158 (before the C1 change) and 45948142657 (with it): the compiler tier1 groups, tier2, the vector
+and foreign tests on linux-x64 with the mode forced, and with UseFPUForSpilling; the same and the incubator vector
+tests on windows-2025 (in the second run also the runtime, gc and serviceability tier1 groups and jdk tier1); the
+compiler tier1 groups on windows-11-arm (Cobalt 100, UseSVE 2, 128 bit vectors). All pass but one test on
+windows-11-arm, compiler/vectorapi/TestMaskedNotAllOnes.java, which fails in the matcher
+(`duplicating node that's already been matched`, matcher.cpp:1849) with the mode off as well (run 45927209548,
+six of six runs, on and off): it is not of the mode.
+
+On four windows-2025 VMs per run (9V74, 9V45, Xeon 8370C and, in the second run, a 7763), whose kernel the native
+probe finds affected: TestExceptionXStateLoss passes with the mode in every run (five collectors, three rounds,
+release and fastdebug) and fails without it in every run, the 7763 included (a quarter to two thirds of the calls
+wrong; its kernelHoisted alone loses state in 58 to 941 calls per run without the mode, in none with it).
+TestExceptionXStateLossC1 passes with the mode, C1 only and tiered, release and fastdebug, and without the mode
+fails on the AVX-512 processors (about 2600 to 2960 of 6400 to 8000 calls wrong) and passes on the 7763, which has
+no xmm16-31.
