@@ -123,6 +123,7 @@ public class TestCheckedVectorsAtRawAccesses {
     static final long STORE_AT = LIMIT - 24; // lanes 0-5 are inside, lanes 6 and 7 are outside
     // Lane 0 is never set: a mask with every lane set is checked as a whole range, not by lane, and
     // the test for that case must fail in the lanes that a resumed exception keeps.
+    static final int GUARD = 0x11111111;
     static final long GOOD_BITS = 0x3E;
     static final long BAD_BITS = 0xBE;       // and lane 7
 
@@ -131,7 +132,8 @@ public class TestCheckedVectorsAtRawAccesses {
     // every iteration runs the check. The offset of the store, and so the limit of the lanes,
     // depends on the value read: were the limit a vector of the loop like the lane numbers, a
     // resumed fault would zero both, and zero is not below zero.
-    static int laneCheckKernel(MemorySegment in, long[] pos, MemorySegment out, long[] at, long[] bits, int iters) {
+    static int laneCheckKernel(MemorySegment in, long[] pos, MemorySegment out, long[] at, long[] bits,
+                               int[] done, int iters) {
         if (FILL) {
             ExceptionXState.fillBelowStack();
         }
@@ -142,6 +144,7 @@ public class TestCheckedVectorsAtRawAccesses {
             sum += x;
             VectorMask<Integer> m = VectorMask.fromLong(S, bits[i + (x & 1)]);
             v.intoMemorySegment(out, at[i + (x & 1)], ORDER, m);
+            done[0] = i + 1; // how far the stores got
         }
         return sum;
     }
@@ -200,6 +203,7 @@ public class TestCheckedVectorsAtRawAccesses {
         final int[] userIx = new int[4 * ITERS];
         final long[] limits = { 1000, 1000 };
         final byte[] flags = new byte[ITERS];
+        final int[] done = new int[1];
         final MemorySegment whole;
         final MemorySegment out;
 
@@ -228,11 +232,15 @@ public class TestCheckedVectorsAtRawAccesses {
             Arrays.fill(flags, (byte) 2);
             whole = arena.allocate(LIMIT + 64, 64);
             out = whole.asSlice(0, LIMIT);
+            // Not zero: a lane that a resumed exception zeroed would store zero.
+            for (long at = LIMIT; at < LIMIT + 64; at += 4) {
+                whole.set(INT, at, GUARD);
+            }
         }
 
         void checkGuard() {
             for (long at = LIMIT; at < LIMIT + 64; at += 4) {
-                check(whole.get(INT, at) == 0, "the masked store wrote outside its segment, at " + at);
+                check(whole.get(INT, at) == GUARD, "the masked store wrote outside its segment, at " + at);
             }
         }
     }
@@ -240,7 +248,7 @@ public class TestCheckedVectorsAtRawAccesses {
     static void good(Arena arena, MemorySegment in, String only) {
         Arguments a = new Arguments(arena, ITERS + 1);
         if (only == null || only.equals("laneCheck")) {
-            int sum = laneCheckKernel(in, a.pos, a.out, a.at, a.bits, ITERS);
+            int sum = laneCheckKernel(in, a.pos, a.out, a.at, a.bits, a.done, ITERS);
             check(sum == 0, "laneCheckKernel: " + sum);
             for (long at = STORE_AT + 4; at < LIMIT; at += 4) {
                 check(a.whole.get(INT, at) == 0x5A5A5A5A, "laneCheckKernel did not store at " + at);
@@ -269,7 +277,7 @@ public class TestCheckedVectorsAtRawAccesses {
         final int badFrom = ITERS / 2;
         Arguments a = new Arguments(arena, badFrom);
         try {
-            laneCheckKernel(in, a.pos, a.out, a.at, a.bits, ITERS);
+            laneCheckKernel(in, a.pos, a.out, a.at, a.bits, a.done, ITERS);
             throw new RuntimeException("laneCheckKernel: no IndexOutOfBoundsException");
         } catch (IndexOutOfBoundsException expected) {
         }
@@ -390,17 +398,21 @@ public class TestCheckedVectorsAtRawAccesses {
             a.pos[faultAt] = 100 * PAGE;
             String outcome;
             try {
-                laneCheckKernel(mapped, a.pos, a.out, a.at, a.bits, ITERS);
+                laneCheckKernel(mapped, a.pos, a.out, a.at, a.bits, a.done, ITERS);
                 outcome = "returned";
             } catch (IndexOutOfBoundsException | InternalError e) {
                 outcome = e.getClass().getSimpleName();
             }
             boolean wrote = false;
             for (long at = LIMIT; at < LIMIT + 64; at += 4) {
-                wrote |= a.whole.get(INT, at) != 0;
+                wrote |= a.whole.get(INT, at) != GUARD;
             }
-            System.out.println("laneCheckKernel: " + outcome + ", wrote outside: " + wrote);
-            if (wrote || outcome.equals("returned")) {
+            System.out.println("laneCheckKernel: " + outcome + ", wrote outside: " + wrote + ", stores done: " + a.done[0]
+                               + " (page error in iteration " + faultAt + ")");
+
+            // With the bad mask from the iteration of the page error on, no store of that iteration or
+            // of a later one may pass its check.
+            if (wrote || a.done[0] > faultAt || outcome.equals("returned")) {
                 failures++;
             }
 
