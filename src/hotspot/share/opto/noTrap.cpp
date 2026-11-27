@@ -507,6 +507,40 @@ static bool is_constant_mask(const Node* n) {
   return true;
 }
 
+static bool is_general_purpose_ideal_reg(uint ideal_reg) {
+  return ideal_reg == Op_RegI || ideal_reg == Op_RegN || ideal_reg == Op_RegL || ideal_reg == Op_RegP;
+}
+
+// Whether the mask or vector n can be computed again anywhere its definition dominates, by a copy
+// of its instruction: the instruction has no TEMPs, kills or control, reads no memory, and its
+// inputs are constants, integer or pointer values (which a compilation with unsafe accesses keeps
+// out of losable registers) and other masks and vectors. A copy in front of a reader computes the
+// value the definition computed, from inputs that a fault cannot have changed: the masks and
+// vectors among them are then read for the check of that reader, so they are found and protected
+// in turn.
+static bool is_recomputable(const Node* n) {
+  if (!n->is_Mach() || n->is_MachSpillCopy() || n->is_MachTemp() || n->is_MachCall() ||
+      (n->in(0) != nullptr && !n->in(0)->is_Root())) {
+    return false;
+  }
+  for (uint k = 1; k < n->req(); k++) {
+    const Node* in = n->in(k);
+    if (in == nullptr || in->is_MachTemp() || in->bottom_type() == Type::MEMORY) {
+      return false;
+    }
+    if (!in->is_Con() && !in->is_MachConstantBase() && !is_mask_value(in) && !is_vector_value(in) &&
+        !is_general_purpose_ideal_reg(value_ideal_reg(in))) {
+      return false;
+    }
+  }
+  for (DUIterator_Fast kmax, k = n->fast_outs(kmax); k < kmax; k++) {
+    if (n->fast_out(k)->is_Proj()) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // Logs why value, which reaches a check across a raw access, gets no copy.
 static void log_unprotected(const Node* value, const char* reason) {
   log_debug(jit, compilation)("no-trap: no copy for %s %u (%s): %s", NodeClassNames[value->Opcode()], value->_idx,
@@ -523,8 +557,10 @@ static void log_unprotected(const Node* value, const char* reason) {
 // reload it. Instead, this leaves the value in its register for the readers that do not check,
 // where zeroed lanes are harmless, and gives each reader that checks a value that a fault cannot
 // have zeroed:
-// - for a constant mask (see is_constant_mask()), a copy of its definition right in front of the
-//   reader;
+// - for a constant mask (see is_constant_mask()) and for a value that can be computed again from
+//   values that are not losable (see is_recomputable(): the mask of a loop iteration, a compare of
+//   the lane numbers with a broadcast of the lanes left), a copy of its definition right in front
+//   of the reader, which costs the paths that do not check nothing;
 // - for any other mask, a copy bound to the stack that is made right after the definition (keep),
 //   and a reload of that copy right in front of the reader. Neither is marked as a copy, so that
 //   the allocator's copy removal, which follows copies to a register that still holds the value,
@@ -560,7 +596,7 @@ static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, cons
            block->get_node(keep_at)->in(0) == mask) {
       keep_at++;
     }
-    const bool constant = is_mask_value(mask) && is_constant_mask(mask);
+    const bool constant = (is_mask_value(mask) && is_constant_mask(mask)) || is_recomputable(mask);
     if (!constant && (keep_at >= block->number_of_nodes() || block->get_node(keep_at)->is_MachNullCheck())) {
       log_unprotected(mask, "nothing can follow it in its block"); // the access of an implicit null check
       continue;
@@ -685,7 +721,7 @@ void NoTrapSites::protect_checked_values(Compile* C, const NoTrapPlatform* platf
     vector_lost = flow.accesses_before_checks(accesses, &values);
     // The copies of a protected value are read right where they are made, and a value computed
     // from them can itself be found, so a few rounds are enough.
-    if (round == 4) {
+    if (round == 8) {
       break;
     }
     const int protected_now = protect_values(C, cfg, flow, values, stack_bound, stacks);
