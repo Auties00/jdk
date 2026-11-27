@@ -1,0 +1,88 @@
+name: 'JDK-8365196 notrap quick'
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-notrapq-*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  BUILD_RUN: 46043336189
+  KMASK_RUN: 45961686077
+
+jobs:
+  opto:
+    name: opto (linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review9
+            review10
+            test/hotspot/jtreg/compiler/runtime/safepoints
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64-debug
+          path: b-new
+          run-id: ${{ env.BUILD_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64-debug
+          path: b-kmask
+          run-id: ${{ env.KMASK_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'PrintOptoAssembly'
+        shell: bash
+        run: |
+          set +e
+          mkdir -p out new kmask stub/jtreg stub/jdk/test/lib/process cls
+          tar -xzf "$(ls b-new/jdk-linux-x64*.tar.gz | grep -v symbols | grep -v static | head -1)" -C new
+          tar -xzf "$(ls b-kmask/jdk-linux-x64*.tar.gz | grep -v symbols | grep -v static | head -1)" -C kmask
+          NJ=$(dirname "$(find new -name java -path '*/bin/*' -type f | head -1)")
+          KJ=$(dirname "$(find kmask -name java -path '*/bin/*' -type f | head -1)")
+          grep -m1 'model name' /proc/cpuinfo | tee out/cpu.txt
+          echo 'package jtreg; public class SkippedException extends RuntimeException { public SkippedException(String s){super(s);} }' > stub/jtreg/SkippedException.java
+          echo 'package jdk.test.lib.process; public class OutputAnalyzer { public OutputAnalyzer shouldHaveExitValue(int i){return this;} public OutputAnalyzer shouldMatch(String s){return this;} public OutputAnalyzer shouldContain(String s){return this;} public OutputAnalyzer shouldNotContain(String s){return this;} }' > stub/jdk/test/lib/process/OutputAnalyzer.java
+          echo 'package jdk.test.lib.process; public class ProcessTools { public static OutputAnalyzer executeTestJava(String... a) throws Exception {return null;} }' > stub/jdk/test/lib/process/ProcessTools.java
+          T=src/test/hotspot/jtreg/compiler/runtime/safepoints
+          "$NJ/javac" --add-modules jdk.incubator.vector -d cls stub/jtreg/*.java stub/jdk/test/lib/process/*.java $T/TestCheckedVectorsAtRawAccesses.java $T/ExceptionXState.java 2>&1 | grep -v -i warning
+          m2=https://repo1.maven.org/maven2
+          for a in org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar; do
+            curl -sfL --retry 6 --retry-all-errors --retry-delay 5 -o "lib-$(basename $a)" "$m2/$a" || echo "download failed: $a"
+          done
+          cp="lib-jmh-core-1.37.jar:lib-jopt-simple-5.0.4.jar:lib-commons-math3-3.6.1.jar"
+          "$NJ/javac" --add-modules jdk.incubator.vector -proc:full -cp "$cp:lib-jmh-generator-annprocess-1.37.jar" -d jmhc src/review9/*.java src/review10/*.java 2>&1 | grep -v -i warning | tail -5
+          COMMON="--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow -XX:+UnlockDiagnosticVMOptions -XX:+AvoidLosableStateAtTraps -XX:UseAVX=2 -Xlog:jit+compilation=debug"
+          # The kernels of the test, as its fault id compiles them
+          for k in laneCheck gather userCheck; do
+            for c in new kmask; do
+              J="$NJ"; [ $c = kmask ] && J="$KJ"
+              "$J/java" $COMMON -XX:-TieredCompilation -Xbatch -cp cls \
+                "-XX:CompileCommand=compileonly,*TestCheckedVectorsAtRawAccesses::${k}Kernel" \
+                "-XX:CompileCommand=PrintOptoAssembly,*TestCheckedVectorsAtRawAccesses::${k}Kernel" \
+                compiler.runtime.safepoints.TestCheckedVectorsAtRawAccesses child $k > "out/test-$k-$c.log" 2>&1
+              echo "$k $c: $(grep -c 'no-trap:' out/test-$k-$c.log) decisions, $(wc -l < out/test-$k-$c.log) lines"
+            done
+          done
+          # The bench kernels whose AVX2 cost the rule for vectors raised
+          for c in new kmask; do
+            J="$NJ"; [ $c = kmask ] && J="$KJ"
+            "$J/java" -cp "jmhc:$cp" org.openjdk.jmh.Main \
+              -jvmArgsAppend "$COMMON -XX:CompileCommand=PrintOptoAssembly,review9.*::* -XX:CompileCommand=PrintOptoAssembly,review10.*::*" \
+              -f 1 -wi 4 -i 1 -w 1 -r 1 "tailMaskedCopy|segmentMaskedSum|segmentCompareBlendStore|unsafeWithLiveMask" > "out/bench-$c.log" 2>&1
+            grep "no-trap:" "out/bench-$c.log" | sed 's/^.*no-trap/no-trap/' | sort | uniq -c
+          done
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: opto
+          path: out
+          retention-days: 30
