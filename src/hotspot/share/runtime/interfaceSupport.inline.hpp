@@ -84,6 +84,11 @@ class ThreadStateTransition : public StackObj {
     assert(thread == Thread::current(), "must be current thread");
   }
 
+  // Native code that the VM called on a Java thread (a JVMTI event callback, a library function)
+  // has returned: restores the floating point control state that the return from a JNI call
+  // restores, since the thread can go back to Java code without passing through one.
+  static void restore_cpu_control_state_after_native();
+
   static inline void transition_from_java(JavaThread *thread, JavaThreadState to) {
     assert(thread->thread_state() == _thread_in_Java, "coming from wrong thread state");
     assert(to == _thread_in_vm || to == _thread_in_native, "invalid transition");
@@ -192,6 +197,7 @@ class ThreadToNativeFromVM : public ThreadStateTransition {
     transition_from_vm(thread, _thread_in_native);
   }
   ~ThreadToNativeFromVM() {
+    restore_cpu_control_state_after_native();
     transition_from_native(_thread, _thread_in_vm);
     assert(!_thread->is_pending_jni_exception_check(), "Pending JNI Exception Check");
     // We don't need to clear_walkable because it will happen automagically when we return to java

@@ -136,6 +136,7 @@ public:
 
   ~JvmtiThreadEventTransition() {
     if (_jthread != nullptr) {
+      ThreadStateTransition::restore_cpu_control_state_after_native();
       ThreadStateTransition::transition_from_native(_jthread, _saved_state);
     }
     JvmtiEventController::dec_in_callback_count();

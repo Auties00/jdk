@@ -36,6 +36,7 @@
 #include "runtime/os.hpp"
 #include "runtime/safepointVerifiers.hpp"
 #include "runtime/stackFrameStream.inline.hpp"
+#include "runtime/stubRoutines.hpp"
 #include "runtime/threads.hpp"
 #include "runtime/vframe.hpp"
 #include "runtime/vmOperations.hpp"
@@ -253,6 +254,12 @@ void InterfaceSupport::verify_last_frame() {
 
 #endif // ASSERT
 
+
+void ThreadStateTransition::restore_cpu_control_state_after_native() {
+#if defined(AMD64) && !defined(ZERO)
+  StubRoutines::x86::restore_mxcsr_after_native();
+#endif
+}
 
 void InterfaceSupport_init() {
 #ifdef ASSERT
