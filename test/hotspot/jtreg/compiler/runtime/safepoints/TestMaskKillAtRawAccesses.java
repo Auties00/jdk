@@ -271,9 +271,9 @@ public class TestMaskKillAtRawAccesses {
 
     static void kills() throws Exception {
         child("predicate").shouldContain(
-            "no-trap: 0 raw accesses of predicateKernel kill the mask registers, 0 masks protected for their checks");
+            "no-trap: 0 raw accesses of predicateKernel kill the mask registers, 0 values protected for their checks");
         child("check").shouldMatch(
-            "no-trap: 0 raw accesses of checkKernel kill the mask registers, [1-9][0-9]* masks protected for their checks");
+            "no-trap: 0 raw accesses of checkKernel kill the mask registers, [1-9][0-9]* values protected for their checks");
     }
 
     public static void main(String[] args) throws Exception {
