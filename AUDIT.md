@@ -707,6 +707,50 @@ The explicit null check and the branch poll are conditional branches that C2's m
 affected processors they could cross a 32 byte boundary, which C2 avoids for every other branch. They are now
 tagged and padded like the others (cpu/x86/c2_intelJccErratum_x86.cpp). No effect on the invariant.
 
+### C1 keeps xmm16-xmm31 where no trap of its own resumes its frame
+
+Before: with the mode, C1 allocated xmm0-xmm15 only, on every processor. On AVX-512 processors that costs a
+C1-compiled method with more than sixteen floating point values live at once a spill for each further one
+(measured below: 6% and 14% on a kernel with twenty live doubles, run with C1 only). Now, on a processor with
+xmm16-xmm31 and in a VM that has C2's handler blob for branch polls, C1 allocates all of them, under two rules
+(cpu/x86/c1_FrameMap_x86.hpp, FrameMap::uses_losable_xmm_regs()):
+
+- its loop polls test the polling word and branch to a stub (LIR_Assembler::safepoint_poll(),
+  C1SafepointPollStub with `at_return` false), whose handler is the blob of C2's branch polls: it saves every
+  register and returns to the poll;
+- an operation with debug info that is not a call or a poll, and that either has an exception handler of the
+  frame, or deoptimizes on its exception, destroys xmm16-xmm31 for the allocator, as a call destroys every
+  register (LinearScan::pd_add_temps() adds a fixed-interval use of each at the operation); when the locals must
+  stay readable for a debugger (`should_retain_local_variables()`), every such operation does.
+
+Elsewhere (no AVX-512, or no C2 in the VM) C1 is as before: xmm0-xmm15 when the mode is on, faulting polls.
+
+Argument. C1 code takes three kinds of hardware exception that the VM resumes: the loop poll, the implicit null
+check and the implicit division by zero (the last two record an entry of the implicit exception table at the
+operation, with its debug info: every such operation has a CodeEmitInfo). The poll no longer traps. An implicit
+exception continues at the operation's stub (ImplicitNullCheckStub, DivByZeroStub), which calls the runtime, and
+from there the frame goes on in exactly one of these ways:
+
+- in an exception handler of the frame: then the operation has that handler in its XHandlers (they cover the
+  scopes inlined around it), so no value live across it, which includes every value live into the handler, is in
+  xmm16-xmm31; the values the handler reads arrive from the locations they had at the operation;
+- in the interpreter after a deoptimization that does not throw: only where the debug info says
+  `deoptimize_on_exception()` (ImplicitNullCheckStub then calls the predicate-failed trap); such an operation
+  destroys the registers too, so its debug info names none of them;
+- nowhere: the exception is thrown out of the frame, which is unwound (Runtime1's unwind handler), or the frame is
+  deoptimized with the exception pending (JVMTI exception events, a frame invalidated while in the runtime) and
+  its interpreter frames find no handler, as the compiled code found none, and are unwound. Nothing reads the
+  frame's registers; a debugger that could read its locals on the way is the retained-locals case above.
+
+Values in xmm16-xmm31 across a branch poll are saved and restored by the blob, and named by its oop map for a
+deoptimization at the poll, as for C2. Across a call no register is live. A value used by the trapping operation
+for the last time may be in xmm16-xmm31: it is dead after it. C1 keeps only floats and doubles in these registers
+(no integer, pointer or mask), so the window of an unsafe access fault holds data there, as it does for C2.
+
+Tests: TestExceptionXStateLossC1 (C1 only, and tiered) keeps twenty-four accumulators live across the polls of a
+loop without handlers and across a null check with a handler in the frame; on a kernel that loses state it fails
+without the mode (C1 then keeps its faulting polls and xmm16-xmm31).
+
 ### What was looked at and found to be no cost of the shapes
 
 - The megamorphic kernel (review2, +4.6% on AVX-512): its compiled code has no vector, no losable state and no
