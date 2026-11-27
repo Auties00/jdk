@@ -1,0 +1,179 @@
+name: 'JDK-8365196 mxcsr CI'
+
+# Review-only. The gate of the MXCSR load on the return of native code that the VM called (JVMTI
+# callbacks): builds windows-x64 (release and fastdebug) and linux-x64 (fastdebug); runs the hotspot JNI
+# tests (with TestMXCSRRestore and TestMXCSRAfterJVMTICallback), serviceability/jvmti and java/foreign
+# on windows-2025 and windows-2022, and the JNI tests on linux-x64 with the mode forced; runs
+# TestMXCSRAfterJVMTICallback against the JDK of run NOFIX_RUN, built without the fix, where it must
+# fail; and compares the JNI and FFM call kernels (review8) of the two JDKs on the same VM.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-mxcsr-*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  # The cost branch at 04e2bcf6735, before the fix.
+  NOFIX_RUN: 45899003512
+
+jobs:
+  prepare:
+    name: 'Prepare'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+      - name: 'Build JTReg'
+        uses: ./.github/actions/build-jtreg
+
+  build-windows-x64:
+    name: windows-x64
+    needs: prepare
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      platform: windows-x64
+      runs-on: windows-2022
+      architecture: 'x86.x64'
+      msvc-toolset-version: '14.44'
+
+  build-linux-x64:
+    name: linux-x64
+    needs: prepare
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      platform: linux-x64
+      gcc-major-version: '10'
+      debug-levels: '[ "debug" ]'
+
+  test-windows-2025:
+    name: 'windows-2025'
+    needs: [prepare, build-windows-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: windows-x64
+      bootjdk-platform: windows-x64
+      architecture: 'x86.x64'
+      runs-on: windows-2025
+      tag: w2025
+      tests: '[{"test-name": "hs/jni", "test-suite": "test/hotspot/jtreg/runtime/jni", "debug-suffix": "-debug"}, {"test-name": "hs/jvmti", "test-suite": "test/hotspot/jtreg/serviceability/jvmti", "debug-suffix": "-debug"}, {"test-name": "jdk/foreign", "test-suite": "test/jdk/java/foreign", "debug-suffix": "-debug"}]'
+
+  test-windows-2022:
+    name: 'windows-2022'
+    needs: [prepare, build-windows-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: windows-x64
+      bootjdk-platform: windows-x64
+      architecture: 'x86.x64'
+      runs-on: windows-2022
+      tag: w2022
+      tests: '[{"test-name": "hs/jni", "test-suite": "test/hotspot/jtreg/runtime/jni", "debug-suffix": "-debug"}, {"test-name": "hs/jvmti", "test-suite": "test/hotspot/jtreg/serviceability/jvmti", "debug-suffix": "-debug"}, {"test-name": "jdk/foreign", "test-suite": "test/jdk/java/foreign", "debug-suffix": "-debug"}]'
+
+  test-linux-x64-forced:
+    name: 'linux-x64, mode forced'
+    needs: [prepare, build-linux-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: linux-x64
+      bootjdk-platform: linux-x64
+      runs-on: ubuntu-24.04
+      tag: linux-forced
+      java-options: '-XX:+UnlockDiagnosticVMOptions -XX:+AvoidLosableStateAtTraps'
+      tests: '[{"test-name": "hs/jni", "test-suite": "test/hotspot/jtreg/runtime/jni", "debug-suffix": "-debug"}]'
+
+  nofix:
+    name: fix and no fix, bench (${{ matrix.os }})
+    needs: [prepare, build-windows-x64]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-2022]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - id: jtreg
+        uses: ./.github/actions/get-jtreg
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: bundles
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: bundles-nofix
+          run-id: ${{ env.NOFIX_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'TestMXCSRAfterJVMTICallback with and without the fix, then the call kernels of both'
+        run: |
+          set +e
+          mkdir -p out jdk nofix tests
+          unzip -q bundles/jdk-windows-x64.zip -d jdk
+          unzip -q bundles-nofix/jdk-windows-x64.zip -d nofix
+          tar -xzf bundles/tests-windows-x64.tar.gz -C tests
+          home() { (cd "$(dirname "$(find "$1" -name java.exe -path '*/bin/*' | head -1)")/.." && pwd -W); }
+          JDK=$(home jdk); NOFIX=$(home nofix)
+          NAT=$(cd "$(dirname "$(find tests -name MXCSRJvmti.dll | head -1)")" && pwd -W)
+          JT='${{ steps.jtreg.outputs.path }}'
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" | tee out/build.txt
+          jt() {
+            local tag=$1 jdk=$2 test=$3
+            "$JDK/bin/java" -jar "$JT/lib/jtreg.jar" -jdk:"$jdk" -nativepath:"$NAT" -w "wk/$tag" -r "rp/$tag" \
+              -timeoutFactor:4 -verbose:summary -vmoptions:"-XX:-CreateCoredumpOnCrash" $test > "out/jtreg-$tag.txt" 2>&1
+            local pass=$(grep -c '^Passed: ' "out/jtreg-$tag.txt")
+            local fail=$(grep -c -E '^(FAILED|Error): ' "out/jtreg-$tag.txt")
+            mkdir -p "out/jtr/$tag"; find "wk/$tag" -name '*.jtr' -exec cp {} "out/jtr/$tag/" \; 2>/dev/null
+            echo "SUMMARY [$tag] passed=$pass failed=$fail $(grep -h -m1 'RuntimeException' out/jtr/$tag/*.jtr 2>/dev/null | head -1)" | tee -a out/summary.txt
+          }
+          T=test/hotspot/jtreg/runtime/jni/mxcsr/TestMXCSRAfterJVMTICallback.java
+          for r in 1 2; do
+            jt "fix-$r" "$JDK" "$T"
+            jt "nofix-$r" "$NOFIX" "$T"
+          done
+          m2=https://repo1.maven.org/maven2
+          for a in org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar; do
+            curl -sfL -o "lib-$(basename $a)" "$m2/$a" || echo "download failed: $a"
+          done
+          cp="lib-jmh-core-1.37.jar;lib-jopt-simple-5.0.4.jar;lib-commons-math3-3.6.1.jar"
+          "$JDK/bin/javac" -proc:full -cp "$cp;lib-jmh-generator-annprocess-1.37.jar" -d jmhc review8/R8Bench.java 2>&1 | grep -v -i warning | tail -5
+          clang -O2 -shared -I"$JDK/include" -I"$JDK/include/win32" -o r8bench.dll review8/r8bench.c
+          for round in 1 2 3; do
+            order="A B"; [ $round = 2 ] && order="B A"
+            for c in $order; do
+              j=$NOFIX; [ $c = B ] && j=$JDK
+              "$j/bin/java" -Djava.library.path=. -cp "jmhc;$cp" org.openjdk.jmh.Main \
+                -jvmArgsAppend "--enable-native-access=ALL-UNNAMED -Djava.library.path=." \
+                -rf csv -rff "out/jmh-$c-$round.csv" -f 3 -wi 4 -i 6 -w 1 -r 1 "review8.R8Bench" > "out/jmh-$c-$round.log" 2>&1
+            done
+          done
+          {
+            echo "### $(cat out/cpu.txt) | $(cat out/build.txt)"; echo '```'; cat out/summary.txt
+            echo "A: without the fix, B: with it (ns/op, three rounds)"
+            for c in A B; do
+              for b in jni downcall downcallCritical upcall; do
+                echo "$c $b $(for r in 1 2 3; do grep "R8Bench.$b\"" out/jmh-$c-$r.csv | cut -d, -f5; done | tr '\n' ' ')"
+              done
+            done
+            echo '```'
+          } | tee out/report.txt >> "$GITHUB_STEP_SUMMARY"
+          # With the fix the test passes; without it, it fails.
+          grep -E '^SUMMARY \[fix-[12]\]' out/summary.txt | grep -q -v ' passed=1 failed=0 ' && exit 1
+          grep -E '^SUMMARY \[nofix-[12]\]' out/summary.txt | grep -q ' failed=0 ' && { echo "the test passed without the fix"; exit 1; }
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: nofix-${{ matrix.os }}
+          path: out
+          retention-days: 30
