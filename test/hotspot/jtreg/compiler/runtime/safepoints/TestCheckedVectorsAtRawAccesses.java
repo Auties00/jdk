@@ -131,7 +131,8 @@ public class TestCheckedVectorsAtRawAccesses {
     // every iteration runs the check. The offset of the store, and so the limit of the lanes,
     // depends on the value read: were the limit a vector of the loop like the lane numbers, a
     // resumed fault would zero both, and zero is not below zero.
-    static int laneCheckKernel(MemorySegment in, long[] pos, MemorySegment out, long[] at, long[] bits, int iters) {
+    static int laneCheckKernel(MemorySegment in, long[] pos, MemorySegment out, long[] at, long[] bits,
+                               int[] done, int iters) {
         if (FILL) {
             ExceptionXState.fillBelowStack();
         }
@@ -142,8 +143,22 @@ public class TestCheckedVectorsAtRawAccesses {
             sum += x;
             VectorMask<Integer> m = VectorMask.fromLong(S, bits[i + (x & 1)]);
             v.intoMemorySegment(out, at[i + (x & 1)], ORDER, m);
+            done[0] = i + 1; // how far the stores got, for the page error case
         }
         return sum;
+    }
+
+    // No check: a vector that the loop keeps in a register is stored after each read, which shows
+    // what a resumed page error did to it.
+    static void canaryKernel(MemorySegment in, long[] pos, int[] seen, int iters) {
+        if (FILL) {
+            ExceptionXState.fillBelowStack();
+        }
+        IntVector v = IntVector.broadcast(S, seen[0]);
+        for (int i = 0; i < iters; i++) {
+            int x = in.get(INT, pos[i]);
+            v.add(x & 1).intoArray(seen, 8 * i + 8 * (x & 1));
+        }
     }
 
     // The check of the gather compares the index vector, which does not change in the loop, with
@@ -200,6 +215,8 @@ public class TestCheckedVectorsAtRawAccesses {
         final int[] userIx = new int[4 * ITERS];
         final long[] limits = { 1000, 1000 };
         final byte[] flags = new byte[ITERS];
+        final int[] done = new int[1];
+        final int[] seen = new int[8 * ITERS + 16];
         final MemorySegment whole;
         final MemorySegment out;
 
@@ -226,6 +243,7 @@ public class TestCheckedVectorsAtRawAccesses {
                 sel[i] = badFrom > ITERS ? i & 1 : (i < badFrom ? 0 : 1);
             }
             Arrays.fill(flags, (byte) 2);
+            seen[0] = 7;
             whole = arena.allocate(LIMIT + 64, 64);
             out = whole.asSlice(0, LIMIT);
         }
@@ -240,12 +258,16 @@ public class TestCheckedVectorsAtRawAccesses {
     static void good(Arena arena, MemorySegment in, String only) {
         Arguments a = new Arguments(arena, ITERS + 1);
         if (only == null || only.equals("laneCheck")) {
-            int sum = laneCheckKernel(in, a.pos, a.out, a.at, a.bits, ITERS);
+            int sum = laneCheckKernel(in, a.pos, a.out, a.at, a.bits, a.done, ITERS);
             check(sum == 0, "laneCheckKernel: " + sum);
             for (long at = STORE_AT + 4; at < LIMIT; at += 4) {
                 check(a.whole.get(INT, at) == 0x5A5A5A5A, "laneCheckKernel did not store at " + at);
             }
             a.checkGuard();
+        }
+        if (only == null) {
+            canaryKernel(in, a.pos, a.seen, ITERS);
+            check(a.seen[8 * ITERS - 1] == 7, "canaryKernel: " + a.seen[8 * ITERS - 1]);
         }
         if (only == null || only.equals("gather")) {
             int want = 0;
@@ -269,7 +291,7 @@ public class TestCheckedVectorsAtRawAccesses {
         final int badFrom = ITERS / 2;
         Arguments a = new Arguments(arena, badFrom);
         try {
-            laneCheckKernel(in, a.pos, a.out, a.at, a.bits, ITERS);
+            laneCheckKernel(in, a.pos, a.out, a.at, a.bits, a.done, ITERS);
             throw new RuntimeException("laneCheckKernel: no IndexOutOfBoundsException");
         } catch (IndexOutOfBoundsException expected) {
         }
@@ -390,7 +412,7 @@ public class TestCheckedVectorsAtRawAccesses {
             a.pos[faultAt] = 100 * PAGE;
             String outcome;
             try {
-                laneCheckKernel(mapped, a.pos, a.out, a.at, a.bits, ITERS);
+                laneCheckKernel(mapped, a.pos, a.out, a.at, a.bits, a.done, ITERS);
                 outcome = "returned";
             } catch (IndexOutOfBoundsException | InternalError e) {
                 outcome = e.getClass().getSimpleName();
@@ -399,7 +421,19 @@ public class TestCheckedVectorsAtRawAccesses {
             for (long at = LIMIT; at < LIMIT + 64; at += 4) {
                 wrote |= a.whole.get(INT, at) != 0;
             }
-            System.out.println("laneCheckKernel: " + outcome + ", wrote outside: " + wrote);
+            System.out.println("laneCheckKernel: " + outcome + ", wrote outside: " + wrote + ", stores done: " + a.done[0]
+                               + " (page error in iteration " + faultAt + ")");
+
+            a = new Arguments(arena, faultAt);
+            a.pos[faultAt] = 150 * PAGE;
+            try {
+                canaryKernel(mapped, a.pos, a.seen, ITERS);
+                outcome = "returned";
+            } catch (InternalError e) {
+                outcome = "InternalError";
+            }
+            System.out.println("canaryKernel: " + outcome + ", the vector stored in the faulting iteration: "
+                               + Arrays.toString(Arrays.copyOfRange(a.seen, 8 * faultAt, 8 * faultAt + 8)));
             if (wrote || outcome.equals("returned")) {
                 failures++;
             }

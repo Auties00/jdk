@@ -167,7 +167,7 @@ jobs:
             local tag=$1 jdk=$2 opts=$3
             jt "$tag" "$jdk" "-Dtest.xstate.vhd=true -Dtest.xstate.fill=true $opts" test/hotspot/jtreg/compiler/runtime/safepoints/TestCheckedVectorsAtRawAccesses.java
             for j in out/jtr/$tag/*.jtr; do
-              echo "SUMMARY [$tag] $(basename $j): $(grep -E '^(laneCheckKernel|gatherKernel|userCheckKernel|page error|Native probe)|SkippedException|^execStatus' "$j" | tr '\n' ';' | cut -c1-600)" | tee -a out/summary.txt
+              echo "SUMMARY [$tag] $(basename $j): $(grep -E '^(laneCheckKernel|canaryKernel|gatherKernel|userCheckKernel|page error)|SkippedException|^execStatus' "$j" | tr '\n' ';' | cut -c1-900)" | tee -a out/summary.txt
             done
           }
           for r in 1 2; do
