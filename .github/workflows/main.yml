@@ -29,6 +29,7 @@ on:
   push:
     branches-ignore:
       - pr/*
+      - JDK-8365196-ci-checks*
   workflow_dispatch:
     inputs:
       platforms:
