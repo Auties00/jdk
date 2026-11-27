@@ -391,8 +391,10 @@ static bool raw_access_between(const Block* block, uint from, uint to) {
 
 // Whether n is a mask with every lane set or clear made from a constant (an immediate, or a constant
 // in a register), by an instruction without TEMPs or kills: a copy of it can be placed anywhere.
+// Like other constants, the one made from an immediate has the root as its control input.
 static bool is_constant_mask(const Node* n) {
-  if (!n->is_Mach() || n->as_Mach()->ideal_Opcode() != Op_MaskAll || n->req() > 2 || n->in(0) != nullptr ||
+  if (!n->is_Mach() || n->as_Mach()->ideal_Opcode() != Op_MaskAll || n->req() > 2 ||
+      (n->in(0) != nullptr && !n->in(0)->is_Root()) ||
       (n->req() == 2 && (n->in(1) == nullptr || !n->in(1)->is_Con()))) {
     return false;
   }
