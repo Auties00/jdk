@@ -1176,9 +1176,19 @@ bool LibraryCallKit::inline_vector_mem_masked_operation(bool is_store) {
     return false;
   }
 
-  // Can base be null? Otherwise, always on-heap access.
-  bool can_access_non_heap = TypePtr::NULL_PTR->higher_equal(gvn().type(base));
-  if (can_access_non_heap) {
+  // The memory barrier keeps an access whose alias category is not known ordered with the accesses
+  // to the heap: one whose base may be null or not (see inline_vector_mem_operation() and
+  // C2Access::needs_cpu_membar()). A base that is never null is an access to the heap, and a base
+  // that is always null is an access to raw memory, whose only alias category is the raw one: the
+  // memory edges of that category order it with every other access to raw memory, and no access to
+  // a field or an array element can alias it. Without the barrier the loads of the fields that a
+  // loop over a native memory segment reads on every iteration (the segment, its scope, the state
+  // of the scope) do not depend on the memory state of the loop, so their checks can leave it.
+  const Type* const base_type = gvn().type(base);
+  const bool in_native = TypePtr::NULL_PTR == base_type; // base always null
+  const bool in_heap   = !TypePtr::NULL_PTR->higher_equal(base_type); // base never null
+  const bool needs_cpu_membar = !in_heap && !in_native;
+  if (needs_cpu_membar) {
     insert_mem_bar(Op_MemBarCPUOrder);
   }
 
@@ -1249,7 +1259,7 @@ bool LibraryCallKit::inline_vector_mem_masked_operation(bool is_store) {
 
   old_state.discard();
 
-  if (can_access_non_heap) {
+  if (needs_cpu_membar) {
     insert_mem_bar(Op_MemBarCPUOrder);
   }
 
