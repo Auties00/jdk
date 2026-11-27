@@ -87,6 +87,11 @@ CallGenerator* Compile::make_vm_intrinsic(ciMethod* m, bool is_virtual) {
     return nullptr;
   }
 
+  if (avoid_vectors() && m->is_vector_method()) {
+    // The Java code of the Vector API runs instead (see NoTrapSites::protect_checked_values()).
+    return nullptr;
+  }
+
   C2Compiler* compiler = (C2Compiler*)CompileBroker::compiler(CompLevel_full_optimization);
   bool is_available = false;
 

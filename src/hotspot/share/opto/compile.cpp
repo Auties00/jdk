@@ -3950,7 +3950,10 @@ void Compile::Code_Gen() {
 
     const NoTrapPlatform* no_trap = Matcher::no_trap();
     if (no_trap != nullptr) {
-      NoTrapSites::kill_masks_where_checked(this, no_trap);
+      NoTrapSites::protect_checked_values(this, no_trap);
+      if (failing()) {
+        return;
+      }
     }
   }
 

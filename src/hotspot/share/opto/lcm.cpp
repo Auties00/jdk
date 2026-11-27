@@ -342,6 +342,16 @@ void PhaseCFG::implicit_null_check(Block* block, Node *proj, Node *val, int allo
       // the flags the candidate reads.
       continue;
     }
+    if (no_trap != nullptr && C->has_unsafe_access() && mach->_opnds != nullptr) {
+      // Nothing can follow the access of an implicit null check in its block, so a mask or a vector
+      // it defines could not be copied to the stack for the readers that check it (see
+      // NoTrapSites::protect_checked_values()).
+      const uint ideal_reg = mach->ideal_reg();
+      if (ideal_reg == Op_RegVectMask || ideal_reg == Op_VecA || ideal_reg == Op_VecS || ideal_reg == Op_VecD ||
+          ideal_reg == Op_VecX || ideal_reg == Op_VecY || ideal_reg == Op_VecZ) {
+        continue;
+      }
+    }
 
     Block *cb = get_block_for_node(mach);
 

@@ -24823,7 +24823,7 @@ instruct mask_all_evexI_LE32(kReg dst, rRegI src) %{
 
 // The all-true mask of up to 16 lanes, without a general purpose register: with
 // AvoidLosableStateAtTraps this mask is computed again in front of the readers that check it (see
-// NoTrapSites::kill_masks_where_checked()), which in a loop with a masked tail is once per
+// NoTrapSites::protect_checked_values()), which in a loop with a masked tail is once per
 // iteration.
 instruct mask_all_true_evexI_LE16(kReg dst, immI_M1 src) %{
   predicate(Matcher::vector_length(n) <= 16);

@@ -196,6 +196,8 @@ class Options {
   const bool _install_code;          // Install the code that was compiled
   const bool _kill_masks_at_every_raw_access; // AvoidLosableStateAtTraps: do not look for the raw
                                      // accesses that need the kill of the mask registers
+  const bool _avoid_vectors;         // AvoidLosableStateAtTraps: no auto-vectorization and no
+                                     // Vector API intrinsics
  public:
   Options(bool subsume_loads,
           bool do_escape_analysis,
@@ -208,7 +210,8 @@ class Options {
           bool aot_compile,
           bool for_aot_preload,
           bool install_code,
-          bool kill_masks_at_every_raw_access) :
+          bool kill_masks_at_every_raw_access,
+          bool avoid_vectors) :
           _subsume_loads(subsume_loads),
           _do_escape_analysis(do_escape_analysis),
           _do_iterative_escape_analysis(do_iterative_escape_analysis),
@@ -220,7 +223,8 @@ class Options {
           _aot_compile(aot_compile),
           _for_aot_preload(for_aot_preload),
           _install_code(install_code),
-          _kill_masks_at_every_raw_access(kill_masks_at_every_raw_access) {
+          _kill_masks_at_every_raw_access(kill_masks_at_every_raw_access),
+          _avoid_vectors(avoid_vectors) {
   }
 
   static Options for_runtime_stub() {
@@ -236,7 +240,8 @@ class Options {
        /* aot_compile = */ false,
        /* for_aot_preload = */ false,
        /* install_code = */ true,
-       /* kill_masks_at_every_raw_access = */ false
+       /* kill_masks_at_every_raw_access = */ false,
+       /* avoid_vectors = */ false
     );
   }
 };
@@ -617,7 +622,8 @@ public:
   bool              should_install_code() const { return _options._install_code; }
   /** Do locks coarsening. */
   bool              do_locks_coarsening() const { return _options._do_locks_coarsening; }
-  bool              do_superword() const        { return _options._do_superword; }
+  bool              do_superword() const        { return _options._do_superword && !_options._avoid_vectors; }
+  bool              avoid_vectors() const       { return _options._avoid_vectors; }
   bool              kill_masks_at_every_raw_access() const { return _options._kill_masks_at_every_raw_access; }
   bool              do_stringopts() const       { return _options._do_stringopts; }
 

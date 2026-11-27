@@ -463,7 +463,7 @@ bool Matcher::is_raw_memory_access(const MachNode* n) {
 // of the access, so the copies the allocator makes of the access (rematerialized flags producers)
 // keep it. Where the masks can be followed to their uses, only the accesses across which a mask
 // that reaches a check is live get the kill, after scheduling
-// (NoTrapSites::kill_masks_where_checked()).
+// (NoTrapSites::protect_checked_values()).
 void Matcher::kill_masks_at_raw_accesses() {
   const NoTrapPlatform* no_trap = Matcher::no_trap();
   if (no_trap == nullptr || !C->has_unsafe_access() || no_trap->raw_access_kill() == nullptr ||

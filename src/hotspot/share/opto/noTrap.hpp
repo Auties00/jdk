@@ -54,11 +54,11 @@ class RegMask;
 //   any case, and in a compilation with unsafe accesses, the only code such a fault is resumed in
 //   (nmethod::has_unsafe_access()), nothing that steers an access is ever kept in such state while
 //   the access can be reached: integer and pointer values are not spilled there, values are not
-//   recomputed from it, no live range uses a losable general purpose register, and no mask that
-//   reaches a check is in a mask register across a raw access: the access kills the mask registers
-//   (NoTrapPlatform::raw_access_kill()) wherever such a mask is live across it
-//   (NoTrapSites::kill_masks_where_checked()), or every raw access does where masks cannot be told
-//   from other values.
+//   recomputed from it, no live range uses a losable general purpose register, and no mask or
+//   vector that reaches a check is in a losable register across a raw access: each reader that
+//   checks reads a copy that was kept on the stack (NoTrapSites::protect_checked_values()); for
+//   the masks, where they cannot be told from other values, every raw access kills the mask
+//   registers instead (NoTrapPlatform::raw_access_kill()).
 //
 // A platform that supports the mode returns an implementation from Matcher::no_trap().
 class NoTrapPlatform {
@@ -97,7 +97,7 @@ class NoTrapPlatform {
   virtual uint64_t raw_access_killed_units() const = 0;
   // Whether every value that can be in a register of raw_access_kill() has the ideal register
   // class Op_RegVectMask. The raw accesses that need the kill are then found by following the mask
-  // values to their uses (NoTrapSites::kill_masks_where_checked()); otherwise every raw access of
+  // values to their uses (NoTrapSites::protect_checked_values()); otherwise every raw access of
   // a compilation with unsafe accesses kills them.
   virtual bool raw_access_kill_follows_masks() const = 0;
 };
@@ -109,9 +109,10 @@ class NoTrapSites : public AllStatic {
   // null check before each implicit null check access whose null successor losable state is live
   // into. Returns whether it changed anything;
   // such a compilation is not scheduled after register allocation, which could move the checks.
-  // Where kill_follows_masks(), it first repeats the search of kill_masks_where_checked() on the
-  // allocated code, and if a mask that reaches a check is in a mask register across a raw access,
-  // records C as failing with C2Compiler::retry_kill_masks_at_every_raw_access().
+  // In a compilation with unsafe accesses, it first repeats the search of protect_checked_values()
+  // on the allocated code, and if a mask or a vector that reaches a check is in a losable register
+  // across a raw access, records C as failing with
+  // C2Compiler::retry_kill_masks_at_every_raw_access() or C2Compiler::retry_avoid_vectors().
   static bool apply(Compile* C, const NoTrapPlatform* platform);
 
 #ifndef PRODUCT
@@ -130,13 +131,17 @@ class NoTrapSites : public AllStatic {
   // by following the mask values, instead of every raw access getting it in the matcher.
   static bool kill_follows_masks(const Compile* C, const NoTrapPlatform* platform);
 
-  // After scheduling and before register allocation, where kill_follows_masks(): gives the kill to
-  // each raw access across which a mask is live that reaches a check, which is any use other than
-  // as the predicate of an instruction that computes a vector or stores one. A mask that reaches
-  // only such uses may be lost at the access: a zero predicate drops lanes of a value of the
-  // unsafe access window, or stores nothing. The allocator can still stretch a mask across an
-  // access without the kill (the masks of a flags producer it clones), so apply() searches again.
-  static void kill_masks_where_checked(Compile* C, const NoTrapPlatform* platform);
+  // After scheduling and before register allocation, in a compilation with unsafe accesses: finds
+  // the masks and vectors that can be in a losable register across a raw access and reach a check
+  // afterwards, which is any reader that can let them decide something (a test, a conversion of a
+  // mask to an integer), directly or through the masks and vectors computed from them, and gives
+  // each such reader a copy that was kept on the stack. A value that reaches no check may be lost
+  // at the access: its lanes are values of the unsafe access window, and a zero predicate drops
+  // lanes of such values or stores nothing. A mask that cannot be given a copy keeps the kill of
+  // the mask registers at the accesses it is live across; for a vector, C is recorded as failing
+  // with C2Compiler::retry_avoid_vectors(). The allocator can still stretch a value across an
+  // access (the inputs of a flags producer it clones), so apply() searches again.
+  static void protect_checked_values(Compile* C, const NoTrapPlatform* platform);
 };
 
 #endif // SHARE_OPTO_NOTRAP_HPP
