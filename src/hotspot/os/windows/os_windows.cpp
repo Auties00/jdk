@@ -2853,18 +2853,18 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
       // - addresses and scalar bounds checks are computed in general purpose registers; a vector of
       //   indices that comes back zeroed only selects index 0, which a passed check implies is in
       //   range, and an access mask that comes back zeroed only drops lanes;
-      // - the result of a vector check (the Vector API's index check of a gather or scatter) is never
-      //   live across a raw access in a register that would lose it while the checked indices keep
-      //   their low lanes: such an access kills the opmask registers (and, on AVX-512 without VL, BW
-      //   and DQ, xmm16-31) or the SVE predicates other than p7, so a mask computed before it is
-      //   spilled and reloaded intact (without that a failed check of a scatter's indices could pass
-      //   and the scatter write out of bounds). Where every mask is an opmask register value, only
-      //   the accesses across which a mask is live that reaches a check have the kill
-      //   (NoTrapSites::kill_masks_where_checked()): a mask that is only applied as the predicate of
-      //   instructions that compute or store vectors can come back zeroed, which drops lanes of
-      //   values of this window and stores nothing. Elsewhere every raw access has it
-      //   (Matcher::kill_masks_at_raw_accesses()). A mask in xmm0-15 has the lane width of the
-      //   vector it checks, so it loses the same lanes.
+      // - no mask or vector that a check reads after a raw access is in a losable register across
+      //   the access (NoTrapSites::protect_checked_values()): each reader that checks (a test of a
+      //   mask, its conversion to an integer), and each operation whose result reaches one, reads a
+      //   copy that was kept on the stack. That covers the result of a check (the mask of the Vector
+      //   API's index check of a gather or scatter: zeroed, a failed check would pass while the
+      //   indices keep their low lanes), its operands (the lane numbers that the check of a masked
+      //   access compares with its limit: zeroed, they are all in bounds) and the index vector of a
+      //   gather or scatter, which the check reads intact whatever copy the access reads. A mask or
+      //   vector that reaches no check can come back with lanes zeroed: that drops lanes of values
+      //   of this window, stores nothing, or selects index 0, which a passed check implies is in
+      //   range. Where masks cannot be told from other values (AVX-512 without VL, BW and DQ, SVE),
+      //   every raw access kills the mask registers instead (Matcher::kill_masks_at_raw_accesses()).
       nmethod* nm = nullptr;
       if (in_java) {
         CodeBlob* cb = CodeCache::find_blob(pc);
