@@ -54,7 +54,36 @@ inline bool LinearScan::is_caller_save(int assigned_reg) {
 
 
 inline void LinearScan::pd_add_temps(LIR_Op* op) {
-  // No special case behaviours yet
+  // AvoidLosableStateAtTraps: C1 code takes its implicit exceptions by a trap, which on some
+  // Windows kernels loses xmm16-xmm31. After such a trap the frame goes on in one of two ways only:
+  // in an exception handler of its own, or, where the exception deoptimizes instead of being
+  // thrown (ImplicitNullCheckStub), in the interpreter with the locals of its debug info. In any
+  // other case the frame is unwound, or deoptimized into frames that rethrow and are unwound, and
+  // nothing reads its registers. So an operation that can throw into a handler of the frame, or
+  // that deoptimizes on its exception, destroys xmm16-xmm31, as a call destroys every register: no
+  // value is kept there across it. The same holds for every operation that can throw when the
+  // locals must stay readable for a debugger. A loop poll is a branch here and loses nothing
+  // (LIR_Assembler::safepoint_poll()).
+  if (!FrameMap::uses_losable_xmm_regs() || !has_fpu_registers() || op->code() == lir_safepoint) {
+    return;
+  }
+  LIR_OpVisitState visitor;
+  visitor.visit(op);
+  if (visitor.info_count() == 0 || visitor.has_call()) {
+    return; // cannot throw, or destroys every register already
+  }
+  bool resumes = compilation()->env()->should_retain_local_variables();
+  for (int i = 0; i < visitor.info_count() && !resumes; i++) {
+    CodeEmitInfo* info = visitor.info_at(i);
+    XHandlers* handlers = info->exception_handlers();
+    resumes = info->deoptimize_on_exception() || (handlers != nullptr && handlers->length() > 0);
+  }
+  if (!resumes) {
+    return;
+  }
+  for (int reg = pd_first_xmm_reg + 16; reg < pd_first_xmm_reg + XMMRegister::available_xmm_registers(); reg++) {
+    add_temp(reg, op->id(), noUse, T_ILLEGAL);
+  }
 }
 
 
@@ -62,9 +91,9 @@ inline void LinearScan::pd_add_temps(LIR_Op* op) {
 
 inline bool LinearScanWalker::pd_init_regs_for_alloc(Interval* cur) {
   int last_xmm_reg = pd_first_xmm_reg + XMMRegister::available_xmm_registers() - 1;
-  if (AvoidLosableStateAtTraps) {
+  if (AvoidLosableStateAtTraps && !FrameMap::uses_losable_xmm_regs()) {
     // The low 128 bits of xmm0-xmm15 are legacy SSE state, which every exception context has:
-    // C1 code keeps its faulting polls and implicit exceptions, so it holds nothing else.
+    // C1 code that keeps its faulting polls holds nothing else.
     last_xmm_reg = MIN2(last_xmm_reg, pd_first_xmm_reg + 15);
   }
   if (allocator()->gen()->is_vreg_flag_set(cur->reg_num(), LIRGenerator::byte_reg)) {
