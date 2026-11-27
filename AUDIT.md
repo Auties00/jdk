@@ -1,40 +1,29 @@
-# JDK-8365196 notrap: audit of resumed hardware exceptions on Windows
+# JDK-8365196: AvoidLosableStateAtTraps, the design and its audit
 
-Tree: `D:/jdk-notrap`, branch `JDK-8365196-notrap`, at `c6f997c2c66` (scrub14 on mainline `2b376fb353c`).
-Every file:line below is in this tree, under `src/hotspot/` unless it says otherwise.
+Branch `JDK-8365196-notrap` of Auties00/jdk, on mainline `2b376fb353c`. Every file below is under `src/hotspot/`
+unless it says otherwise; line numbers are those of the tree the first audit read (`c6f997c2c66`) and are kept as
+pointers, not as exact positions.
 
-The question for each path: does HotSpot resume Java or compiled execution after a hardware exception (or after
-restoring a saved context) while losable state can be live, and if so, does the notrap design (explicit null test,
-explicit div0 test, branch-based loop poll, C1 off xmm16-31) remove it?
+On some Windows kernels, resuming from a hardware exception resets the processor state that the exception's
+context left out. That state is called losable here: on x64 the upper halves of ymm and zmm, xmm16-31, k1-k7 and
+the APX registers; on Arm64 the SVE Z registers above their low 128 bits, P0-P15 and FFR.
 
-Losable state, as agreed: on x64 the ymm/zmm upper halves, xmm16-31, k1-k7 and APX state; on Arm64 SVE Z above the
-low 128 bits, P0-P15 and FFR.
+The invariant of the mode (`-XX:+AvoidLosableStateAtTraps`, diagnostic, on by default on Windows): **compiled code
+takes no hardware exception that the VM resumes while losable state is live.** There is no detection of the
+kernel, no scrub and no fallback: the code is shaped so that the question does not arise.
 
-## Result
+- C2 loop polls and implicit null checks take a non-trapping form wherever losable state is live at the point the
+  trap would resume at (sections 2 and 3).
+- C2 takes no implicit div0 and no min_int / -1 trap; C1 uses xmm16-31 only where no trap of its own resumes its
+  frame (section 4); the interpreter holds no losable state.
+- Java code always runs with the standard MXCSR, so no FP exception is resumed in it (section 6).
+- One exception cannot be avoided: a page error at a raw (unsafe) memory access is resumed past the access with
+  an InternalError pending. For it the mode guarantees that nothing that steers a later access was in losable
+  state at the fault (section 5).
+- What it costs, and what each rule was narrowed to, is in section 8; where each part is in the tree, and its
+  tests, in section 9.
 
-The design covers loop polls, implicit null checks, div0, stack banging, deopt, handshakes, async exceptions,
-GC barriers, stubs, C1, the interpreter, JFR and HotSpot's own C++ code. One path it cannot cover cleanly, and
-two it does not name:
-
-1. **Blocker: unsafe raw accesses in C2 code, on x64 and Arm64.** A page error at a raw memory access in a C2
-   nmethod that contains unsafe accesses is resumed at the next instruction, with an `InternalError` pending, in
-   the same frame and with every register live (os/windows/os_windows.cpp:2985-3000,
-   runtime/sharedRuntime.cpp:1856-1869). No non-trapping form exists: the fault is an I/O error on a mapped page
-   (a truncated or unreachable mapped file), not something a test can predict. scrub14 counted these accesses as
-   trap sites (opto/trapScrub.cpp:61-83); the notrap design has no counterpart.
-2. **Not in the design: FP exceptions in compiled code (x64).** The handler resets MXCSR and resumes the faulting
-   instruction (os_cpu/windows_x86/os_windows_x86.cpp:166-198, called at os/windows/os_windows.cpp:3013-3016). It
-   happens in Java code after native code returns with FP exceptions unmasked, because by default neither JNI
-   returns (cpu/x86/macroAssembler_x86.cpp:5573-5583, `RestoreMXCSROnJNICalls` false at
-   runtime/globals.hpp:783) nor FFM downcalls (no MXCSR handling in cpu/x86/downcallLinker_x86_64.cpp) restore
-   it. This one can be covered cleanly, but by a different mechanism from the design's (see Options).
-3. **Not in the design: APX r30 and r31 across C calls (x64).** On Windows C2 treats them as kept by C callees
-   (cpu/x86/x86.ad:176-179). A resumed exception inside a leaf callee, such as an unsafe page error in an arraycopy
-   stub, zeroes them under the caller, and no explicit form in the caller helps. Coverable by policy (see Options).
-
-As instructed, I stopped after step 1. Nothing is prototyped; the branch and worktree exist with this file only.
-
-## How the Windows filter resumes
+## 1. How the Windows filter resumes
 
 Every hardware exception on a Java thread reaches `topLevelExceptionFilter` (os/windows/os_windows.cpp:2854),
 through the code-cache function table on x64 (os_cpu/windows_x86/os_windows_x86.cpp:82-136) and the vectored
@@ -61,7 +50,10 @@ anywhere in the tree (searched all of src/hotspot). The only suspension is `Susp
 state is saved by the kernel in its own save area, not through user-mode exception dispatch, and no context is
 written back, so nothing is lost there.
 
-## Path by path
+## 2. Path by path
+
+The question for each path: does HotSpot resume Java or compiled execution after a hardware exception (or after
+restoring a saved context) while losable state can be live, and what does the mode do about it?
 
 ### C2 loop polls
 
@@ -72,18 +64,17 @@ written back, so nothing is lost there.
 - Losable state live: yes, routinely (vectorized loops, Vector API). JFR makes it frequent: it arms the local poll
   of every thread it samples (jfr/periodic/sampling/jfrThreadSampler.cpp:53, 370), and handshakes and safepoints
   arm it too.
-- Design: covered by a branch poll to a stub, at sites where losable state is live. One constraint for the
-  prototype: the non-return handler blob unconditionally steps over the poll instruction at the saved PC
-  (cpu/x86/sharedRuntime_x86_64.cpp:3158-3240, it adds 2 or 3 bytes), so a branch poll cannot reuse it as is. It
-  needs a blob variant that does not skip (or a skip conditional on the poll encoding), with the stub storing the
-  oopmap PC in `saved_exception_pc` as `C2SafepointPollStub` does for return polls.
+- With the mode: a poll across which losable state is live is a branch to a stub (C2LoopPollStub), which enters a
+  handler blob that saves every vector register and does not step over the poll
+  (polling_page_branch_safepoint_handler). The branch form tests the polling word of the thread and loads no
+  polling page address (section 3).
 
 ### C2 return polls
 
 - Branch-based on both: `safepoint_poll(..., at_return = true)` to a `C2SafepointPollStub`
-  (cpu/x86/x86.ad:1972-1983, cpu/aarch64/aarch64.ad:1910-1911). Your belief is right: loop polls fault and
+  (cpu/x86/x86.ad:1972-1983, cpu/aarch64/aarch64.ad:1910-1911). Loop polls fault and
   return polls branch.
-- No hardware exception. Design: nothing to do.
+- No hardware exception. Nothing to do.
 
 ### C2 implicit null checks
 
@@ -93,13 +84,11 @@ written back, so nothing is lost there.
   uncommon trap or an exception path) that spills or uses whatever the registers hold after the broken restore.
   ZGC and Shenandoah late-expanded barrier loads can be null-check accesses too (opto/output.cpp:2079-2082).
 - Losable state live: yes.
-- Design: covered by an explicit test and branch to the same successor. Since the decision needs register
-  allocation and the check is formed before it, the explicit form has to be emitted after allocation, in front of
-  the access. Two facts for the prototype:
+- With the mode: an explicit test and branch to the same successor, inserted after register allocation in front
+  of the access, wherever losable state is live into the null successor (section 3). Two facts:
   - x64: the test kills the flags. The accepted accesses are plain loads and stores plus any instruction with an
     embedded load except flag producers (opto/lcm.cpp:197-262), so a flag consumer with a memory operand (a cmov
-    from memory) can be the access. Such candidates need to be refused while the mode is on, or the test must
-    preserve the flags.
+    from memory) can be the access. Such candidates are refused while the mode is on (opto/lcm.cpp).
   - Arm64: `cbz`/`cbzw` needs no flags.
 
 ### Implicit div0 and min_int / -1
@@ -111,7 +100,7 @@ written back, so nothing is lost there.
   traps.
 - `Handle_IDiv_Exception` (os/windows/os_windows.cpp:2652-2687) is then reachable only from code that runs a raw
   `idiv` on min_int / -1, which neither C2, C1 nor the interpreter emits.
-- Design: the explicit div0 item is already true. Nothing to do.
+- Nothing to do.
 
 ### Stack banging
 
@@ -124,7 +113,7 @@ written back, so nothing is lost there.
 - Live at an Arm64 bang: in any compilation with vectors, `p7` is set all-true before the bang
   (cpu/aarch64/macroAssembler_aarch64.cpp:7085-7086). That is losable P state.
 - The deopt and uncommon-trap blobs bang with only the result registers live.
-- Design: x64 nothing to do. Arm64 needs `reinitialize_ptrue()` moved after the bang, a one-line reorder.
+- With the mode: x64 nothing to do. On Arm64 `reinitialize_ptrue()` runs after the bang.
 
 ### Uncommon traps and deoptimization
 
@@ -133,7 +122,7 @@ written back, so nothing is lost there.
   redirected to the deopt handler (os/windows/os_windows.cpp:3020-3037). At a call site no losable state is live:
   every XMM and k register is save-on-call for Java calls on Windows (cpu/x86/x86.ad:352-353, 797-815), and on
   Arm64 `p7` is rebuilt after calls and not needed by the deopt handler.
-- Design: nothing to do.
+- Nothing to do.
 
 ### Handshakes and async exceptions
 
@@ -173,8 +162,8 @@ written back, so nothing is lost there.
 - C1 emits no ymm, zmm or opmask code (no 256/512-bit or `KRegister` use in cpu/x86/c1_*.cpp) and no SVE. It holds
   only scalar float and double, which are legacy SSE state on xmm0-15. Without the limit, C1 allocates xmm16-31
   when `UseAVX > 2` (cpu/x86/c1_LinearScan_x86.hpp:63-68).
-- Design: covered by keeping C1 off xmm16-31, unconditionally on Windows instead of behind
-  `exception_resume_loses_xstate()`.
+- With the mode: C1's loop polls branch and its xmm16-31 are dead wherever a trap of its own resumes its frame
+  (section 4).
 
 ### Interpreter
 
@@ -190,8 +179,8 @@ written back, so nothing is lost there.
 
 - Stores C1 and C2 nmethods (tiers 1, 2, 4 and 5: code/aotCodeCache.cpp:1293-1330), validated against a list of VM
   settings (code/aotCodeCache.hpp, the `do_var`/`do_fun` list; scrub14 adds its entries at 545-550).
-- Design: covered by recording the notrap mode in that list, so code compiled without it (faulting polls and
-  implicit null checks at hot sites) is rejected.
+- The mode is recorded in that list, so code compiled without it (faulting polls and implicit null checks at hot
+  sites) is rejected.
 
 ### JFR sampling and thread suspension
 
@@ -211,11 +200,165 @@ written back, so nothing is lost there.
 
 - The yellow zone outside Java code (os/windows/os_windows.cpp:2925-2926), FP exceptions in native code (3013), and
   unsafe accesses in native code resume JNI or FFM code that may be AVX- or SVE-compiled. This is not compiled Java
-  code and the JVM cannot change it; scrub14 did not cover it either. Out of scope.
+  code and the JVM cannot change it. Out of scope.
 
-## The paths not covered
+## 3. The C2 trap sites: which take the non-trapping form
 
-### 1. Unsafe raw accesses in C2 code (blocker)
+The trap sites are chosen per site after register allocation (NoTrapSites::apply(), opto/noTrap.cpp). Each rule
+is as narrow as what the resumed code can read, and the non-trapping forms carry no instruction they do not need.
+For each, the argument that the invariant holds.
+
+### An implicit null check counts what is live into its null successor
+
+Before: an implicit null check became explicit when losable state was live across the access, was an input or TEMP
+of the access, or was the access's own result. Now: when losable state is live into the null successor of its
+block (opto/noTrap.cpp, NoTrapSites::apply()).
+
+Argument. A fault at the access is not resumed at the access. `continuation_for_implicit_exception()` returns the
+continuation of the nmethod's implicit exception table, which PhaseOutput::FillExceptionTables() sets to the label
+of `non_connector_successor(0)` of the null check's block; the handler puts that pc in the context and returns
+`EXCEPTION_CONTINUE_EXECUTION`. So after the fault the thread runs the null successor and whatever follows it, and
+neither the rest of the access nor the not-null successor from that point. A register the context lost is observed
+only if code reachable from the null successor reads it before writing it, which is the definition of live into
+that block. The liveness is the same backward dataflow as before, over every block and every input of every node,
+so it includes:
+
+- the debug info of an uncommon trap on the null path: its values are inputs of the call (of the MachUncommonTrap
+  node on AArch64), the fields of scalarized vector boxes included;
+- an exception handler of the same frame, and any code after it, loops included: they are successors;
+- Phi inputs, all of them (the dataflow does not tell the predecessors apart, which only adds).
+
+The common case it frees: a null check whose exception leaves the method. Its null successor is an uncommon trap
+that must throw, and GraphKit::add_safepoint_edges() prunes the locals and the stack of such a trap down to the
+inputs of the bytecode in every frame without exception handlers (opto/graphKit.cpp, `can_prune_locals`): the trap
+names no vector, so nothing losable is live into it, whatever is live across the access. In review7's
+nullCheckVectorLive the four checks of the unrolled loop are implicit again, as without the mode (the round 11
+build made 8 of that kernel's 14 null checks explicit, this one 2: those whose trap is a loop predicate's and
+keeps the accumulator in its debug info).
+
+What it leaves out is a value read only by the access itself or on the not-null path: the access's inputs and TEMPs
+(the faulting instruction is abandoned; an access that is several instructions, a late barrier load, faults on its
+first, the load), the access's result (not defined on the null path), and values computed ahead for the not-null
+path, such as a broadcast or another vector that C2 hoisted out of a loop and that no bytecode state names.
+
+Tests: TestAvoidLosableStateAtTraps, id explicit, checks both directions on x64 (`kernel`, whose handler reads the
+accumulator, gets explicit checks; `invariantKernel`, with a hoisted broadcast live across the check and an uncommon
+trap on the null path, keeps its implicit check; the round 11 build made that one explicit); the stress ids run
+`invariantKernel` with a null that takes the trap; TestExceptionXStateLoss on a kernel that loses state has eight
+accumulators live into the handler of its null check and fails if that check traps, and its `kernelHoisted` keeps
+live into the handler a vector that no bytecode state names (a broadcast hoisted out of the loop, read again by the
+iterations after the handler), which a rule that looked at the debug info alone would miss. The debug check of
+NoTrapSites still asserts that a null check is explicit exactly where the rule says so.
+
+### AArch64: p7 does not count where the null successor sets it again first
+
+Before: with SVE, p7 counted as live everywhere in a compilation with vectors, so every implicit null check of
+such a compilation became explicit. Now p7 does not count at a null check whose null successor, followed through
+straight-line code only, reaches an uncommon trap or a Java call through nothing but moves of general purpose or
+NEON values, integer and pointer constants, Phis, projections and jumps (NoTrapPlatform::sets_always_live_units(),
+ignores_always_live_units(); opto/noTrap.cpp, always_live_units_dead_into()). Any other node, or a block with two
+successors, keeps p7 live. Loop polls are unchanged: p7 counts at every one.
+
+Argument. p7 matters only as the governing predicate of an SVE instruction. After the fault the code that runs is
+the listed nodes and then the trap or the call:
+
+- the moves and constants are `mov`, `ldr`, `str`, `fmov` and NEON moves (MachSpillCopyNode::implementation(),
+  cpu/aarch64/aarch64.ad); moves of scalable vectors and of predicates are not in the list (the stack to stack copy
+  of a predicate goes through p7);
+- an uncommon trap is a `bl` to the uncommon trap blob, which saves the registers with unpredicated `str` of Z and
+  P (MacroAssembler::push_CPU_state()) and does not return;
+- a Java call is the branch; a compiled callee sets p7 in its own entry (MacroAssembler::verified_entry()), the
+  interpreter and the resolution and adapter stubs govern nothing with a predicate, and when the call returns the
+  caller sets p7 again (aarch64_enc_java_static_call, aarch64_enc_java_dynamic_call).
+
+So nothing reads the lost p7. The Z registers above 128 bits and the other predicates are ordinary units of the
+dataflow and still count when live into the null successor.
+
+### The unsafe window rules apply in compilations with unsafe accesses only
+
+Before: integer and pointer spills were kept out of xmm16-31, and no value was rematerialized from a losable input,
+in every compilation. Now both apply only when `C->has_unsafe_access()` (opto/matcher.cpp,
+init_first_stack_mask(); MachNode::rematerialize()), as the APX exclusion and the mask kill already did.
+
+Argument. Both rules exist for one window: an unsafe access fault resumed past the access, which the handler does
+only for an nmethod with `has_unsafe_access()` (os/windows/os_windows.cpp, EXCEPTION_IN_PAGE_ERROR), a flag copied
+from the compilation and set while parsing, before matching. In a compilation without it no exception is resumed
+while losable state is live: its only resumed traps are loop polls and null checks, and NoTrapSites decides those
+from the final allocation, where a spilled integer in xmm16-31, or an input whose live range a rematerialization
+stretched, is losable state like any other and gives the site its non-trapping form. Oops in such a spill at a
+poll are found as they are without the mode (the handler blob saves every register and the oop map names it). The
+debug checks moved with the rules: verify_placement() and the assert of split_Rematerialize() test compilations
+with unsafe accesses.
+
+### A branch poll does not load the polling page address
+
+Before: the branch poll kept the load of the thread's polling page address, the input of the faulting form, as a
+dead instruction. Now NoTrapSites removes that load when it is a load off the thread alone, in the block of the
+poll, and the poll is its only use (remove_poll_address()). The branch poll is then a test of the polling word and
+a branch, two instructions as the faulting poll was.
+
+Argument. The branch form reads only `JavaThread::_polling_word`. The load has no other use (checked: one out,
+which also rules out a null check on it and projections), no side effect and cannot fault (its base is the thread).
+The poll takes the thread, the removed load's own input, in place of the load: BuildOopMaps computes the liveness
+of the registers from the inputs of the nodes in the blocks, so an edge to a node that is in no block would mark a
+register live with no definition that reaches it. The thread's register is read at the poll as it was read at the
+load, a few nodes earlier in the same block, and the code of the branch form does not read the operand. A load
+that the allocator split from the poll (a spill copy in between), a load in another block, or one with an index or
+a second use, stays.
+
+### The non-trapping forms take part in the Intel JCC erratum mitigation
+
+The explicit null check and the branch poll are conditional branches that C2's mitigation did not know: on the
+affected processors they could cross a 32 byte boundary, which C2 avoids for every other branch. They are now
+tagged and padded like the others (cpu/x86/c2_intelJccErratum_x86.cpp). No effect on the invariant.
+
+## 4. C1
+
+Before: with the mode, C1 allocated xmm0-xmm15 only, on every processor. On AVX-512 processors that costs a
+C1-compiled method with more than sixteen floating point values live at once a spill for each further one
+(measured below: 6% and 14% on a kernel with twenty live doubles, run with C1 only). Now, on a processor with
+xmm16-xmm31 and in a VM that has C2's handler blob for branch polls, C1 allocates all of them, under two rules
+(cpu/x86/c1_FrameMap_x86.hpp, FrameMap::uses_losable_xmm_regs()):
+
+- its loop polls test the polling word and branch to a stub (LIR_Assembler::safepoint_poll(),
+  C1SafepointPollStub with `at_return` false), whose handler is the blob of C2's branch polls: it saves every
+  register and returns to the poll;
+- an operation with debug info that is not a call or a poll, and that either has an exception handler of the
+  frame, or deoptimizes on its exception, destroys xmm16-xmm31 for the allocator, as a call destroys every
+  register (LinearScan::pd_add_temps() adds a fixed-interval use of each at the operation); when the locals must
+  stay readable for a debugger (`should_retain_local_variables()`), every such operation does.
+
+Elsewhere (no AVX-512, or no C2 in the VM) C1 is as before: xmm0-xmm15 when the mode is on, faulting polls.
+
+Argument. C1 code takes three kinds of hardware exception that the VM resumes: the loop poll, the implicit null
+check and the implicit division by zero (the last two record an entry of the implicit exception table at the
+operation, with its debug info: every such operation has a CodeEmitInfo). The poll no longer traps. An implicit
+exception continues at the operation's stub (ImplicitNullCheckStub, DivByZeroStub), which calls the runtime, and
+from there the frame goes on in exactly one of these ways:
+
+- in an exception handler of the frame: then the operation has that handler in its XHandlers (they cover the
+  scopes inlined around it), so no value live across it, which includes every value live into the handler, is in
+  xmm16-xmm31; the values the handler reads arrive from the locations they had at the operation;
+- in the interpreter after a deoptimization that does not throw: only where the debug info says
+  `deoptimize_on_exception()` (ImplicitNullCheckStub then calls the predicate-failed trap); such an operation
+  destroys the registers too, so its debug info names none of them;
+- nowhere: the exception is thrown out of the frame, which is unwound (Runtime1's unwind handler), or the frame is
+  deoptimized with the exception pending (JVMTI exception events, a frame invalidated while in the runtime) and
+  its interpreter frames find no handler, as the compiled code found none, and are unwound. Nothing reads the
+  frame's registers; a debugger that could read its locals on the way is the retained-locals case above.
+
+Values in xmm16-xmm31 across a branch poll are saved and restored by the blob, and named by its oop map for a
+deoptimization at the poll, as for C2. Across a call no register is live. A value used by the trapping operation
+for the last time may be in xmm16-xmm31: it is dead after it. C1 keeps only floats and doubles in these registers
+(no integer, pointer or mask), so the window of an unsafe access fault holds data there, as it does for C2.
+
+Tests: TestExceptionXStateLossC1 (C1 only, and tiered) keeps twenty-four accumulators live across the polls of a
+loop without handlers and across a null check with a handler in the frame; on a kernel that loses state it fails
+without the mode (C1 then keeps its faulting polls and xmm16-xmm31).
+
+## 5. The unsafe access window
+
+### What happens
 
 What happens: `nm->has_unsafe_access()` is set for every C2 compilation that inlines an Unsafe access, copy,
 setMemory or atomic (opto/library_call.cpp:2458, 2731, 3001, 6104, 6161), which includes every compilation that
@@ -235,22 +378,7 @@ with losable state live, which is what the invariant forbids.
 Why the design cannot cover it: the access cannot be made non-trapping, because whether a mapped page can be read is
 only known by reading it.
 
-### 2. FP exceptions in compiled code (x64)
-
-What happens: native code returns to Java with FP exceptions unmasked in MXCSR; the next C2 FP instruction that
-raises one traps, and the handler resets MXCSR and resumes it with the broken context. The call stub sets the
-standard MXCSR on entry from native code (cpu/x86/stubGenerator_x86_64.cpp:259-265), but JNI returns and FFM
-downcalls do not.
-
-### 3. APX r30/r31 across C calls (x64)
-
-What happens: C2 keeps values in r30/r31 across C calls on Windows (cpu/x86/x86.ad:176-179). A resumed exception in
-the callee (the UnsafeMemoryAccess stubs above) loses them under the caller. UseAPX is off by default and scrub14
-turned APX off wherever state could be lost.
-
-## Options
-
-For 1 (pick one; each is a design change, so I did not start any):
+Options that were considered:
 
 - **a. Make losable state dead at those accesses.** While the mode is on, each C2 raw memory access in a compilation
   with unsafe accesses kills the losable registers (the ymm/zmm upper slots, xmm16-31, k1-k7; P and the Z upper
@@ -268,38 +396,28 @@ For 1 (pick one; each is a design change, so I did not start any):
   extra damage is confined to frames that hit an I/O error on mapped memory. This weakens the invariant to
   "except unsafe page errors", and I would not call it a clean cover.
 
-For 2: while the mode is on, restore the standard MXCSR on every return from native code into Java: the existing
-`RestoreMXCSROnJNICalls` path (cpu/x86/macroAssembler_x86.cpp:5576-5578) made unconditional on Windows, and the same
-`ldmxcsr` after the call in the FFM downcall stub. Java code then never runs with FP exceptions unmasked, so no FP
-trap is resumed in compiled code. Cost: one `ldmxcsr` per native call. Clean, but not in the approved design.
+Decided: unsafe access errors stay asynchronous (d), and the damage is confined by an argument that is checked
+and enforced. After a page error at an unsafe access, Java program order says nothing after the access should
+run, so every write in the window up to the throw already has unspecified values in stock HotSpot (the failed
+load's register keeps a leftover value); the kernel bug must only change values in writes that should not exist.
+That needs three properties of a compilation with unsafe accesses (`nmethod::has_unsafe_access()`, the only code
+such a fault is resumed in):
 
-For 3: on Windows, make r30/r31 save-on-call for C calls while the mode is on, or keep APX off on Windows as
-scrub14 did. Either is a one-place change.
+- **(a)** no oop or derived pointer is in a losable register;
+- **(b)** every address and every bounds check is in general purpose registers, or is re-derived from state that
+  is not losable;
+- **(c)** a mask or index that comes back zeroed only shrinks or redirects accesses within what was checked.
 
-## Notes for the prototype, if it goes ahead
+Four counterexamples were found, and two more of the same kind as the fourth. Each is closed by a rule that the
+compiler enforces and a debug or product check verifies.
 
-- The explicit null form must be emitted after register allocation, in front of the access, with the flags caveat
-  above on x64.
-- The branch loop poll needs a handler blob that does not step over the poll (cpu/x86/sharedRuntime_x86_64.cpp:3158),
-  and should always use the wide-vector blob where one exists, since it is chosen only where losable state is live.
-- On Arm64 `p7` is not an allocated value, so the liveness analysis must treat it as live everywhere in a
-  compilation with `max_vector_size() > 0` under `UseSVE > 0`; on SVE every trap site in such a compilation then
-  takes the explicit form, besides the bang reorder.
-- The scrub's liveness (opto/trapScrub.cpp:228-320) and `losable_unit` (cpu/x86/x86.ad:2662-2680) are reusable
-  as they are for choosing the sites.
-
-## Verification of the unsafe-window argument (decision 1)
-
-The argument to verify: after a page error at an unsafe access, Java program order says nothing after the access
-should run, so every write in the window up to the throw at the next poll already has unspecified values in stock
-HotSpot (the failed load's register keeps a leftover value), and the kernel bug only changes values in writes that
-should not exist. It needs (a) no oop or derived pointer in a losable register, (b) every address and bounds check
-in GPRs or re-derived from non-losable state, and (c) a zeroed mask or index only shrinking or redirecting accesses
-within what was checked.
-
-**Result: (a) and (b) fail on x64 with `UseFPUForSpilling` on an EVEX CPU, and (c) fails on x64 through
-rematerialization. AArch64 passes all three.** Per the instruction, I stopped here; decisions 2-4 are not started.
-Both failures have small fixes, proposed at the end of this section.
+**Where the window exists.** `Compile::has_unsafe_access()` is set by the scalar Unsafe intrinsics alone
+(opto/library_call.cpp), which includes every compilation that inlines a scalar `MemorySegment` or `ByteBuffer`
+access. The Vector API's segment loads and stores (opto/vectorIntrinsics.cpp) do not set it: a page error at such
+an access in a method without a scalar unsafe access is not resumed but reported as a crash, as upstream does.
+The window matters where vector code and a scalar segment or Unsafe access share a compilation: a vector loop with
+a scalar tail loop, a header read in front of a vector loop. Every rule of this section applies in those
+compilations only; in any other, losable state is simply accounted for at the trap sites (section 3).
 
 ### Counterexample 1: GPR values spilled into xmm16-31 (fails (a) and (b), x64)
 
@@ -339,45 +457,10 @@ Both failures have small fixes, proposed at the end of this section.
   components, cpu/x86/x86.ad:22497-22545). A rematerialized `firstTrue` of a zeroed mask would have returned the lane
   count, which is why this matters.
 
-### What holds
+Closed: in a compilation with unsafe accesses, integer and pointer spills stay out of xmm16-31
+(Matcher::init_first_stack_mask()), and MachNode::rematerialize() refuses a losable input.
 
-- AArch64 passes (a)-(c): `UseFPUForSpilling` is off by default there and, if set, spills into the D registers,
-  the NEON low bits that the context keeps. The rematerializable extracts and mask nodes are the NEON-only ones
-  (`UseSVE == 0`, cpu/aarch64/aarch64_vector.ad:6838-6935); the SVE ones have TEMPs (6896-6912, 6969-6970), and
-  lane extracts take an immediate (5987-6000).
-- Gathers: the Vector API checks every lane of the index vector and gathers with that same vector against
-  `ARRAY_BASE`, with nothing added after the check (src/jdk.incubator.vector/share/classes/jdk/incubator/vector/
-  IntVector.java:3116-3125, VectorIntrinsics.java:74-87). A zeroed lane becomes index 0, which is in range because
-  at least one lane passed `0 <= index < length`, so `length >= 1`.
-- Masked loads and stores check only the active lanes and pass the same mask on (AbstractMask.java:266-288,
-  IntVector.java:3060-3073). Zero means inactive for k registers, AVX2 vector masks and SVE predicates (including
-  `p7`), so a zeroed mask only drops lanes. An empty array or segment: no active lane can pass the check, so a zeroed
-  mask or index there still touches nothing.
-- Contiguous Vector API and FFM accesses check offsets in GPRs and address `base + offset` in GPRs; mask-driven
-  control flow (`anyTrue`, `allTrue`) only picks between paths that each carry their own checks.
-- Raw Unsafe addresses that user code builds from vector lanes have no bounds check by definition, and stock HotSpot
-  already lets the window write through an address built from the failed load; they are outside (b).
-
-### Proposed fixes (both apply only while the mode is on, so other platforms do not change)
-
-- For 1: x64 keeps GPR spills out of xmm16-31: the masks added at opto/matcher.cpp:650-662 become the legacy ones
-  (xmm0-15, whose low 64 bits are in every context). Equivalent and simpler: turn `UseFPUForSpilling` off on EVEX
-  CPUs, which costs nothing by default.
-- For 2: `MachNode::rematerialize()` returns false when an input can be in a losable register (on x64, an input
-  whose mask includes xmm16-31, a vector width above 128 bits or a k register). It touches only `MoveF2I`/`MoveD2L`
-  from xmm16-31, so the cost should be nil.
-
-With both, (a)-(c) hold on x64 as they do on AArch64, and the argument can be written into the unsafe handler's
-comment.
-
-## Decisions and the further search (after the verification)
-
-Decided: unsafe access errors stay asynchronous; counterexample 1 is closed by keeping integer and pointer spills
-out of xmm16-31, counterexample 2 by refusing rematerialization from a losable input; MXCSR is restored for JNI and
-FFM; r30/r31 are save-on-call for C calls on Windows.
-
-The further search for other ways C2 can derive an address, index or oop from a losable register found one more,
-and three that do not apply:
+### Further routes that were examined
 
 - **Found: APX registers in the unsafe window (x64).** With UseAPX, C2 allocates oops, pointers and indices to
   r16-r31 (cpu/x86/x86.ad, reg_mask_init()), which are losable APX state. Fixed at no cost by default (UseAPX is
@@ -393,43 +476,8 @@ and three that do not apply:
   IGVN hash-conses identical unpinned clones again (opto/phaseX.cpp:1954-1966), and the pinned clones are casts and
   loads, whose inputs are general purpose registers.
 - **Not a route: C1 and the interpreter.** Neither uses r16-r31 (no EGPR use in cpu/x86/c1_*).
-- **Found while implementing decision 2: FFM upcalls on Windows.** The upcall stub loads the standard MXCSR only
-  off Windows (cpu/x86/upcallLinker_x86_64.cpp, `#ifndef _WIN64`), so Java code in an upcall ran with the native
-  caller's MXCSR. With the mode on, Windows now does what Linux does: saves the caller's MXCSR, loads the standard
-  one if it differs, and restores the caller's on return. Same cost class as decision 2; measured in review8.
 
-## Where each part is (branch JDK-8365196-notrap)
-
-- The flag: AvoidLosableStateAtTraps, diagnostic, on by default on Windows (share/runtime/globals.hpp).
-- The pass: share/opto/noTrap.hpp, noTrap.cpp (NoTrapSites::apply(), run from PhaseOutput::Output() before sizing;
-  a compilation it changes is not scheduled after register allocation). Platform sides: X86NoTrap
-  (cpu/x86/x86.ad), AArch64NoTrap (cpu/aarch64/aarch64.ad).
-- Explicit null checks: MachExplicitNullCheckNode (share/opto/machnode.hpp/.cpp); the MachNullCheck it replaces
-  records no implicit exception (share/opto/output.cpp, fill_buffer() and FillExceptionTables()). x64 refuses
-  flag-consuming candidates (share/opto/lcm.cpp).
-- Branch loop polls: MachSafePointNode::is_branch_poll(), the safePoint instructs of both .ad files,
-  C2LoopPollStub (share/opto/c2_CodeStubs.hpp, cpu/*/c2_CodeStubs_*.cpp), and the shared blob
-  polling_page_branch_safepoint_handler (share/runtime/stubDeclarations.hpp, sharedRuntime.cpp), generated by
-  generate_handler_blob() without the step over the poll and saving every vector register.
-- The unsafe window: spill masks (share/opto/matcher.cpp, init_first_stack_mask()), rematerialization
-  (MachNode::rematerialize(), has_losable_input()), APX exclusion (opto/chaitin.cpp), comment at the handler
-  (os/windows/os_windows.cpp, EXCEPTION_IN_PAGE_ERROR).
-- AArch64: p7 always live with vectors, set after the stack bang (cpu/aarch64/macroAssembler_aarch64.cpp,
-  verified_entry()); the SVE revision gate is skipped with the mode (os_cpu/windows_aarch64/vm_version_windows_aarch64.cpp).
-- MXCSR: MacroAssembler::restore_cpu_control_state_after_jni() (JNI wrappers, the interpreter, FFM downcalls with
-  a transition), the critical downcall (cpu/x86/downcallLinker_x86_64.cpp), the upcall stub on Windows.
-- r30/r31: cpu/x86/x86.ad reg_defs, save-on-call for C calls on Windows.
-- C1: cpu/x86/c1_LinearScan_x86.hpp. AOT code cache: share/code/aotCodeCache.hpp, x86 and AArch64 lists.
-- The old machinery is off with the mode (VM_Version::set_exception_xstate_mitigation() returns first); it stays
-  available with -XX:-AvoidLosableStateAtTraps.
-- Debug checks (NoTrapSites::apply() and verify_placement(), reg_split.cpp): every remaining implicit null check and
-  faulting loop poll has no losable state live; no RegI/N/L/P value in a losable register (and in an unsafe
-  compilation, none in r16-r31); no rematerialization from a losable input; no resumable raw access between a flags
-  producer with a losable input and its use.
-
-## Counterexample 3: a Vector API index check whose result is in a mask register (fails (b), x64 AVX-512)
-
-Found in the further search; per the rule I stopped here, because the airtight fix costs something.
+### Counterexample 3: a Vector API index check whose result is in a mask register (fails (b), x64 AVX-512)
 
 - The Vector API checks the index vector of a gather or scatter in vector code:
   `vix.compare(LT, 0).or(vix.compare(GE, length)).anyTrue()` (VectorIntrinsics.java:74-87), then gathers or
@@ -454,67 +502,177 @@ Found in the further search; per the rule I stopped here, because the airtight f
   test and the scatter, which re-sets p7, would expose it, and checkIndex has none); masked accesses (the access mask
   is lost with the check's, so the access shrinks).
 
-Fixes considered:
-- **Kill the opmask registers at raw accesses in compilations with unsafe accesses, while the mode is on** (a
-  MachProj that kills k1-k7 on each such access, so the allocator spills live masks around it). Airtight on x64; the
-  cost is a kmov to the stack and back per live mask per raw access, in FFM code that keeps Vector API masks live
-  (masked tails, gathers): small, but not nothing at default settings.
-- **Keep the producers of a `VectorTest`'s mask after the raw accesses of their block** (a local scheduling
-  constraint): no instruction cost, but it cannot always hold (a raw access that depends on the mask chain, or a mask
-  computed in a dominating block), so it would need the kill as a fallback.
-- **Accept it**, as only out-of-range programs are affected, and document it; this weakens the argument.
+### Counterexample 4: the check of a masked access reads a vector the fault can zero (fails (c))
 
-## Counterexample 3: the fix, and check-carrying values in general (decided)
+x64 with AVX2 and AVX-512; AArch64 SVE by the same reading. The slow path of every masked load and store tests its
+mask against the lanes that are in bounds: `AbstractMask.checkIndexByLane()` computes
+`badMask = iotaScaled.compare(GE, broadcast(indexLimit))` (`checkIndex0()`, AbstractMask.java:292-354), ands it
+with the access mask and throws if any lane is left. `iotaScaled` comes from the species' iota vector, a loop
+invariant that C2 loads once and keeps in a vector register across the loop. After a resumed fault at a raw access
+of the loop, that register comes back with its lanes above 128 bits zeroed (all of them in xmm16-31), and a zero
+lane compares as in bounds wherever `indexLimit > 0`. The check then passes for lanes that are out of bounds, and
+the masked access that follows takes the access mask, which is intact wherever the loop computes it again after
+the fault. The frame runs on until its next poll, which in a strip-mined loop is many iterations away. A program
+whose mask has a lane beyond the array or segment, which must get an IndexOutOfBoundsException, instead reads or
+writes past the end. Same preconditions as counterexample 3 (a wrong program, an I/O error on a mapped page, a
+compilation with unsafe accesses), but the value that is lost is a vector operand of the check, not its mask
+result, and the check compares that vector with nothing the access uses, so "the mask loses the same lanes as the
+vector it checks" does not help.
 
-Decided: the airtight option. While the mode is on, every access to raw or unknown memory in a compilation with
-unsafe accesses carries a fat projection that kills the mask registers (Matcher::kill_masks_at_raw_accesses(),
-opto/matcher.cpp, a walk over the matched graph at the end of Matcher::match(); the registers come from
-NoTrapPlatform::raw_access_kill(); the raw accesses are Matcher::is_raw_memory_access(), which the debug check
-uses too; the kill is a projection, so the allocator's copies of an access keep it). The allocator then spills any such mask that is live across the access and
-reloads it afterwards from memory, which the fault does not touch, so the check reads the mask computed before the
-fault. The access's own result is left out of the kill. No scheduling rule was added. Debug check (NoTrapSites):
-in such a compilation no killed register is live across an access with a raw memory operand.
+### The same shape for the index vector of a gather or scatter
 
-Which registers can carry a check's result across a raw access, and what is killed:
-- **x64, opmask registers k1-k7: killed.** With AVX-512 the Vector API's masks are opmask registers
-  (Matcher::has_predicated_vectors() is supports_evex(), cpu/x86/matcher_x86.hpp:138-140). A resumed exception
-  loses an opmask register entirely, while the vector it checks keeps its low 128 bits.
-- **x64, xmm16-31 holding a mask: killed only on AVX-512 without VL, BW and DQ.** There, masks of some shapes stay
-  vectors (TypeVect::makemask() needs the masked VectorLoadMask), and such a vector can be in xmm16-31, which loses
-  it entirely. With VL, BW and DQ every Vector API mask is an opmask register.
-- **x64, a mask in xmm0-15 (AVX2, and narrow shapes without VL): not killed.** A compare produces lanes of the width
-  of the vectors it compares, so a mask computed from the index vector of a gather or scatter (VectorIntrinsics
-  checkIndex) or from an access mask (AbstractMask.checkIndexByLane) has the lane layout of the vector or mask it
-  guards. A resumed exception loses the same bits, above 128, of both: the lost lanes of the indices read as 0,
-  which a passed check implies is in range, and their lost mask lanes read as "not out of range". Lanes below 128 are
-  kept in both. So a mask in these registers can only fail to report lanes whose indices are now 0.
-- **x64, a check reduced to a general purpose register (vpmovmskb, kmov to a GPR, a reduction): safe**, GPRs are kept.
-- **AArch64 SVE, predicates p0-p6 and p8-p15: killed.** The check's result is a predicate, lost entirely, while the
-  vector it checks keeps its low 128 bits. The access is governed by p7, lost too, so the loss alone makes it do
-  nothing; but a call between the check and the access sets p7 again, and a predicate kept across a raw access
-  would then let a failed check pass. p7 is not killed: losing it only stops the accesses it governs.
-- **AArch64 NEON: nothing to kill**, every NEON register is in the context.
+`checkIndex(vix, length)` and the gather or scatter both read `vix`. The argument of (c) for them ("a zeroed lane
+becomes index 0, which a passed check implies is in range") assumes that both read one copy. The allocator can
+give them two: a use is pointed at a register that still holds the value (postaloc.cpp `elide_copy()`), or one
+reads a register and the other a stack copy made before the fault. Then the check can see zeroed upper lanes
+(index 0, in bounds) while the access uses the intact ones.
 
-**Residual, not closed:** a check that user code computes itself, in vector registers, on a copy of the indices with
-another lane layout, and keeps as a vector across a raw access: for example the indices widened from int to long
-lanes, compared as longs, the result kept as a long-lane vector mask in xmm0-15 (AVX2) or as a vector in z0-z31,
-and tested after the access. Its lanes 2 and 3 sit above bit 128 and are lost, while the int indices of those lanes
-sit below it and are kept, so a failed check of those lanes could pass. The Vector API's own checks never do this
-(their masks are computed from the vector they guard, and on AVX-512 and SVE they are mask registers, which are now
-killed). Closing it would mean killing the upper halves of every vector register at raw accesses, which spills
-every wide vector live across one: the cost that ruled out spilling around unsafe accesses.
+### The same shape in a check that the program computes itself
 
-## The older machinery removed (decided)
+A check that user code computes in vector registers on a copy of the indices with another lane layout, and keeps
+as a vector across a raw access: the indices widened from int to long lanes, compared as longs, the result kept
+as a long-lane vector mask in xmm0-15 (AVX2) or as a vector in z0-z31, and tested after the access. Its lanes 2
+and 3 sit above bit 128 and are lost, while the int indices of those lanes sit below it and are kept, so a failed
+check of those lanes passes. The same for a mask turned into a vector (a blend, `VectorMask.toVector()`) and
+compared again.
 
-The scrub14 mechanism is gone from the branch: the Windows kernel classifier and its revision tables, the
-stale-header scrub (TrapScrub, MachTrapScrubNode, the startup verification of L), the fallback cap on UseAVX and
-MaxVectorSize, the Windows/AArch64 SVE gate, the flags ScrubExceptionXStateHeader, ExceptionXStateLength,
-ForceExceptionXStateProtection and ExceptionXStateMitigation with the develop and verify flags, and their gtests and
-jtreg tests. AvoidLosableStateAtTraps is the only mechanism; -XX:-AvoidLosableStateAtTraps gives compiled code with
-no protection at all (the A/B of the repro). TestExceptionXStateScrub, which plants the stale header and keeps vector
-state live across polls and a faulting null check, stays as TestExceptionXStateLoss, the regression test of the mode.
+### The rule that closes 3, 4 and both shapes: nothing losable reaches a check across a raw access
 
-## MXCSR at native calls: the cost, and why each path stays correct (cost-mxcsr)
+> In a compilation with unsafe accesses, no mask and no vector that is in a losable register across a raw access
+> is read afterwards by a reader that checks, directly or through the masks and vectors computed from it.
+
+The values the rule follows are the masks (ideal register class RegVectMask) and the vectors (VecA to VecZ). A
+reader of such a value is one of three kinds (`checks_values()`, `always_checks()` and CheckFlow::step_back(),
+opto/noTrap.cpp):
+
+- **A reader that defines a mask or a vector passes the question on**: its inputs are read for a check exactly
+  if its result is. Mask logic, compares (vector to mask), blends, casts and conversions, masked loads and
+  gathers, arithmetic, the allocator's copies and merges, Phis. This is what follows a check back to its
+  operands: the test of counterexample 4 reads a mask, the mask is the result of a compare, and the compare reads
+  the lane numbers. VectorStoreMask always reads for a check: its vector holds the mask itself (the payload of
+  a boxed mask).
+- **A reader that checks**: everything else that defines no mask or vector. Flags producers (VectorTest, that is
+  `anyTrue`/`allTrue`, on masks and, with AVX2, on vectors), conversions of a mask to an integer (`toLong`,
+  `trueCount`, `firstTrue`, `lastTrue`), the arguments of calls, returns.
+- **A reader that does not check**: the vector stores and scatters (they store what the vector holds or, with a
+  zeroed mask, nothing), and the arithmetic reductions and lane extracts. The integer or floating point result of
+  a reduction or an extract is a value of the window like the vector it is computed from, and it is tested as an
+  integer wherever it steers a checked access. The debug info of a safepoint, call or uncommon trap is no reader
+  that checks either (see below).
+
+Why this keeps (b) and (c):
+
+- Every reader that checks sees a value that was not in a losable register at the fault: it was on the stack, in a
+  general purpose register, or is computed afterwards from values of which the same holds, because the question
+  is followed backwards through the operations. So a check gives the result it gives in stock HotSpot, on the
+  operands the program computed. That closes counterexample 3 (the mask result), counterexample 4 (the lane
+  numbers), and the check a program computes itself, whatever the lane layout of its vectors.
+- For a gather or scatter, the check reads the index vector intact, whatever copy the access reads. If the check
+  passes, every index is in range and the array is not empty; the access then reads either the same indices or,
+  in lanes the fault zeroed, index 0, which is in range.
+- A mask or vector that reaches no check can hold anything after a fault (zeroed lanes, or a value computed from
+  them, such as all lanes for the negation of a lost mask). It is only ever a predicate or data. The masked access
+  a predicate governs is one whose mask the compilation never tests: the Vector API tests the mask of an access
+  exactly when the access is not wholly in bounds (`checkMaskFromIndexSize`, in the slow path of each masked load
+  and store, on the same mask value that the access of that path takes), so an access with an untested mask is
+  the access of the fast path, whose lanes are all in bounds by the scalar test of its offset. Any mask is safe
+  for it.
+- What changes for values is that a predicate or a vector can differ from the program's where a reload would have
+  restored it: lanes of a value of the window dropped, passed through or zero, or a store of the window that does
+  not happen or stores unspecified lanes in bounds.
+
+**Debug info is no check.** A mask or vector in the debug info of a safepoint, call or uncommon trap is read only
+if the frame is deoptimized there. Deoptimization turns it into a heap object, which every later reader sees
+alike, and whatever runs after a deoptimization checks its own accesses: the interpreter, C1 code and the Java
+bodies of the Vector API (the fallbacks of `VectorSupport`) by the bounds checks of the language, and other
+compiled code by the checks it carries for its own intrinsic accesses, on the objects it is given. No check of the
+Vector API is split from its intrinsic access by a deoptimization with the result of the check as state other
+than in a mask, and an intrinsic access is only reached from compiled code of the method that also contains its
+check. Independently, the pending InternalError is thrown where the interpreter takes over (`uncommon_trap_inner`
+is a JRT_ENTRY, whose return to Java installs the asynchronous exception, and the interpreter's deoptimization
+entries throw a pending exception before the next bytecode), except where the thread has asynchronous exceptions
+blocked (Thread.exit, the virtual thread transitions).
+
+**What the rule leaves out, deliberately.** A reduction or a lane extract is not a reader that checks. A program
+that builds a check out of one (the maximum of its indices by `reduceLanes(MAX)`, compared as an integer) and
+relies on it across a raw access is not protected: the integer it compares is computed from the lanes the fault
+left. No access of the Vector API or of the language depends on such a check (each carries its own, which the rule
+protects, or tests the integer it is given), so what such a program can lose is its own exception, or the bound of
+a raw Unsafe access it guards that way, which has no bounds check by definition and is outside (b). Counting
+reductions as checks would put a store of every vector accumulator into the loop of every auto-vectorized sum over
+a memory segment, the common case, for the sake of that one.
+
+### How the rule is enforced
+
+1. **Before register allocation, on the scheduled code** (`NoTrapSites::protect_checked_values()`, called from
+   `Compile::Code_Gen()` after global code motion). `CheckFlow` is a backward dataflow over the masks and vectors,
+   "reaches a check"; it finds the values that can be in a losable register across a raw access (a vector whose
+   register class includes one; a mask, where the mask registers are not killed at every raw access) and reach a
+   check afterwards. `protect_values()` then gives each reader of such a value that checks, or whose result
+   reaches a check, a value the fault cannot have zeroed, and leaves the value in its register for the other
+   readers:
+   - a constant mask (MaskAll of a constant, the all-true mask of the full iterations of a loop with a masked
+     tail): a copy of its definition right in front of the reader. On x64 the all-true mask of up to 16 lanes
+     is a kxnor (cpu/x86/x86.ad, mask_all_true_evexI_LE16), so the copy needs no general purpose register;
+   - any other mask or vector: a copy bound to the stack, made right after the definition, and one reload of it
+     right in front of each reader. Neither node carries the copy flag, so the allocator's copy removal, which
+     follows copies back to a register that still holds the value, cannot point the reader at the value's
+     register, or at an earlier reload, again.
+   A reader that follows the definition in its block with no raw access in between reads the value itself. For a
+   Phi the copy or reload goes to the end of the predecessor block. Nothing can follow the access of an implicit
+   null check in its block, so in these compilations an access that defines a mask or a vector is no candidate
+   for one (opto/lcm.cpp).
+2. **After register allocation, on the final code** (`NoTrapSites::apply()`): the same dataflow over the
+   registers and stack slots that hold masks and vectors, each register as two places, one for the values a fault
+   can lose there (a vector of more than 128 bits in xmm0-15, anything in xmm16-31, a mask register) and one for
+   the others. If a losable place that is live across a raw access reaches a check, the compilation is abandoned
+   and made again: for a mask with `C2Compiler::retry_kill_masks_at_every_raw_access()`, the unconditional kill
+   of the matcher (`Matcher::kill_masks_at_raw_accesses()`), whose debug check is that no killed register is live
+   across a raw access; for a vector with `C2Compiler::retry_avoid_vectors()`, a compilation without
+   auto-vectorization and without Vector API intrinsics (the Java code of the Vector API runs instead), which has
+   no vector to lose. This is a product check, not an assert: the allocator may stretch a value across an access
+   after step 1 (the inputs of a flags producer it clones), and step 2 is what makes the rule hold whatever it
+   did. No compilation was retried in any test, bench or PrintOptoAssembly log of the CI runs.
+
+Platforms: on x64 with AVX-512 VL, BW and DQ every mask is an opmask register value and both masks and vectors
+are followed. On AVX-512 without them and on AArch64 SVE, masks cannot be told from other values or their readers
+have not been examined (p7 governs most SVE instructions without being an input of their nodes), so every raw
+access of such a compilation kills the mask registers, or xmm16-31 too (NoTrapPlatform::raw_access_kill()), and
+the vectors are followed. On AVX2 there are no mask registers; masks are vectors and are followed as such. p7 is
+never killed: losing it only stops the accesses it governs.
+
+What a protected value costs: for a constant mask, one kxnor in front of each reader that checks it; for any other
+mask or vector, one store to the stack after its definition and one load in front of each reader that checks it,
+which in Vector API code is on the slow paths (an access that is not wholly in bounds) and at explicit tests. A
+value that no check reads costs nothing, whatever raw accesses it is live across.
+
+### What holds without a rule
+
+- AArch64 passes (a)-(c): `UseFPUForSpilling` is off by default there and, if set, spills into the D registers,
+  the NEON low bits that the context keeps. The rematerializable extracts and mask nodes are the NEON-only ones
+  (`UseSVE == 0`, cpu/aarch64/aarch64_vector.ad:6838-6935); the SVE ones have TEMPs (6896-6912, 6969-6970), and
+  lane extracts take an immediate (5987-6000).
+- Gathers: the Vector API checks every lane of the index vector and gathers with that same vector against
+  `ARRAY_BASE`, with nothing added after the check (src/jdk.incubator.vector/share/classes/jdk/incubator/vector/
+  IntVector.java:3116-3125, VectorIntrinsics.java:74-87). A zeroed lane becomes index 0, which is in range because
+  at least one lane passed `0 <= index < length`, so `length >= 1`; the check itself reads the indices intact (the
+  rule above).
+- Masked loads and stores check only the active lanes and pass the same mask on (AbstractMask.java:266-288,
+  IntVector.java:3060-3073). Zero means inactive for k registers, AVX2 vector masks and SVE predicates (including
+  `p7`), so a zeroed mask only drops lanes. An empty array or segment: no active lane can pass the check, so a zeroed
+  mask or index there still touches nothing.
+- Contiguous Vector API and FFM accesses check offsets in GPRs and address `base + offset` in GPRs; mask-driven
+  control flow (`anyTrue`, `allTrue`) only picks between paths that each carry their own checks.
+- Raw Unsafe addresses that user code builds from vector lanes have no bounds check by definition, and stock HotSpot
+  already lets the window write through an address built from the failed load; they are outside (b).
+
+## 6. MXCSR: no FP exception is resumed in compiled code
+
+What happened without the mode: native code returns to Java with FP exceptions unmasked in MXCSR; the next C2 FP
+instruction that raises one traps, and the handler resets MXCSR and resumes it with the broken context
+(os_cpu/windows_x86/os_windows_x86.cpp:166-198). The call stub sets the standard MXCSR on entry from native code
+(cpu/x86/stubGenerator_x86_64.cpp:259-265), but JNI returns and FFM downcalls did not, and the upcall stub loaded
+the standard MXCSR only off Windows.
 
 The invariant: compiled Java code never runs with a floating point exception unmasked, so no FP trap is taken and
 resumed in it (os_cpu/windows_x86/os_windows_x86.cpp, handle_FLT_exception()). Only native code can change MXCSR,
@@ -597,177 +755,30 @@ and JNI functions (ThreadInVMfromNative) are VM code called by native code, whic
 The load is not on any JNI or FFM call path: the stubs are unchanged. TestMXCSRAfterJVMTICallback has an agent
 whose SampledObjectAlloc callback, posted from the allocation slow path of a C2 method, returns with rounding
 toward zero, and checks the sum that method computes next.
-## Cost of the compiled-code shapes: what each site needs (branch JDK-8365196-cost-checks)
 
-The trap sites were already chosen per site after register allocation. These changes narrow each rule to what
-the resumed code can read, and remove instructions the non-trapping forms did not need. For each, the argument
-that the invariant still holds.
+## 7. APX
 
-### An implicit null check counts what is live into its null successor
+- r30 and r31: on Windows C2 treated them as kept by C callees (cpu/x86/x86.ad:176-179). A resumed exception
+  inside a leaf callee, such as an unsafe page error in an arraycopy stub, zeroes them under the caller. They are
+  now save-on-call for C calls on Windows (cpu/x86/x86.ad reg_defs).
+- r16-r31 in the unsafe window: see "Further routes" in section 5. Elsewhere they count as losable units at the
+  trap sites.
+- UseAPX is off by default.
 
-Before: an implicit null check became explicit when losable state was live across the access, was an input or TEMP
-of the access, or was the access's own result. Now: when losable state is live into the null successor of its
-block (opto/noTrap.cpp, NoTrapSites::apply()).
+## 8. Cost
 
-Argument. A fault at the access is not resumed at the access. `continuation_for_implicit_exception()` returns the
-continuation of the nmethod's implicit exception table, which PhaseOutput::FillExceptionTables() sets to the label
-of `non_connector_successor(0)` of the null check's block; the handler puts that pc in the context and returns
-`EXCEPTION_CONTINUE_EXECUTION`. So after the fault the thread runs the null successor and whatever follows it, and
-neither the rest of the access nor the not-null successor from that point. A register the context lost is observed
-only if code reachable from the null successor reads it before writing it, which is the definition of live into
-that block. The liveness is the same backward dataflow as before, over every block and every input of every node,
-so it includes:
+### The integrated build
 
-- the debug info of an uncommon trap on the null path: its values are inputs of the call (of the MachUncommonTrap
-  node on AArch64), the fields of scalarized vector boxes included;
-- an exception handler of the same frame, and any code after it, loops included: they are successors;
-- Phi inputs, all of them (the dataflow does not tell the predecessors apart, which only adds).
+TBD
 
-The common case it frees: a null check whose exception leaves the method. Its null successor is an uncommon trap
-that must throw, and GraphKit::add_safepoint_edges() prunes the locals and the stack of such a trap down to the
-inputs of the bytecode in every frame without exception handlers (opto/graphKit.cpp, `can_prune_locals`): the trap
-names no vector, so nothing losable is live into it, whatever is live across the access. In review7's
-nullCheckVectorLive the four checks of the unrolled loop are implicit again, as without the mode (the round 11
-build made 8 of that kernel's 14 null checks explicit, this one 2: those whose trap is a loop predicate's and
-keeps the accumulator in its debug info).
+### MXCSR
 
-What it leaves out is a value read only by the access itself or on the not-null path: the access's inputs and TEMPs
-(the faulting instruction is abandoned; an access that is several instructions, a late barrier load, faults on its
-first, the load), the access's result (not defined on the null path), and values computed ahead for the not-null
-path, such as a broadcast or another vector that C2 hoisted out of a loop and that no bytecode state names.
+Measured with the rules they belong to, in section 6.
 
-Tests: TestAvoidLosableStateAtTraps, id explicit, checks both directions on x64 (`kernel`, whose handler reads the
-accumulator, gets explicit checks; `invariantKernel`, with a hoisted broadcast live across the check and an uncommon
-trap on the null path, keeps its implicit check; the round 11 build made that one explicit); the stress ids run
-`invariantKernel` with a null that takes the trap; TestExceptionXStateLoss on a kernel that loses state has eight
-accumulators live into the handler of its null check and fails if that check traps, and its `kernelHoisted` keeps
-live into the handler a vector that no bytecode state names (a broadcast hoisted out of the loop, read again by the
-iterations after the handler), which a rule that looked at the debug info alone would miss. The debug check of
-NoTrapSites still asserts that a null check is explicit exactly where the rule says so.
-
-### AArch64: p7 does not count where the null successor sets it again first
-
-Before: with SVE, p7 counted as live everywhere in a compilation with vectors, so every implicit null check of
-such a compilation became explicit. Now p7 does not count at a null check whose null successor, followed through
-straight-line code only, reaches an uncommon trap or a Java call through nothing but moves of general purpose or
-NEON values, integer and pointer constants, Phis, projections and jumps (NoTrapPlatform::sets_always_live_units(),
-ignores_always_live_units(); opto/noTrap.cpp, always_live_units_dead_into()). Any other node, or a block with two
-successors, keeps p7 live. Loop polls are unchanged: p7 counts at every one.
-
-Argument. p7 matters only as the governing predicate of an SVE instruction. After the fault the code that runs is
-the listed nodes and then the trap or the call:
-
-- the moves and constants are `mov`, `ldr`, `str`, `fmov` and NEON moves (MachSpillCopyNode::implementation(),
-  cpu/aarch64/aarch64.ad); moves of scalable vectors and of predicates are not in the list (the stack to stack copy
-  of a predicate goes through p7);
-- an uncommon trap is a `bl` to the uncommon trap blob, which saves the registers with unpredicated `str` of Z and
-  P (MacroAssembler::push_CPU_state()) and does not return;
-- a Java call is the branch; a compiled callee sets p7 in its own entry (MacroAssembler::verified_entry()), the
-  interpreter and the resolution and adapter stubs govern nothing with a predicate, and when the call returns the
-  caller sets p7 again (aarch64_enc_java_static_call, aarch64_enc_java_dynamic_call).
-
-So nothing reads the lost p7. The Z registers above 128 bits and the other predicates are ordinary units of the
-dataflow and still count when live into the null successor.
-
-### The unsafe window rules apply in compilations with unsafe accesses
-
-Before: integer and pointer spills were kept out of xmm16-31, and no value was rematerialized from a losable input,
-in every compilation. Now both apply only when `C->has_unsafe_access()` (opto/matcher.cpp,
-init_first_stack_mask(); MachNode::rematerialize()), as the APX exclusion and the mask kill already did.
-
-Argument. Both rules exist for one window: an unsafe access fault resumed past the access, which the handler does
-only for an nmethod with `has_unsafe_access()` (os/windows/os_windows.cpp, EXCEPTION_IN_PAGE_ERROR), a flag copied
-from the compilation and set while parsing, before matching. In a compilation without it no exception is resumed
-while losable state is live: its only resumed traps are loop polls and null checks, and NoTrapSites decides those
-from the final allocation, where a spilled integer in xmm16-31, or an input whose live range a rematerialization
-stretched, is losable state like any other and gives the site its non-trapping form. Oops in such a spill at a
-poll are found as they are without the mode (the handler blob saves every register and the oop map names it). The
-debug checks moved with the rules: verify_placement() and the assert of split_Rematerialize() test compilations
-with unsafe accesses.
-
-### A branch poll does not load the polling page address
-
-Before: the branch poll kept the load of the thread's polling page address, the input of the faulting form, as a
-dead instruction. Now NoTrapSites removes that load when it is a load off the thread alone, in the block of the
-poll, and the poll is its only use (remove_poll_address()). The branch poll is then a test of the polling word and
-a branch, two instructions as the faulting poll was.
-
-Argument. The branch form reads only `JavaThread::_polling_word`. The load has no other use (checked: one out,
-which also rules out a null check on it and projections), no side effect and cannot fault (its base is the thread).
-The poll takes the thread, the removed load's own input, in place of the load: BuildOopMaps computes the liveness
-of the registers from the inputs of the nodes in the blocks, so an edge to a node that is in no block would mark a
-register live with no definition that reaches it. The thread's register is read at the poll as it was read at the
-load, a few nodes earlier in the same block, and the code of the branch form does not read the operand. A load
-that the allocator split from the poll (a spill copy in between), a load in another block, or one with an index or
-a second use, stays.
-
-### The non-trapping forms take part in the Intel JCC erratum mitigation
-
-The explicit null check and the branch poll are conditional branches that C2's mitigation did not know: on the
-affected processors they could cross a 32 byte boundary, which C2 avoids for every other branch. They are now
-tagged and padded like the others (cpu/x86/c2_intelJccErratum_x86.cpp). No effect on the invariant.
-
-### C1 keeps xmm16-xmm31 where no trap of its own resumes its frame
-
-Before: with the mode, C1 allocated xmm0-xmm15 only, on every processor. On AVX-512 processors that costs a
-C1-compiled method with more than sixteen floating point values live at once a spill for each further one
-(measured below: 6% and 14% on a kernel with twenty live doubles, run with C1 only). Now, on a processor with
-xmm16-xmm31 and in a VM that has C2's handler blob for branch polls, C1 allocates all of them, under two rules
-(cpu/x86/c1_FrameMap_x86.hpp, FrameMap::uses_losable_xmm_regs()):
-
-- its loop polls test the polling word and branch to a stub (LIR_Assembler::safepoint_poll(),
-  C1SafepointPollStub with `at_return` false), whose handler is the blob of C2's branch polls: it saves every
-  register and returns to the poll;
-- an operation with debug info that is not a call or a poll, and that either has an exception handler of the
-  frame, or deoptimizes on its exception, destroys xmm16-xmm31 for the allocator, as a call destroys every
-  register (LinearScan::pd_add_temps() adds a fixed-interval use of each at the operation); when the locals must
-  stay readable for a debugger (`should_retain_local_variables()`), every such operation does.
-
-Elsewhere (no AVX-512, or no C2 in the VM) C1 is as before: xmm0-xmm15 when the mode is on, faulting polls.
-
-Argument. C1 code takes three kinds of hardware exception that the VM resumes: the loop poll, the implicit null
-check and the implicit division by zero (the last two record an entry of the implicit exception table at the
-operation, with its debug info: every such operation has a CodeEmitInfo). The poll no longer traps. An implicit
-exception continues at the operation's stub (ImplicitNullCheckStub, DivByZeroStub), which calls the runtime, and
-from there the frame goes on in exactly one of these ways:
-
-- in an exception handler of the frame: then the operation has that handler in its XHandlers (they cover the
-  scopes inlined around it), so no value live across it, which includes every value live into the handler, is in
-  xmm16-xmm31; the values the handler reads arrive from the locations they had at the operation;
-- in the interpreter after a deoptimization that does not throw: only where the debug info says
-  `deoptimize_on_exception()` (ImplicitNullCheckStub then calls the predicate-failed trap); such an operation
-  destroys the registers too, so its debug info names none of them;
-- nowhere: the exception is thrown out of the frame, which is unwound (Runtime1's unwind handler), or the frame is
-  deoptimized with the exception pending (JVMTI exception events, a frame invalidated while in the runtime) and
-  its interpreter frames find no handler, as the compiled code found none, and are unwound. Nothing reads the
-  frame's registers; a debugger that could read its locals on the way is the retained-locals case above.
-
-Values in xmm16-xmm31 across a branch poll are saved and restored by the blob, and named by its oop map for a
-deoptimization at the poll, as for C2. Across a call no register is live. A value used by the trapping operation
-for the last time may be in xmm16-xmm31: it is dead after it. C1 keeps only floats and doubles in these registers
-(no integer, pointer or mask), so the window of an unsafe access fault holds data there, as it does for C2.
-
-Tests: TestExceptionXStateLossC1 (C1 only, and tiered) keeps twenty-four accumulators live across the polls of a
-loop without handlers and across a null check with a handler in the frame; on a kernel that loses state it fails
-without the mode (C1 then keeps its faulting polls and xmm16-xmm31).
-
-### What was looked at and found to be no cost of the shapes
-
-- The megamorphic kernel (review2, +4.6% on AVX-512): its compiled code has no vector, no losable state and no
-  trap site that the mode changes, and the normal compilation is the same, instruction for instruction, with the
-  mode on and off (PrintOptoAssembly of the round 11 fastdebug build). The kernel's time is multimodal from fork to
-  fork in every configuration: its OSR and JMH stub compilations differ between two runs of one configuration as
-  much as between configurations.
-- UseFPUForSpilling is off by default on every EVEX processor (AMD from family 0x19 on, Intel with AVX2 or later),
-  so the spill rule changes nothing by default.
-- The explicit null check that remains is `test reg, reg` and `jz`, one fused instruction of 8 or 9 bytes, at the
-  sites whose null path reads losable state. No form without it exists: the null path needs the registers the trap
-  would lose.
-
-## Cost of the compiled-code shapes: measurements (branch JDK-8365196-cost-checks)
+### The trap site rules and C1
 
 Runs on windows-2025 runners (kernel 26100.33828, which loses the state). Configurations: B the unpatched base, N
-the notrap branch before these changes (round 11 bundles), C this branch, O this branch with
+the notrap branch before the narrowed rules (round 11 bundles), C the branch with them, O the same with
 -XX:-AvoidLosableStateAtTraps. JMH, average time, interleaved rounds, medians of the forks pooled by processor;
 percentages are against B. Processors: AMD EPYC 7763 (AVX2), AMD EPYC 9V74 and 9V45 and Intel Xeon 8573C (AVX-512).
 
@@ -778,7 +789,7 @@ percentages are against B. Processors: AMD EPYC 7763 (AVX2), AMD EPYC 9V74 and 9
 - Bench 3 (run 45954224299, five VMs): C is the build of CI run 45948142657, with the C1 change: C1 only, review7
   and review10 with every tier, Renaissance.
 
-### Null checks
+#### Null checks
 
 | kernel, processor | N | C | O |
 | --- | --- | --- | --- |
@@ -806,7 +817,7 @@ Sites that take the non-trapping form, counted by the fastdebug build of C (Prin
 fj-kmeans, 0 of 753 to 851 and 1 of 148 to 199; the stress test under -Xcomp on an AVX2 host, 0 of 10669 and 4
 of 778.
 
-### The megamorphic kernel
+#### The megamorphic kernel
 
 Fork by fork, 16 forks per configuration and processor (ns): on the 9V74 every configuration, B included, falls on
 the same three levels, about 2920, 3230 and 3400 to 3500; on the 7763 on 3650, 4030 and 4300; on the Xeon on 2110
@@ -815,13 +826,13 @@ on the 7763; fork by fork N -0.1%, C -9.0%, O -4.3% on the 9V74 and N -9.2%, C +
 normal compilation of the kernel is the same code with the mode on and off; its OSR and JMH stub compilations
 differ from run to run within one configuration. The +4.6% of the earlier run was that mix.
 
-### Loop polls, divisions, list walks
+#### Loop polls, divisions, list walks
 
 Bench 1, C against B: listWalkVectorLive -0.1% (7763), -0.1% (9V74), -0.1% (Xeon); uncountedListWalkVector +0.9%,
 +0.5%, +0.1%; listWalkVector +/-0.4%; countedLoopVectorLive 0.0%, +0.1%, +0.7%; divisionVectorLive 0.0%, +0.2%,
 -0.0%. O is within the same range.
 
-### Register pressure: rematerialization and spills
+#### Register pressure: rematerialization and spills
 
 review10 vectorPressure (twenty-two live vectors, a call every few iterations, no unsafe access) and
 vectorPressureUnsafeInside (the same with an unsafe read in the compilation). Both are multimodal from fork to fork
@@ -844,7 +855,7 @@ both directions: it made these kernels faster on AVX-512 and slower on the 7763.
 with unsafe accesses, so vectorPressure is as without the mode, and vectorPressureUnsafeInside behaves as N did.
 gprPressureUnsafe with -XX:+UseFPUForSpilling: N +0.3%, -0.5%, +1.2%; C +0.5%, -0.3%, +1.1% (7763, 9V74, Xeon).
 
-### C1
+#### C1
 
 C1 only (-XX:TieredStopAtLevel=1), twenty live doubles:
 
@@ -863,7 +874,7 @@ The other C1 kernels of bench 3, C against B on the 9V74, the 9V45 and the Xeon 
 countedSum -1.0%, +0.9% and +2.2% (N and O are within 4% of B on all of them): in C1 loops the branch poll is no
 slower than the faulting one, and on the Intel processor it is faster.
 
-### Renaissance and code size
+#### Renaissance and code size
 
 Renaissance (last five of ten repetitions, against O): bench 1, C: dotty +1.4%, +0.8%, +1.0%; fj-kmeans -0.4%,
 +0.1%, -1.6%; future-genetic -1.5%, -0.1%, +0.1%; mnemonics +2.6%, +2.8%, -0.5%; scrabble +1.3%, +0.4%, +0.5%
@@ -876,40 +887,29 @@ C2 code size of -Xcomp -XX:-TieredCompilation -version (bytes; B, N, C, O) on a 
 229880, 229880. On linux (mode off, notrap forced, cost-checks forced): Serial 145792, 145792, 145872; G1 178112,
 178032, 178112; Z 205016, 205016, 205192; Shenandoah 207440 in all three.
 
-### Tests
+What was looked at and found to be no cost of the shapes:
 
-CI run 45905096158 (before the C1 change) and 45948142657 (with it): the compiler tier1 groups, tier2, the vector
-and foreign tests on linux-x64 with the mode forced, and with UseFPUForSpilling; the same and the incubator vector
-tests on windows-2025 (in the second run also the runtime, gc and serviceability tier1 groups and jdk tier1); the
-compiler tier1 groups on windows-11-arm (Cobalt 100, UseSVE 2, 128 bit vectors). All pass but one test on
-windows-11-arm, compiler/vectorapi/TestMaskedNotAllOnes.java, which fails in the matcher
-(`duplicating node that's already been matched`, matcher.cpp:1849) with the mode off as well (run 45927209548,
-six of six runs, on and off): it is not of the mode.
+- The megamorphic kernel (review2, +4.6% on AVX-512): its compiled code has no vector, no losable state and no
+  trap site that the mode changes, and the normal compilation is the same, instruction for instruction, with the
+  mode on and off (PrintOptoAssembly of the round 11 fastdebug build). The kernel's time is multimodal from fork to
+  fork in every configuration: its OSR and JMH stub compilations differ between two runs of one configuration as
+  much as between configurations.
+- UseFPUForSpilling is off by default on every EVEX processor (AMD from family 0x19 on, Intel with AVX2 or later),
+  so the spill rule changes nothing by default.
+- The explicit null check that remains is `test reg, reg` and `jz`, one fused instruction of 8 or 9 bytes, at the
+  sites whose null path reads losable state. No form without it exists: the null path needs the registers the trap
+  would lose.
 
-On four windows-2025 VMs per run (9V74, 9V45, Xeon 8370C and, in the second run, a 7763), whose kernel the native
-probe finds affected: TestExceptionXStateLoss passes with the mode in every run (five collectors, three rounds,
-release and fastdebug) and fails without it in every run, the 7763 included (a quarter to two thirds of the calls
-wrong; its kernelHoisted alone loses state in 58 to 941 calls per run without the mode, in none with it).
-TestExceptionXStateLossC1 passes with the mode, C1 only and tiered, release and fastdebug, and without the mode
-fails on the AVX-512 processors (about 2600 to 2960 of 6400 to 8000 calls wrong) and passes on the 7763, which has
-no xmm16-31.
-## The cost of the mask kill, and which raw accesses need it (branch JDK-8365196-cost-kmask)
+### Masks at raw accesses
 
-### What the kill costs, and where
+Before the rule of section 5, every raw access of a compilation with unsafe accesses killed the mask registers.
 
-- **Only compilations that inline a scalar unsafe access have it.** `Compile::has_unsafe_access()` is set by the
-  scalar Unsafe intrinsics alone (opto/library_call.cpp); the Vector API's segment loads and stores
-  (opto/vectorIntrinsics.cpp) do not set it. A method whose only raw accesses are Vector API segment accesses is
-  therefore not "a compilation with unsafe accesses": none of its accesses kills anything, and a page error in it
-  is not resumed at all (the nmethod has no `has_unsafe_access`, so the handler does not take the unsafe path and
-  the VM reports the fault, as upstream does). The kill matters where vector code and a scalar segment or Unsafe
-  access share a compilation: a vector loop with a scalar tail loop, a header read in front of a vector loop.
 - **The +5-9% of the off-heap masked kernels of review9 is not the kill.** `segmentMaskedSum` and
   `segmentCompareBlendStore` are not unsafe compilations (see above). PrintOptoAssembly of their hot loops with the
   mode off and on (linux-x64 fastdebug, UseAVX=3 and UseAVX=2, run 45898446266) differs only in explicit null
   checks: two per iteration in `segmentMaskedSum` (the klass load of the segment, the load of
   `scope.owner`), four in `segmentCompareBlendStore`, one in `unsafeWithLiveMask` and `heapMaskedSum` (the
-  range load of the heap array). That is the cost-checks area.
+  range load of the heap array): the explicit null checks of section 3.
 - **The kill is expensive because of where the allocator puts a killed mask.** A mask live range that crosses a
   kill cannot be colored. The kill is an interference, not register pressure (the mask registers count in
   neither pressure class), so PhaseChaitin::Split() has no place at which to split it: after the first failed
@@ -918,105 +918,11 @@ no xmm16-31.
   range is the all-true mask of the full iterations, which C2 computes once in front of the loop; the scalar read
   of the loop kills it on every iteration, although the loop's own masks are dead at the read.
 
-### The rule: a mask that a fault can zero must not reach a check
-
-Counterexample 3 needs a mask that was computed before the fault and is *tested* after it. The unconditional kill
-protected every mask, including the ones that are only predicates. The rule that the branch implements, on x64
-with AVX-512 VL, BW and DQ (where every mask is an opmask register value; elsewhere, AVX-512 without them and
-AArch64 SVE, every raw access still kills, as before):
-
-> In a compilation with unsafe accesses, no mask that is in a mask register across a raw access is read
-> afterwards by a reader that checks, directly or through the masks computed from it.
-
-A reader *checks* unless it only applies the mask as a predicate (`checks_masks()`, opto/noTrap.cpp):
-
-- **Predicates (not checks):** an instruction that computes a vector (a masked load, gather, arithmetic or
-  compare with a vector result, a blend, a compress or expand), and the masked vector stores and scatters. With a
-  zeroed mask they compute a vector with lanes dropped or passed through, or store nothing. The vector is a value
-  of the unsafe access window, like the upper halves the fault zeroes in any case.
-- **Checks:** everything else that reads a mask. Flags producers (VectorTest, that is `anyTrue`/`allTrue`),
-  conversions to an integer (`toLong`, `trueCount`, `firstTrue`, `lastTrue`), VectorStoreMask (it computes a
-  vector, but one that holds the mask itself: the payload of a boxed mask), the arguments of calls, returns.
-- **Mask to mask:** mask logic, masked compares with a mask result, casts, the allocator's copies and merges, Phis.
-  They pass the question on: their input is read for a check exactly if their result is.
-- **Debug info (not a check).** A mask in the debug info of a safepoint, call or uncommon trap is read only if the
-  frame is deoptimized there. Deoptimization turns it into a heap object, which every later reader sees alike,
-  and whatever runs after a deoptimization checks its own accesses: the interpreter, C1 code and the Java bodies
-  of the Vector API (the fallbacks of `VectorSupport`) by the bounds checks of the language, and other compiled
-  code by the checks it carries for its own intrinsic accesses, on the objects it is given. No check of the
-  Vector API is split from its intrinsic access by a deoptimization with the *result* of the check as state
-  other than in a mask, and an intrinsic access is only reached from compiled code of the method that also
-  contains its check. Independently, the pending InternalError is thrown where the interpreter takes over
-  (`uncommon_trap_inner` is a JRT_ENTRY, whose return to Java installs the asynchronous exception, and the
-  interpreter's deoptimization entries throw a pending exception before the next bytecode), except where the
-  thread has asynchronous exceptions blocked (Thread.exit, the virtual thread transitions).
-
-Why this keeps (c):
-
-- Every reader that checks sees a mask that was not in a mask register at the fault: it was on the stack, in a
-  general purpose register, or is computed afterwards from masks of which the same holds, because the question is
-  followed backwards through the mask operations (an operation whose result reaches a check makes its inputs
-  reach it). That is exactly what the unconditional kill gave these readers.
-- So a mask that reaches a check holds, at every reader, either the value the program computed or, in its
-  register after a fault, zero. Never more lanes.
-- A mask that reaches no check can hold anything after a fault (zero, or a value computed from zeroed masks, such
-  as all lanes for the negation of a lost mask). It is only ever a predicate, and the masked access it governs is
-  one whose mask the compilation never tests: the Vector API tests the mask of an access exactly when the access
-  is not wholly in bounds (`checkMaskFromIndexSize`, in the slow path of each masked load and store, on the same
-  mask value that the access of that path takes), so an access with an untested mask is the access of the fast
-  path, whose lanes are all in bounds by the scalar test of its offset. Any mask is safe for it. Gathers and
-  scatters test their index vector, not their mask.
-- What changes for values is that a predicate can differ from the program's mask where the kill would have
-  reloaded it: lanes of a value of the window dropped or passed through, or a store of the window that does not
-  happen or stores unspecified lanes in bounds.
-
-The residual of the earlier section is unchanged and the same kind: a check that the program carries through
-vector registers (here also: a mask turned into a vector by a blend, `VectorMask.toVector()`, and compared
-again) is not protected, with the kill or without.
-
-### How the rule is enforced
-
-1. **Before register allocation, on the scheduled code** (`NoTrapSites::kill_masks_where_checked()`, called from
-   `Compile::Code_Gen()` after global code motion): `MaskFlow` is a backward dataflow over the mask values,
-   "reaches a check"; it finds the masks that are live across a raw access and reach a check afterwards.
-   `protect_masks()` then gives each reader of such a mask that checks a value the fault cannot have zeroed,
-   and leaves the mask in its register for the other readers:
-   - a constant mask (MaskAll of a constant, the all-true mask of the full iterations of a loop with a masked
-     tail): a copy of its definition right in front of the reader. On x64 the all-true mask of up to 16 lanes
-     is now a kxnor (cpu/x86/x86.ad, mask_all_true_evexI_LE16), so the copy needs no general purpose register;
-   - any other mask: a copy bound to the stack, made right after the definition, and one reload of it right in
-     front of each reader. Neither node carries the copy flag, so the allocator's copy removal, which follows
-     copies back to a register that still holds the value, cannot point the reader at the mask's register, or
-     at an earlier reload, again.
-   A reader that follows the definition in its block with no raw access in between reads the mask itself. For a
-   Phi the copy or reload goes to the end of the predecessor block. A mask it cannot protect (the result of the
-   access of an implicit null check) leaves the kill on the accesses it is live across, as a projection added
-   after scheduling.
-2. **After register allocation, on the final code** (`NoTrapSites::apply()`): the same dataflow over the
-   registers and stack slots that hold masks. If a mask register that is live across a raw access reaches a
-   check, the compilation is abandoned with `C2Compiler::retry_kill_masks_at_every_raw_access()` and compiled
-   again with the unconditional kill of the matcher (`Matcher::kill_masks_at_raw_accesses()`), whose debug
-   check is the earlier one (no killed register live across a raw access). This is a product check, not an
-   assert: the allocator may stretch a mask across an access after step 1 (the masks of a flags producer it
-   clones), and step 2 is what makes the rule hold whatever it did.
-
-The cost that remains at a protected mask is one store of the mask per execution of its definition, and a reload
-only on the paths that check, which in Vector API code are the slow paths (an access that is not wholly in
-bounds). The unconditional kill cost a store and a reload at every use, and a memory-to-memory copy at every
-Phi, because the allocator can only spill such a live range everywhere.
-
-### What it costs now (measured)
-
-Run 45961686077 (https://github.com/Auties00/jdk/actions/runs/45961686077), the whole branch: builds, the compiler
-tests with the mode forced on Linux (tier1 compiler 1-3, tier2 compiler, hs/vector, hs/safepoints, jdk/foreign),
-hs/vector, jdk/vector and jdk/foreign on windows-2025, the reproduction, and the benches; 30 jobs, all green. On
-windows-2025 (26100.33828, native probe: bug present) TestExceptionXStateLoss passes with the mode on (5 of 5, twice,
-on an AVX-512 and on an AVX2 machine) and fails with -XX:-AvoidLosableStateAtTraps and on the unpatched base (6 of 6
-each); TestMaskKillAtRawAccesses passes there, with its kills id on the AVX-512 machine. No compilation was retried
-with the kill at every raw access in any bench or PrintOptoAssembly log.
+Measured before the vectors were added to the rule (run 45961686077,
+https://github.com/Auties00/jdk/actions/runs/45961686077; 30 jobs, all green):
 
 Cost of the mode against the same kernels with the mode off, median of 3 rounds of 2 forks on the same machine,
-before (branch JDK-8365196-notrap at 2fc793f7a63) -> after (this branch). Windows: O is this build with the mode
+before (the branch at 2fc793f7a63) -> after (the mask rule). Windows: O is the same build with the mode
 off; Linux: F is the build before with the mode off.
 
 | kernel | windows-2025 EPYC 9V74/9V45 (3 machines, median) | windows-2025 Xeon 8573C | Linux EPYC 9V74 | Linux Xeon 8573C |
@@ -1035,7 +941,7 @@ unsafeWithLiveMask and constantMaskPredicate are the kernels the kill was measur
 segment kernels of the Vector API never had a kill (their compilations are not marked as having unsafe accesses, see
 below), and what they and tailMaskedCopy and compareAcrossLoadMaskedStore still pay is the explicit null checks of
 the mode, 1 to 4 per iteration: the same +4% to +13% shows on AVX2 (EPYC 7763, 4 machines in run 45945893039 and one
-in this run), where there are no mask registers and this branch changes no code. The heap controls move with their
+in this run), where there are no mask registers and the mask rule changes no code. The heap controls move with their
 forks (heapCompareBlendStore on the Xeon: 50.5, 52.1, 50.8 off; 56.4 +- 4.7, 52.8, 57.4 +- 6.5 after; 58.2 +- 5.2,
 52.4, 52.8 before), and tailMaskedCopy and segmentCompareBlendStore have two speeds per fork in every build.
 
@@ -1048,40 +954,72 @@ What a protected mask costs: for a constant mask, one kxnor in front of each rea
 mask, one store to the stack after its definition and one load in front of each reader that checks it. A mask that
 no check reads costs nothing, whatever raw accesses it is live across.
 
-### Found on the way, outside this branch
+## 9. Where each part is, and its tests
 
-These are in the design the branch starts from, and the branch does not change them. I stopped at the description.
+- The flag: AvoidLosableStateAtTraps, diagnostic, on by default on Windows (share/runtime/globals.hpp).
+- The pass: share/opto/noTrap.hpp, noTrap.cpp (NoTrapSites::apply(), run from PhaseOutput::Output() before sizing;
+  a compilation it changes is not scheduled after register allocation). Platform sides: X86NoTrap
+  (cpu/x86/x86.ad), AArch64NoTrap (cpu/aarch64/aarch64.ad).
+- Explicit null checks: MachExplicitNullCheckNode (share/opto/machnode.hpp/.cpp); the MachNullCheck it replaces
+  records no implicit exception (share/opto/output.cpp, fill_buffer() and FillExceptionTables()). x64 refuses
+  flag-consuming candidates (share/opto/lcm.cpp).
+- Branch loop polls: MachSafePointNode::is_branch_poll(), the safePoint instructs of both .ad files,
+  C2LoopPollStub (share/opto/c2_CodeStubs.hpp, cpu/*/c2_CodeStubs_*.cpp), and the shared blob
+  polling_page_branch_safepoint_handler (share/runtime/stubDeclarations.hpp, sharedRuntime.cpp), generated by
+  generate_handler_blob() without the step over the poll and saving every vector register.
+- The unsafe window: spill masks (share/opto/matcher.cpp, init_first_stack_mask()), rematerialization
+  (MachNode::rematerialize(), has_losable_input()), APX exclusion (opto/chaitin.cpp), the masks and vectors that
+  reach a check (NoTrapSites::protect_checked_values() from Compile::Code_Gen(), CheckFlow and protect_values()
+  in opto/noTrap.cpp, the check on the allocated code in NoTrapSites::apply(), the retries in
+  opto/c2compiler.cpp, the kill of the mask registers in Matcher::kill_masks_at_raw_accesses(), no implicit null
+  check on an access that defines a mask or a vector in opto/lcm.cpp), comment at the handler
+  (os/windows/os_windows.cpp, EXCEPTION_IN_PAGE_ERROR).
+- AArch64: p7 always live with vectors, set after the stack bang (cpu/aarch64/macroAssembler_aarch64.cpp,
+  verified_entry()); the SVE revision gate is skipped with the mode (os_cpu/windows_aarch64/vm_version_windows_aarch64.cpp).
+- MXCSR: MacroAssembler::restore_cpu_control_state_after_jni() (JNI wrappers, the interpreter, FFM downcalls with
+  a transition), the critical downcall (cpu/x86/downcallLinker_x86_64.cpp), the upcall stub
+  (cpu/x86/upcallLinker_x86_64.cpp), ~ThreadToNativeFromVM and ~JvmtiThreadEventTransition
+  (share/runtime/interfaceSupport.inline.hpp).
+- r30/r31: cpu/x86/x86.ad reg_defs, save-on-call for C calls on Windows.
+- C1: cpu/x86/c1_LinearScan_x86.hpp, c1_FrameMap_x86.hpp, c1_LIRAssembler_x86.cpp, c1_CodeStubs_x86.cpp. AOT code
+  cache: share/code/aotCodeCache.hpp, x86 and AArch64 lists.
+- Statistics of the trap sites: -XX:+PrintOptoStatistics (NoTrapSites::print_statistics()).
+- Debug checks (NoTrapSites::apply() and verify_placement(), reg_split.cpp): every remaining implicit null check and
+  faulting loop poll has no losable state live; no RegI/N/L/P value in a losable register (and in an unsafe
+  compilation, none in r16-r31); no rematerialization from a losable input; no resumable raw access between a flags
+  producer with a losable input and its use; where every raw access kills the mask registers, none is live
+  across one. The check that no mask or vector that reaches a check is in a losable register across a raw access
+  is in product builds too.
 
-1. **Counterexample 4 to (c): the check of a masked access reads a vector the fault can zero (x64, AVX2 and
-   AVX-512; AArch64 SVE by the same reading).** The slow path of every masked load and store tests its mask
-   against the lanes that are in bounds: `AbstractMask.checkIndexByLane()` computes
-   `badMask = iotaScaled.compare(GE, broadcast(indexLimit))` (`checkIndex0()`, AbstractMask.java:292-354),
-   ands it with the access mask and throws if any lane is left. `iotaScaled` comes from the species' iota
-   vector, a loop invariant that C2 loads once and keeps in a vector register across the loop. After a resumed
-   fault at a raw access of the loop, that register comes back with its lanes above 128 bits zeroed (all of them
-   in xmm16-31), and a zero lane compares as in bounds wherever `indexLimit > 0`. The check then passes for
-   lanes that are out of bounds, and the masked access that follows takes the access mask, which is intact: the
-   loop computes it again on every iteration (the iota is not computed again), and for the iteration of the fault
-   the mask kill reloads it on AVX-512, and on AVX2 it is intact whenever it sits in a stack slot. The frame runs
-   on until its next poll, which in a strip-mined loop is many iterations away. A program whose mask has a lane
-   beyond the array or segment, which must get an
-   IndexOutOfBoundsException, instead reads or writes past the end. Same kind and same preconditions as
-   counterexample 3 (a wrong program, an I/O error on a mapped page, a compilation with unsafe accesses), but the
-   value that is lost is a vector operand of the check, not its mask result, so the mask kill does not cover it.
-   The argument "a mask in xmm0-15 loses the same lanes as the vector it checks" does not help: here the check
-   compares a vector with nothing the access uses.
-   Possible fixes, cheapest first: compute the bounds mask of `checkIndex0()` from the general purpose
-   registers where the platform can (the VectorMaskGen intrinsic behind `indexPartiallyInUpperRange`), so that
-   the check has no vector operand; or extend the search of this branch from masks to the vectors that reach a
-   check (a compare whose mask reaches one) and keep those on the stack for the compare. The second is general
-   but puts a reload in front of every such compare whose operand is live across a raw access, including the
-   needle of a search loop (`v.compare(EQ, needle).anyTrue()`).
-2. **The same shape for the index vector of a gather or scatter, if the allocator gives the check and the access
-   different copies.** `checkIndex(vix, length)` and the scatter both read `vix`. If one reads a register
-   copy and the other a stack copy made before the fault (post-allocation copy removal points a use at a
-   register that still holds the value, postaloc.cpp `elide_copy()`), the check can see zeroed upper lanes
-   (index 0, in bounds) while the scatter uses the intact ones. I did not construct a case; the argument of (c)
-   for gathers ("a zeroed lane becomes index 0, which a passed check implies is in range") assumes one copy.
-3. **Vector API segment accesses do not make a compilation "unsafe"** (see the top of this section), so a page
-   error at such an access in a method without a scalar unsafe access is not resumed but reported as a crash.
-   That is upstream behaviour and outside the invariant, but it bounds where the unsafe window exists.
+Tests (test/hotspot/jtreg):
+
+- compiler/runtime/safepoints/TestExceptionXStateLoss (five collectors): vector accumulators live across trapping
+  loop polls and a null check with a handler, with the stale header planted; `kernelHoisted` keeps a vector live
+  into the handler that only the compiler knows. Fails on an affected kernel without the mode.
+- compiler/runtime/safepoints/TestExceptionXStateLossC1: the same for C1 in xmm16-31, C1 only and tiered.
+- compiler/runtime/safepoints/TestAvoidLosableStateAtTraps: the trap sites and their forms, with `invariantKernel`
+  for the narrowed null check rule.
+- compiler/runtime/safepoints/TestMaskKillAtRawAccesses: masks live across raw accesses as predicates and as the
+  results of checks; its `kills` id reads the decisions of protect_checked_values() from the log.
+- compiler/runtime/safepoints/TestCheckedVectorsAtRawAccesses: the lane numbers of the check of a masked store
+  (counterexample 4), the index vector of a gather, and a check kept in long-lane vectors; its `protects` id reads
+  the decisions from the log, and its `fault` id takes a real page error at the raw access.
+- runtime/jni/mxcsr/TestMXCSRRestore (JNI, FFM downcalls and upcalls) and TestMXCSRAfterJVMTICallback.
+
+TBD
+
+## 10. History
+
+The first audit found the design (explicit null test, explicit div0 test, branch loop poll, C1 off
+xmm16-31) sound for loop polls, implicit null checks, div0, stack banging, deoptimization, handshakes, async
+exceptions, GC barriers, stubs, C1, the interpreter, JFR and HotSpot's own C++ code, and three paths outside it:
+unsafe raw accesses in C2 code (section 5), FP exceptions in compiled code (section 6) and APX r30/r31 across C
+calls (section 7).
+
+The scrub14 mechanism is gone from the branch: the Windows kernel classifier and its revision tables, the
+stale-header scrub (TrapScrub, MachTrapScrubNode, the startup verification of L), the fallback cap on UseAVX and
+MaxVectorSize, the Windows/AArch64 SVE gate, the flags ScrubExceptionXStateHeader, ExceptionXStateLength,
+ForceExceptionXStateProtection and ExceptionXStateMitigation with the develop and verify flags, and their gtests and
+jtreg tests. AvoidLosableStateAtTraps is the only mechanism; -XX:-AvoidLosableStateAtTraps gives compiled code with
+no protection at all (the A/B of the repro). TestExceptionXStateScrub, which plants the stale header and keeps vector
+state live across polls and a faulting null check, stays as TestExceptionXStateLoss, the regression test of the mode.
