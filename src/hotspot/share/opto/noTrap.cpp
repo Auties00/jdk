@@ -27,12 +27,15 @@
 #include "libadt/vectset.hpp"
 #include "logging/log.hpp"
 #include "memory/resourceArea.hpp"
+#include "opto/addnode.hpp"
 #include "opto/block.hpp"
 #include "opto/c2compiler.hpp"
+#include "opto/cfgnode.hpp"
 #include "opto/compile.hpp"
 #include "opto/connode.hpp"
 #include "opto/machnode.hpp"
 #include "opto/matcher.hpp"
+#include "opto/mulnode.hpp"
 #include "opto/noTrap.hpp"
 #include "opto/opcodes.hpp"
 #include "opto/phaseX.hpp"
@@ -950,6 +953,143 @@ static bool is_all_ones_constant(const Node* n) {
   }
 }
 
+// Whether n is a mask with every lane set, made from a constant.
+static bool is_all_true_constant(const Node* n) {
+  return is_all_ones_constant(n) || VectorNode::is_all_ones_vector(const_cast<Node*>(n));
+}
+
+// The long operation on the bits of two masks that gives the bits of the mask that n, a bitwise
+// operation on masks (or on vectors: the bit of a lane is its sign), makes of them; or 0.
+static int bits_opcode(const Node* n) {
+  if (n->req() != 3) {
+    return 0; // an operation under a mask of its own
+  }
+  switch (n->Opcode()) {
+    case Op_AndVMask: case Op_AndV: return Op_AndL;
+    case Op_OrVMask:  case Op_OrV:  return Op_OrL;
+    case Op_XorVMask: case Op_XorV: return Op_XorL;
+    default:                        return 0;
+  }
+}
+
+// Whether mask is a merge of masks at a place that is not the head of a loop.
+static bool is_merge_of_masks(const Node* mask) {
+  return mask->is_Phi() && mask->in(0) != nullptr && mask->in(0)->is_Region() && !mask->in(0)->is_Loop();
+}
+
+// Whether the bits of mask are better read from the masks it is made of, by bitwise operations or
+// by a merge: one of them is tested itself (tested, which holds the masks without their casts), so
+// that its bits are in a general purpose register in any case. A mask that is only made or merged
+// from masks that no test reads is converted as it is: the bits of its inputs would be longs that
+// the paths without a test make for nothing (the merge of the mask of a loop iteration, every lane
+// or the lanes left, whose only tests are in slow paths).
+static bool reads_bits_of_inputs(const Node* mask, const VectorSet& tested, int depth) {
+  if ((bits_opcode(mask) == 0 && !is_merge_of_masks(mask)) || depth > 3) {
+    return false;
+  }
+  // Masks of one shape: the bits of each are then those of its lanes.
+  const TypeVect* vt = mask->bottom_type()->isa_vect();
+  for (uint k = 1; k < mask->req(); k++) {
+    const TypeVect* in_vt = mask->in(k) == nullptr ? nullptr : mask->in(k)->bottom_type()->isa_vect();
+    if (vt == nullptr || in_vt == nullptr || in_vt->element_basic_type() != vt->element_basic_type() ||
+        in_vt->length() != vt->length() || in_vt->is_pvectmask() != vt->is_pvectmask()) {
+      return false;
+    }
+  }
+  for (uint k = 1; k < mask->req(); k++) {
+    const Node* in = mask->in(k)->uncast();
+    if (tested.test(in->_idx) || reads_bits_of_inputs(in, tested, depth + 1)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// The bits of mask as a long: of a mask that is made by a bitwise operation from masks of which
+// one is tested itself, the same operation on their bits, and of a merge of such masks, the merge
+// of their bits, so that the check of each mask reads that mask alone and can be made right behind
+// it; of the mask with every lane set, the constant every; of any other mask, its conversion (of its
+// lanes as bytes first, if as_bytes). A cast of a mask is the mask: the conversion reads the mask
+// itself, so that every test of one mask reads one conversion.
+static Node* mask_bits(PhaseIterGVN& igvn, Node* mask, const VectorSet& tested, int depth, bool as_bytes,
+                       BasicType bt, uint lanes, jlong every) {
+  mask = mask->uncast();
+  if (is_all_true_constant(mask)) {
+    return igvn.longcon(every);
+  }
+  if (reads_bits_of_inputs(mask, tested, depth) && is_merge_of_masks(mask)) {
+    PhiNode* merge = new PhiNode(mask->in(0), TypeLong::LONG);
+    for (uint k = 1; k < mask->req(); k++) {
+      merge->init_req(k, mask_bits(igvn, mask->in(k), tested, depth + 1, as_bytes, bt, lanes, every));
+    }
+    return igvn.transform(merge);
+  }
+  if (reads_bits_of_inputs(mask, tested, depth)) {
+    Node* a = mask_bits(igvn, mask->in(1), tested, depth + 1, as_bytes, bt, lanes, every);
+    Node* b = mask_bits(igvn, mask->in(2), tested, depth + 1, as_bytes, bt, lanes, every);
+    switch (bits_opcode(mask)) {
+      case Op_AndL: return igvn.transform(new AndLNode(a, b));
+      case Op_OrL:  return igvn.transform(new OrLNode(a, b));
+      default:      return igvn.transform(new XorLNode(a, b));
+    }
+  }
+  Node* bits_of = mask;
+  if (as_bytes) {
+    bits_of = igvn.transform(VectorStoreMaskNode::make(igvn, mask, bt, lanes));
+  }
+  return igvn.transform(new VectorMaskToLongNode(bits_of, TypeLong::LONG));
+}
+
+// Whether the bits of masks of the type vt can be read as a long, and whether they are read from
+// the lanes as bytes (as_bytes) or from the mask itself.
+static bool converts_to_bits(const TypeVect* vt, bool& as_bytes) {
+  const uint lanes = vt->length();
+  const BasicType bt = vt->element_basic_type();
+  as_bytes = !Matcher::mask_op_prefers_predicate(Op_VectorMaskToLong, vt);
+  return lanes <= 64 && Matcher::match_rule_supported_vector(Op_VectorMaskToLong, lanes, bt) &&
+         (!as_bytes || (Matcher::match_rule_supported_vector(Op_VectorStoreMask, lanes, bt) &&
+                        vt->length_in_bytes() <= 32));
+}
+
+// The bits of a mask of lanes lanes with every lane set.
+static jlong bits_of_every_lane(uint lanes) {
+  return lanes == 64 ? (jlong)-1 : (((jlong)1 << lanes) - 1);
+}
+
+// Whether test, a test of all lanes of a mask (all) or of any, can read the bits of the mask as a
+// long: it has the shape the Vector API gives it, and the conversion is supported. Its readers are
+// then appended to bools.
+static bool reads_bits(VectorTestNode* test, bool& all, GrowableArray<BoolNode*>& bools) {
+  Node* mask = test->in(1);
+  const TypeVect* vt = mask->bottom_type()->isa_vect();
+  all = test->get_predicate() == BoolTest::overflow;
+  if (vt == nullptr || (!all && test->get_predicate() != BoolTest::ne)) {
+    return false;
+  }
+  // The test of all lanes of a mask that is a vector reads the lanes through its second input,
+  // which the Vector API sets to a vector of ones; any other test reads its first input alone.
+  if (Matcher::vectortest_needs_second_argument(all, vt->is_pvectmask()) ? !is_all_ones_constant(test->in(2))
+                                                                        : test->in(2) != mask) {
+    return false;
+  }
+  bool as_bytes;
+  if (!converts_to_bits(vt, as_bytes)) {
+    return false;
+  }
+  // The readers of the test: the test holds if the Bool is the one the Vector API makes for it,
+  // and does not hold if it is the opposite one.
+  const BoolTest::mask holds = Matcher::vectortest_mask(all, vt->is_pvectmask(), (int)vt->length());
+  for (DUIterator_Fast kmax, k = test->fast_outs(kmax); k < kmax; k++) {
+    Node* out = test->fast_out(k);
+    if (!out->is_Bool() || (out->as_Bool()->_test._test != holds &&
+                            out->as_Bool()->_test._test != BoolTest::negate_mask(holds))) {
+      return false;
+    }
+    bools.append(out->as_Bool());
+  }
+  return !bools.is_empty();
+}
+
 void NoTrapSites::test_masks_as_integers(Compile* C, PhaseIterGVN& igvn, const NoTrapPlatform* platform) {
   if (!C->has_unsafe_access() || !platform->tests_masks_as_integers()) {
     return;
@@ -957,61 +1097,39 @@ void NoTrapSites::test_masks_as_integers(Compile* C, PhaseIterGVN& igvn, const N
   ResourceMark rm;
   Unique_Node_List<Node> useful;
   C->identify_useful_nodes(useful);
-  GrowableArray<Node*> tests;
+  GrowableArray<VectorTestNode*> tests;
+  VectorSet tested; // the masks, without their casts, whose own test reads their bits
+  int all_tests = 0;
   for (uint i = 0; i < useful.size(); i++) {
     if (useful.at(i)->Opcode() == Op_VectorTest) {
-      tests.append(useful.at(i));
+      VectorTestNode* test = static_cast<VectorTestNode*>(useful.at(i));
+      bool all;
+      GrowableArray<BoolNode*> bools;
+      all_tests++;
+      if (reads_bits(test, all, bools)) {
+        tests.append(test);
+        tested.set(test->in(1)->uncast()->_idx);
+      }
     }
   }
-  int replaced = 0;
+  if (tests.is_empty()) {
+    return;
+  }
   for (int i = 0; i < tests.length(); i++) {
-    VectorTestNode* test = static_cast<VectorTestNode*>(tests.at(i));
-    Node* mask = test->in(1);
-    const TypeVect* vt = mask->bottom_type()->isa_vect();
-    const bool all = test->get_predicate() == BoolTest::overflow;
-    if (vt == nullptr || (!all && test->get_predicate() != BoolTest::ne)) {
-      continue;
-    }
-    const bool predicate = vt->is_pvectmask();
-    const uint lanes = vt->length();
-    const BasicType bt = vt->element_basic_type();
-    // The test of all lanes of a mask that is a vector reads the lanes through its second input,
-    // which the Vector API sets to a vector of ones; any other test reads its first input alone.
-    if (Matcher::vectortest_needs_second_argument(all, predicate) ? !is_all_ones_constant(test->in(2))
-                                                                   : test->in(2) != mask) {
-      continue;
-    }
-    // The bits of the mask as a long: of the mask itself, or of its lanes as bytes.
-    const bool as_bytes = !Matcher::mask_op_prefers_predicate(Op_VectorMaskToLong, vt);
-    if (lanes > 64 || !Matcher::match_rule_supported_vector(Op_VectorMaskToLong, lanes, bt) ||
-        (as_bytes && (!Matcher::match_rule_supported_vector(Op_VectorStoreMask, lanes, bt) ||
-                      vt->length_in_bytes() > 32))) {
-      continue;
-    }
-    // The readers of the test: the test holds if the Bool is the one the Vector API makes for it,
-    // and does not hold if it is the opposite one.
-    const BoolTest::mask holds = Matcher::vectortest_mask(all, predicate, (int)lanes);
+    VectorTestNode* test = tests.at(i);
+    bool all;
     GrowableArray<BoolNode*> bools;
-    bool known = true;
-    for (DUIterator_Fast kmax, k = test->fast_outs(kmax); k < kmax; k++) {
-      Node* out = test->fast_out(k);
-      if (!out->is_Bool() || (out->as_Bool()->_test._test != holds &&
-                              out->as_Bool()->_test._test != BoolTest::negate_mask(holds))) {
-        known = false;
-        break;
-      }
-      bools.append(out->as_Bool());
+    if (!reads_bits(test, all, bools)) {
+      continue; // not reached: the test is as it was
     }
-    if (!known || bools.is_empty()) {
-      continue;
-    }
-    Node* bits_of = mask;
-    if (as_bytes) {
-      bits_of = igvn.transform(VectorStoreMaskNode::make(igvn, mask, bt, lanes));
-    }
-    Node* bits = igvn.transform(new VectorMaskToLongNode(bits_of, TypeLong::LONG));
+    Node* mask = test->in(1);
+    const TypeVect* vt = mask->bottom_type()->as_vect();
+    bool as_bytes;
+    converts_to_bits(vt, as_bytes);
     // Every lane set: the bits are those of a mask with every lane set. Any lane set: they are not 0.
-    const jlong every = lanes == 64 ? (jlong)-1 : (((jlong)1 << lanes) - 1);
+    const jlong every = bits_of_every_lane(vt->length());
+    const BoolTest::mask holds = Matcher::vectortest_mask(all, vt->is_pvectmask(), (int)vt->length());
+    Node* bits = mask_bits(igvn, mask, tested, 0, as_bytes, vt->element_basic_type(), vt->length(), every);
     Node* cmp = igvn.transform(new CmpLNode(bits, igvn.longcon(all ? every : 0)));
     for (int b = 0; b < bools.length(); b++) {
       BoolNode* bol = bools.at(b);
@@ -1019,13 +1137,72 @@ void NoTrapSites::test_masks_as_integers(Compile* C, PhaseIterGVN& igvn, const N
       Node* as_integer = igvn.transform(new BoolNode(cmp, positive == all ? BoolTest::eq : BoolTest::ne));
       igvn.replace_node(bol, as_integer);
     }
-    replaced++;
   }
-  if (replaced > 0) {
-    log_debug(jit, compilation)("no-trap: %d of %d tests of masks of %s read the mask as an integer", replaced,
-                                tests.length(), method_name(C));
-    igvn.optimize();
+  // The lanes of a mask as booleans (VectorStoreMask), for the debug info of a trap or for a box:
+  // a reader of the mask that always checks, behind whatever raw accesses lie between the mask and
+  // the trap, and the mask of a loop iteration is named by every trap of the iteration. Where a
+  // test reads the bits of that mask, or of the masks it is merged or made from, the booleans are
+  // made from the bits, which are in a general purpose register, and the mask has no reader in
+  // front of the trap.
+  Unique_Node_List<Node> after;
+  C->identify_useful_nodes(after);
+  int payloads = 0;
+  for (uint i = 0; i < after.size(); i++) {
+    Node* booleans = after.at(i);
+    if (booleans->Opcode() != Op_VectorStoreMask || booleans->in(1) == nullptr) {
+      continue;
+    }
+    Node* mask = booleans->in(1)->uncast();
+    const TypeVect* vt = mask->bottom_type()->isa_vect();
+    bool as_bytes;
+    if (vt == nullptr || !converts_to_bits(vt, as_bytes) ||
+        !Matcher::match_rule_supported_vector(Op_VectorLongToMask, vt->length(), vt->element_basic_type()) ||
+        (!tested.test(mask->_idx) && !reads_bits_of_inputs(mask, tested, 0))) {
+      continue;
+    }
+    // Every reader of the booleans but the conversions to the bits, which read these booleans
+    // where masks are vectors.
+    GrowableArray<Node*> readers;
+    for (DUIterator_Fast kmax, k = booleans->fast_outs(kmax); k < kmax; k++) {
+      if (booleans->fast_out(k)->Opcode() != Op_VectorMaskToLong) {
+        readers.append_if_missing(booleans->fast_out(k));
+      }
+    }
+    if (readers.is_empty()) {
+      continue;
+    }
+    Node* bits = mask_bits(igvn, mask, tested, 0, as_bytes, vt->element_basic_type(), vt->length(),
+                           bits_of_every_lane(vt->length()));
+    // Made where the cast of the mask is, the trap it is made for: with nothing to hold them there,
+    // the conversions for all the traps would be one, in a block that runs for all of them.
+    Node* control = nullptr;
+    for (Node* cast = booleans->in(1); cast->is_ConstraintCast() && control == nullptr; cast = cast->in(1)) {
+      control = cast->in(0);
+    }
+    if (vt->is_pvectmask()) {
+      // The mask again, from its bits, for the conversion to booleans.
+      Node* again = new VectorLongToMaskNode(bits, vt);
+      again->init_req(0, control);
+      igvn.replace_input_of(booleans, 1, igvn.transform(again));
+    } else {
+      // The booleans themselves.
+      Node* again = new VectorLongToMaskNode(bits, booleans->bottom_type()->as_vect());
+      again->init_req(0, control);
+      again = igvn.transform(again);
+      for (int r = 0; r < readers.length(); r++) {
+        Node* reader = readers.at(r);
+        for (uint k = 0; k < reader->req(); k++) {
+          if (reader->in(k) == booleans) {
+            igvn.replace_input_of(reader, k, again);
+          }
+        }
+      }
+    }
+    payloads++;
   }
+  log_debug(jit, compilation)("no-trap: %d of %d tests of masks of %s read the mask as an integer, %d masks are made "
+                              "again from their bits", tests.length(), all_tests, method_name(C), payloads);
+  igvn.optimize();
 }
 
 bool NoTrapSites::kill_follows_masks(const Compile* C, const NoTrapPlatform* platform) {
