@@ -27,12 +27,14 @@
 #include "libadt/vectset.hpp"
 #include "logging/log.hpp"
 #include "memory/resourceArea.hpp"
+#include "opto/addnode.hpp"
 #include "opto/block.hpp"
 #include "opto/c2compiler.hpp"
 #include "opto/compile.hpp"
 #include "opto/connode.hpp"
 #include "opto/machnode.hpp"
 #include "opto/matcher.hpp"
+#include "opto/mulnode.hpp"
 #include "opto/noTrap.hpp"
 #include "opto/opcodes.hpp"
 #include "opto/phaseX.hpp"
@@ -950,6 +952,75 @@ static bool is_all_ones_constant(const Node* n) {
   }
 }
 
+// Whether n is a mask with every lane set, made from a constant.
+static bool is_all_true_constant(const Node* n) {
+  return is_all_ones_constant(n) || VectorNode::is_all_ones_vector(const_cast<Node*>(n));
+}
+
+// The long operation on the bits of two masks that gives the bits of the mask that n, a bitwise
+// operation on masks (or on vectors: the bit of a lane is its sign), makes of them; or 0.
+static int bits_opcode(const Node* n) {
+  if (n->req() != 3) {
+    return 0; // an operation under a mask of its own
+  }
+  switch (n->Opcode()) {
+    case Op_AndVMask: case Op_AndV: return Op_AndL;
+    case Op_OrVMask:  case Op_OrV:  return Op_OrL;
+    case Op_XorVMask: case Op_XorV: return Op_XorL;
+    default:                        return 0;
+  }
+}
+
+// Whether the bits of mask are better read from the masks it is made of by bitwise operations:
+// one of them is tested itself (tested), so that its bits are in a general purpose register in any
+// case, or is the mask with every lane set, whose bits are a constant.
+static bool reads_bits_of_inputs(const Node* mask, const VectorSet& tested, int depth) {
+  if (bits_opcode(mask) == 0 || depth > 3) {
+    return false;
+  }
+  // Masks of one shape: the bits of each are then those of its lanes.
+  const TypeVect* vt = mask->bottom_type()->isa_vect();
+  for (uint k = 1; k <= 2; k++) {
+    const TypeVect* in_vt = mask->in(k) == nullptr ? nullptr : mask->in(k)->bottom_type()->isa_vect();
+    if (vt == nullptr || in_vt == nullptr || in_vt->element_basic_type() != vt->element_basic_type() ||
+        in_vt->length() != vt->length() || in_vt->is_pvectmask() != vt->is_pvectmask()) {
+      return false;
+    }
+  }
+  for (uint k = 1; k <= 2; k++) {
+    const Node* in = mask->in(k);
+    if (tested.test(in->_idx) || is_all_true_constant(in) || reads_bits_of_inputs(in, tested, depth + 1)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// The bits of mask as a long: of a mask that is made by a bitwise operation from masks of which
+// one is tested itself, the same operation on their bits, so that the check of each mask reads that
+// mask alone and can be made right behind it; of the mask with every lane set, the constant every;
+// of any other mask, its conversion (of its lanes as bytes first, if as_bytes).
+static Node* mask_bits(PhaseIterGVN& igvn, Node* mask, const VectorSet& tested, int depth, bool as_bytes,
+                       BasicType bt, uint lanes, jlong every) {
+  if (is_all_true_constant(mask)) {
+    return igvn.longcon(every);
+  }
+  if (reads_bits_of_inputs(mask, tested, depth)) {
+    Node* a = mask_bits(igvn, mask->in(1), tested, depth + 1, as_bytes, bt, lanes, every);
+    Node* b = mask_bits(igvn, mask->in(2), tested, depth + 1, as_bytes, bt, lanes, every);
+    switch (bits_opcode(mask)) {
+      case Op_AndL: return igvn.transform(new AndLNode(a, b));
+      case Op_OrL:  return igvn.transform(new OrLNode(a, b));
+      default:      return igvn.transform(new XorLNode(a, b));
+    }
+  }
+  Node* bits_of = mask;
+  if (as_bytes) {
+    bits_of = igvn.transform(VectorStoreMaskNode::make(igvn, mask, bt, lanes));
+  }
+  return igvn.transform(new VectorMaskToLongNode(bits_of, TypeLong::LONG));
+}
+
 void NoTrapSites::test_masks_as_integers(Compile* C, PhaseIterGVN& igvn, const NoTrapPlatform* platform) {
   if (!C->has_unsafe_access() || !platform->tests_masks_as_integers()) {
     return;
@@ -958,9 +1029,11 @@ void NoTrapSites::test_masks_as_integers(Compile* C, PhaseIterGVN& igvn, const N
   Unique_Node_List<Node> useful;
   C->identify_useful_nodes(useful);
   GrowableArray<Node*> tests;
+  VectorSet tested; // the masks that are tested themselves
   for (uint i = 0; i < useful.size(); i++) {
     if (useful.at(i)->Opcode() == Op_VectorTest) {
       tests.append(useful.at(i));
+      tested.set(useful.at(i)->in(1)->_idx);
     }
   }
   int replaced = 0;
@@ -1005,13 +1078,9 @@ void NoTrapSites::test_masks_as_integers(Compile* C, PhaseIterGVN& igvn, const N
     if (!known || bools.is_empty()) {
       continue;
     }
-    Node* bits_of = mask;
-    if (as_bytes) {
-      bits_of = igvn.transform(VectorStoreMaskNode::make(igvn, mask, bt, lanes));
-    }
-    Node* bits = igvn.transform(new VectorMaskToLongNode(bits_of, TypeLong::LONG));
     // Every lane set: the bits are those of a mask with every lane set. Any lane set: they are not 0.
     const jlong every = lanes == 64 ? (jlong)-1 : (((jlong)1 << lanes) - 1);
+    Node* bits = mask_bits(igvn, mask, tested, 0, as_bytes, bt, lanes, every);
     Node* cmp = igvn.transform(new CmpLNode(bits, igvn.longcon(all ? every : 0)));
     for (int b = 0; b < bools.length(); b++) {
       BoolNode* bol = bools.at(b);
