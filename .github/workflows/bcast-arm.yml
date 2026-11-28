@@ -1,0 +1,67 @@
+name: 'JDK-8365196 bcast CI, windows-aarch64'
+
+# Review-only. Builds the notrap branch (windows-x64 and linux-x64, release and fastdebug) and tests
+# AvoidLosableStateAtTraps: tier1 on linux-x64, windows-2022 (a kernel that keeps the state) and
+# windows-2025 (Windows Server 2025, whose gated kernel loses it); the compiler groups and the vector
+# tests on windows-2025 with the mode on by default; the linux-x64 compiler groups with the mode
+# forced, so that its debug checks run on every compilation; and the reproducers on windows-2025 and
+# windows-2022 with the notrap build (mode on, mode off) against the unpatched base and scrub14.
+# Windows/AArch64 and the other Linux builds go through the OpenJDK GHA Sanity Checks (main.yml,
+# dispatched on this branch).
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-bcastarm-*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  # The unpatched base (2b376fb353c), as copied by run 45043642784.
+  BASE_RUN: 46023299763
+  # scrub14 (c6f997c2c66), as built by run 45112930164.
+  SCRUB14_RUN: 46023299763
+  # A notrap CI run of the branch before the cost branches (2fc793f7a63), for the bench.
+  NOTRAP_RUN: 45896947412
+  # The CI run of cost-kmask (73360dc3de3): the mode without the protection of the vectors that reach a check.
+  KMASK_RUN: 45961686077
+  JMH_ARGS: '-f 2 -wi 4 -i 6 -w 1 -r 1'
+
+jobs:
+  prepare:
+    name: 'Prepare'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+      - name: 'Build JTReg'
+        uses: ./.github/actions/build-jtreg
+
+  build-windows-aarch64:
+    name: windows-aarch64
+    needs: prepare
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      platform: windows-aarch64
+      runs-on: windows-11-arm
+      architecture: 'ARM64'
+      msvc-toolset-version: '14.51'
+
+  compiler-windows-aarch64:
+    name: 'safepoints, vector, windows-aarch64'
+    needs: [prepare, build-windows-aarch64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: windows-aarch64
+      bootjdk-platform: windows-aarch64
+      architecture: 'ARM64'
+      runs-on: windows-11-arm
+      debug-suffix: -debug
+      tag: compiler-arm
+      tests: '[{"test-name": "hs/safepoints, mxcsr", "test-suite": "test/hotspot/jtreg/compiler/runtime/safepoints test/hotspot/jtreg/runtime/jni/mxcsr", "debug-suffix": "-debug"}, {"test-name": "hs/vectorapi", "test-suite": "test/hotspot/jtreg/compiler/vectorapi", "debug-suffix": "-debug"}, {"test-name": "jdk/foreign", "test-suite": "test/jdk/java/foreign", "debug-suffix": "-debug"}]'
+
