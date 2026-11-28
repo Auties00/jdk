@@ -2558,6 +2558,12 @@ class AArch64NoTrap : public NoTrapPlatform {
   virtual bool raw_access_kill_follows_masks() const {
     return false;
   }
+
+  // The tests of masks keep their form: the vectors they read are followed to them, and the SVE
+  // predicates are killed at every raw access.
+  virtual bool tests_masks_as_integers() const {
+    return false;
+  }
 };
 
 static const AArch64NoTrap aarch64_no_trap;
