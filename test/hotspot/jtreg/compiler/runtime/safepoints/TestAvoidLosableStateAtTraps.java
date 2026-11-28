@@ -206,6 +206,39 @@ public class TestAvoidLosableStateAtTraps {
         return sum;
     }
 
+    // The index that the finally of finallyKernel saw last.
+    static int seen = -1;
+
+    // A vector is live across the implicit null check of box.v in a frame whose only handler is a
+    // finally. The handler reads the index, not the vector, and always throws again, so the trap of
+    // the check names no vector, in this frame or in a caller, and the check can stay implicit.
+    static long finallyKernel(long[] a, Box[] b) {
+        long sum = 0;
+        for (int i = 0; i + L.length() <= a.length; i += L.length()) {
+            LongVector v = LongVector.fromArray(L, a, i);
+            long x;
+            try {
+                x = b[(i / L.length()) & (b.length - 1)].v;
+            } finally {
+                seen = i;
+            }
+            sum += v.add(x).reduceLanes(VectorOperators.ADD);
+        }
+        return sum;
+    }
+
+    static long referenceFinallyKernel(long[] a, Box[] b) {
+        int len = L.length();
+        long sum = 0;
+        for (int i = 0; i + len <= a.length; i += len) {
+            long x = b[(i / len) & (b.length - 1)].v;
+            for (int j = 0; j < len; j++) {
+                sum += a[i + j] + x;
+            }
+        }
+        return sum;
+    }
+
     // Doubles in vectors live across a null check whose exception leaves the method. Every value
     // is a multiple of 1/8 well below 2^53, so the sums are exact in any order of reduction.
     static double doubleKernel(double[] a, Box box) {
@@ -286,6 +319,7 @@ public class TestAvoidLosableStateAtTraps {
             withNull[5] = null;
             final long wantNull = referenceKernel(data, withNull);
             final long wantInvariant = referenceInvariantKernel(data, boxes, K);
+            final long wantFinally = referenceFinallyKernel(data, boxes);
 
             long end = System.currentTimeMillis() + millis;
             for (long iteration = 0; System.currentTimeMillis() < end; iteration++) {
@@ -297,6 +331,8 @@ public class TestAvoidLosableStateAtTraps {
                 check(s == wantSegment, "segmentKernel", s, wantSegment);
                 long v = invariantKernel(data, boxes, K);
                 check(v == wantInvariant, "invariantKernel", v, wantInvariant);
+                long f = finallyKernel(data, boxes);
+                check(f == wantFinally, "finallyKernel", f, wantFinally);
                 if (iteration % 1024 == 1023) {
                     // A rare null: the compiled null check takes its exception and the method goes on.
                     long n = kernel(data, withNull);
@@ -311,6 +347,14 @@ public class TestAvoidLosableStateAtTraps {
                         throw new RuntimeException("no NullPointerException");
                     } catch (NullPointerException expected) {
                     }
+                    // The trap of the null check kept the one local that the finally reads.
+                    seen = -1;
+                    try {
+                        finallyKernel(data, withNull);
+                        throw new RuntimeException("no NullPointerException");
+                    } catch (NullPointerException expected) {
+                    }
+                    check(seen == 5 * L.length(), "the index in the finally of finallyKernel", seen, 5 * L.length());
                 }
             }
         } finally {
@@ -346,6 +390,13 @@ public class TestAvoidLosableStateAtTraps {
         invariantOn.shouldContain("NullCheck");
         invariantOn.shouldNotContain("explicit null check");
         child(off, "invariantKernel").shouldNotContain("explicit null check");
+
+        // The vector is a local of a frame with a handler, live across the check: the handler is a
+        // finally, which reads none of it and returns to no one.
+        OutputAnalyzer finallyOn = child(on, "finallyKernel");
+        finallyOn.shouldContain("NullCheck");
+        finallyOn.shouldNotContain("explicit null check");
+        child(off, "finallyKernel").shouldNotContain("explicit null check");
     }
 
     public static void main(String[] args) throws Exception {
@@ -356,6 +407,12 @@ public class TestAvoidLosableStateAtTraps {
             for (int i = 0; i < 20_000; i++) {
                 long got = kernel(data, boxes);
                 check(got == want, "kernel", got, want);
+            }
+        } else if (args.length > 1 && args[0].equals("child") && args[1].equals("finallyKernel")) {
+            long want = referenceFinallyKernel(data, boxes);
+            for (int i = 0; i < 20_000; i++) {
+                long got = finallyKernel(data, boxes);
+                check(got == want, "finallyKernel", got, want);
             }
         } else if (args.length > 1 && args[0].equals("child")) {
             long want = referenceInvariantKernel(data, boxes, K);

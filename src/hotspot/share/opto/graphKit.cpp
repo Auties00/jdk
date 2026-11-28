@@ -26,11 +26,13 @@
 #include "ci/ciFlatArrayKlass.hpp"
 #include "ci/ciMethod.hpp"
 #include "ci/ciObjArray.hpp"
+#include "ci/ciStreams.hpp"
 #include "ci/ciUtilities.hpp"
 #include "ci/ciValueKlass.hpp"
 #include "classfile/javaClasses.hpp"
 #include "classfile/javaStackTraceClasses.hpp"
 #include "compiler/compileLog.hpp"
+#include "compiler/methodLiveness.hpp"
 #include "gc/shared/barrierSet.hpp"
 #include "gc/shared/c2/barrierSetC2.hpp"
 #include "interpreter/interpreter.hpp"
@@ -45,6 +47,7 @@
 #include "opto/intrinsicnode.hpp"
 #include "opto/locknode.hpp"
 #include "opto/machnode.hpp"
+#include "opto/matcher.hpp"
 #include "opto/memnode.hpp"
 #include "opto/multnode.hpp"
 #include "opto/narrowptrnode.hpp"
@@ -973,6 +976,76 @@ static bool should_reexecute_implied_by_bytecode(JVMState *jvms, bool is_anewarr
   }
 }
 
+// Whether the exception handler at handler_bci always leaves its frame by an exception: its code
+// runs in a straight line to an athrow (the handler of a finally, of a try with resources, or one
+// that throws another exception), and every handler of the method that covers a bytecode on the
+// way does the same. A handler that is entered again from the code of the handlers entered so far
+// does not leave it another way either.
+static bool handler_always_throws(ciMethod* method, int handler_bci, GrowableArray<int>& entered) {
+  if (entered.contains(handler_bci)) {
+    return true;
+  }
+  if (entered.length() >= 8) {
+    return false;
+  }
+  entered.push(handler_bci);
+  bool throws = false;
+  ciBytecodeStream code(method);
+  code.reset_to_bci(handler_bci);
+  for (int count = 0; count < 100 && code.next() != ciBytecodeStream::EOBC(); count++) {
+    bool caught_by_one_that_returns = false;
+    for (ciExceptionHandlerStream handlers(method, code.cur_bci()); !handlers.is_done(); handlers.next()) {
+      ciExceptionHandler* handler = handlers.handler();
+      if (!handler->is_rethrow() && !handler_always_throws(method, handler->handler_bci(), entered)) {
+        caught_by_one_that_returns = true;
+        break;
+      }
+    }
+    if (caught_by_one_that_returns) {
+      break;
+    }
+    const Bytecodes::Code bc = code.cur_bc();
+    if (bc == Bytecodes::_athrow) {
+      throws = true;
+      break;
+    }
+    const bool branches = (Bytecodes::_ifeq <= bc && bc <= Bytecodes::_lookupswitch) ||
+                          bc == Bytecodes::_ifnull || bc == Bytecodes::_ifnonnull ||
+                          bc == Bytecodes::_goto_w || bc == Bytecodes::_jsr_w;
+    if (branches || Bytecodes::is_return(bc)) {
+      break;
+    }
+  }
+  entered.pop();
+  return throws;
+}
+
+// What an exception that reaches the bytecode at bci of a frame of method can do in that frame:
+// enter one of the handlers that cover the bytecode, whatever they catch, or leave the frame. Sets
+// live to the locals that are live into those handlers, and always_throw to whether each of them
+// always leaves the frame by an exception, so that no caller is ever returned to. Returns false if
+// that is not known.
+static bool handlers_reached_by_throw(ciMethod* method, int bci, ResourceBitMap& live, bool& always_throw) {
+  if (bci < 0 || bci >= method->code_size()) {
+    return false;
+  }
+  always_throw = true;
+  GrowableArray<int> entered;
+  for (ciExceptionHandlerStream handlers(method, bci); !handlers.is_done(); handlers.next()) {
+    ciExceptionHandler* handler = handlers.handler();
+    if (handler->is_rethrow()) {
+      continue;
+    }
+    MethodLivenessResult handler_live = method->liveness_at_bci(handler->handler_bci());
+    if (!handler_live.is_valid() || handler_live.size() != live.size()) {
+      return false;
+    }
+    live.set_union(handler_live);
+    always_throw = always_throw && handler_always_throws(method, handler->handler_bci(), entered);
+  }
+  return true;
+}
+
 // Helper function for adding JVMState and debug information to node
 void GraphKit::add_safepoint_edges(SafePointNode* call, bool must_throw) {
   // Add the safepoint edges to the call (or other safepoint).
@@ -1061,6 +1134,10 @@ void GraphKit::add_safepoint_edges(SafePointNode* call, bool must_throw) {
     SafePointNode* in_map = in_jvms->map();
     out_jvms->set_map(call);
 
+    // Whether the locals and the stack of this frame are pruned, and the locals that are kept
+    // although they are: those live into the handlers of the frame that the throw can reach.
+    bool prune_frame = can_prune_locals;
+    ResourceBitMap handler_locals;
     if (can_prune_locals) {
       assert(in_jvms->method() == out_jvms->method(), "sanity");
       // If the current throw can reach an exception handler in this JVMS,
@@ -1068,6 +1145,22 @@ void GraphKit::add_safepoint_edges(SafePointNode* call, bool must_throw) {
       // As a quick and dirty approximation, we look for any handlers at all.
       if (in_jvms->method()->has_exception_handlers()) {
         can_prune_locals = false;
+        prune_frame = false;
+        // With AvoidLosableStateAtTraps the approximation costs an explicit null check wherever a
+        // vector is live in a frame around the handlers (see NoTrapSites): the trap would name it,
+        // although no handler reads it. So the handlers are looked at. The bytecode of this frame
+        // throws, or is the call that the throw comes out of: the frame goes on in a handler
+        // that covers the bytecode, with the locals that are live into it and an empty stack, or
+        // not at all. And if each of those handlers always leaves the frame by an exception, no
+        // caller is returned to: the throw reaches the caller, where the same holds.
+        if (Matcher::no_trap() != nullptr && in_jvms->method()->max_locals() == in_jvms->loc_size()) {
+          bool always_throw = false;
+          handler_locals.initialize(in_jvms->loc_size());
+          if (handlers_reached_by_throw(in_jvms->method(), in_jvms->bci(), handler_locals, always_throw)) {
+            prune_frame = true;
+            can_prune_locals = always_throw;
+          }
+        }
       }
     }
 
@@ -1075,23 +1168,28 @@ void GraphKit::add_safepoint_edges(SafePointNode* call, bool must_throw) {
     k = in_jvms->locoff();
     l = in_jvms->loc_size();
     out_jvms->set_locoff(p);
-    if (!can_prune_locals) {
+    if (!prune_frame) {
       for (j = 0; j < l; j++) {
         call->set_req(p++, in_map->in(k + j));
       }
     } else {
-      p += l;  // already set to top above by add_req_batch
+      for (j = 0; j < handler_locals.size(); j++) {
+        if (handler_locals.at(j)) {
+          call->set_req(p + j, in_map->in(k + j));
+        }
+      }
+      p += l;  // the others are already set to top above by add_req_batch
     }
 
     // Add the Expression Stack
     k = in_jvms->stkoff();
     l = in_jvms->sp();
     out_jvms->set_stkoff(p);
-    if (!can_prune_locals) {
+    if (!prune_frame) {
       for (j = 0; j < l; j++) {
         call->set_req(p++, in_map->in(k + j));
       }
-    } else if (can_prune_locals && stack_slots_not_pruned != 0) {
+    } else if (stack_slots_not_pruned != 0) {
       // Divide stack into {S0,...,S1}, where S0 is set to top.
       uint s1 = stack_slots_not_pruned;
       stack_slots_not_pruned = 0;  // for next iteration
