@@ -745,6 +745,134 @@ static bool move_check_behind_value(PhaseCFG* cfg, Block* block, uint at, Node* 
   return true;
 }
 
+// Collects n, a node of block, and the nodes of block it reads, inputs first, if all of them can be
+// made in front of position at of block to, which dominates block: n itself (depth 0) is a raw load,
+// whose control, memory and other inputs are all defined there, so that to is a block the scheduler
+// could have chosen for it; a node it reads is one without control or memory, whose inputs are
+// defined there in turn. No node may define more than its value, its TEMPs and the condition codes
+// (kills_flags tells whether one sets them).
+static bool collect_hoisted(PhaseCFG* cfg, const Block* block, Block* to, uint at, Node* n, int depth,
+                            GrowableArray<Node*>& nodes, bool& kills_flags) {
+  if (nodes.contains(n)) {
+    return true;
+  }
+  if (depth > 4 || !n->is_Mach() || n->is_MachSpillCopy() || n->is_MachReturn() || n->is_MachBranch() ||
+      n->is_MachNullCheck() || n->bottom_type() == Type::MEMORY) {
+    return false;
+  }
+  if (n->in(0) != nullptr && !n->in(0)->is_Root()) {
+    Block* control = depth == 0 ? cfg->get_block_for_node(n->in(0)) : nullptr;
+    if (control == nullptr || control == block || !control->dominates(to)) {
+      return false;
+    }
+  }
+  for (uint k = 1; k < n->len(); k++) { // the precedence edges too
+    Node* in = n->in(k);
+    if (in == nullptr) {
+      continue;
+    }
+    if (depth > 0 && in->bottom_type() == Type::MEMORY) {
+      return false;
+    }
+    Block* in_block = cfg->get_block_for_node(in);
+    if (in_block == nullptr) {
+      return false;
+    }
+    if (in_block == block) {
+      if (in->is_MachTemp() ? in->outcnt() != 1
+                            : !collect_hoisted(cfg, block, to, at, in, depth + 1, nodes, kills_flags)) {
+        return false;
+      }
+      if (in->is_MachTemp()) {
+        nodes.append_if_missing(in);
+      }
+    } else if (in_block == to ? to->find_node(in) >= at : !in_block->dominates(to)) {
+      return false;
+    }
+  }
+  for (DUIterator_Fast kmax, k = n->fast_outs(kmax); k < kmax; k++) {
+    const Node* out = n->fast_out(k);
+    if (out->is_MachNullCheck()) {
+      return false;
+    }
+    if (!out->is_Proj()) {
+      continue;
+    }
+    if (!out->is_MachProj() || out->as_MachProj()->_ideal_reg != Op_RegFlags || out->outcnt() != 0 ||
+        cfg->get_block_for_node(out) != block) {
+      return false;
+    }
+    kills_flags = true;
+  }
+  nodes.append(n);
+  return true;
+}
+
+// Moves the raw accesses of block, which starts with the Phi of a mask or vector that reaches a
+// check across them, to the end of the block that immediately dominates it, in front of its branch,
+// if every one of them is a load that can be made there and that block does not run more often.
+// The mask of a loop iteration that is all lanes or the lanes left (S.indexInRange()) is such a Phi,
+// behind a branch on the lanes left, and a raw read of the same iteration that the scheduler put
+// behind the Phi is one the Phi is live across, although the read does not depend on the branch:
+// in front of the branch, nothing of the Phi is live across it, where the Phi would be kept on the
+// stack with a store on every iteration. The scheduler could have put each load there itself: its
+// control, its memory state and its other inputs are defined there (the nodes of block that compute
+// its address move with it), and a load does not change what the nodes it now precedes read. The
+// search for the values that reach a check is made again on the code as it then is. Returns whether
+// it moved the accesses.
+static bool hoist_accesses_above_merge(PhaseCFG* cfg, Block* block, VectorSet& moved) {
+  Block* to = block->_idom;
+  if (to == nullptr || to == block || to->_freq > block->_freq * 1.01 || to->number_of_nodes() < 2) {
+    return false;
+  }
+  // In front of the branch of the block and of what sets the condition codes for it.
+  uint at = to->end_idx();
+  const Node* end = to->get_node(at);
+  if (!end->is_MachIf() && !end->is_MachGoto()) {
+    return false;
+  }
+  for (uint k = 1; k < end->req(); k++) {
+    const Node* in = end->in(k);
+    if (in != nullptr && value_ideal_reg(in) == Op_RegFlags && cfg->get_block_for_node(in) == to) {
+      at = MIN2(at, to->find_node(in));
+    }
+  }
+  GrowableArray<Node*> nodes;
+  bool kills_flags = false;
+  bool any = false;
+  for (uint i = first_after_phis(block); i < block->number_of_nodes(); i++) {
+    Node* n = block->get_node(i);
+    if (n->is_Mach() && Matcher::is_raw_memory_access(n->as_Mach())) {
+      // An access is moved once: one that was moved here stays, and the Phi is kept on the stack.
+      if (moved.test(n->_idx) || !collect_hoisted(cfg, block, to, at, n, 0, nodes, kills_flags)) {
+        return false;
+      }
+      any = true;
+    }
+  }
+  if (!any || (kills_flags && flags_live_at(cfg, to, at))) {
+    return false;
+  }
+  for (int i = 0; i < nodes.length(); i++) {
+    Node* n = nodes.at(i);
+    moved.set(n->_idx);
+    block->find_remove(n);
+    to->insert_node(n, at++);
+    cfg->map_node_to_block(n, to);
+    for (DUIterator_Fast kmax, k = n->fast_outs(kmax); k < kmax; k++) {
+      Node* out = n->fast_out(k);
+      if (out->is_Proj()) {
+        block->find_remove(out);
+        to->insert_node(out, at++);
+        cfg->map_node_to_block(out, to);
+      }
+    }
+  }
+  log_debug(jit, compilation)("no-trap: the raw accesses of B%d are made in B%d, in front of a merge of masks or vectors",
+                              block->_pre_order, to->_pre_order);
+  return true;
+}
+
 // Logs why value, which reaches a check across a raw access, gets no copy.
 static void log_unprotected(const Node* value, const char* reason) {
   log_debug(jit, compilation)("no-trap: no copy for %s %u (%s): %s", NodeClassNames[value->Opcode()], value->_idx,
@@ -812,6 +940,14 @@ static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, cons
     bool constant = constant_mask || is_recomputable(mask);
     if (!constant && !can_keep) {
       log_unprotected(mask, "nothing can follow it in its block"); // the access of an implicit null check
+      continue;
+    }
+    // A Phi: the raw accesses of its block are made in front of the merge, where they can be, so
+    // that the Phi is not live across them and needs no copy, which would cost a store, or a check
+    // that is made behind it, wherever the block runs. What the Phi is then still live across is
+    // found in the next round.
+    if (checks_move && mask->is_Phi() && hoist_accesses_above_merge(cfg, block, moved)) {
+      count++;
       continue;
     }
 

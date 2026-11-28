@@ -153,7 +153,11 @@ class NoTrapSites : public AllStatic {
   // instructions between a mask and its test, a long can: protect_checked_values() moves the
   // conversion to the long in front of the raw accesses that the scheduler put between the mask
   // and its test, so that the test reads a general purpose register across them and neither the
-  // mask nor a vector it is made from is read after them for the test.
+  // mask nor a vector it is made from is read after them for the test. Where the tested mask is
+  // made by bitwise operations from masks of which one is tested itself (the lanes of a mask that
+  // are out of bounds, in the slow path of an access whose mask is also tested for all lanes),
+  // the bits of each of those masks are converted and the operations are made on the longs, so
+  // that every mask is read by a conversion of its own, right behind it.
   static void test_masks_as_integers(Compile* C, PhaseIterGVN& igvn, const NoTrapPlatform* platform);
 
   // After scheduling and before register allocation, in a compilation with unsafe accesses: finds
@@ -162,7 +166,9 @@ class NoTrapSites : public AllStatic {
   // mask to an integer), directly or through the masks and vectors computed from them, and gives
   // each such reader a copy that was kept on the stack, or makes the reader right behind the value
   // where its result is an integer (the bits of a mask for its test, see test_masks_as_integers()),
-  // so that a general purpose register crosses the accesses. A value that reaches no check may be
+  // so that a general purpose register crosses the accesses; and where the value is a Phi, the
+  // raw loads of its block are made in front of the merge, where the scheduler could have put
+  // them, so that the Phi is not live across them. A value that reaches no check may be
   // lost at the access: its lanes are values of the unsafe access window, and a zero predicate
   // drops lanes of such values or stores nothing. A mask that cannot be given a copy keeps the kill of
   // the mask registers at the accesses it is live across; for a vector, C is recorded as failing
