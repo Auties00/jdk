@@ -166,7 +166,9 @@ class NoTrapSites : public AllStatic {
   // mask to an integer), directly or through the masks and vectors computed from them, and gives
   // each such reader a copy that was kept on the stack, or makes the reader right behind the value
   // where its result is an integer (the bits of a mask for its test, see test_masks_as_integers()),
-  // so that a general purpose register crosses the accesses. A value that reaches no check may be
+  // so that a general purpose register crosses the accesses; and where the value is a Phi, the
+  // raw loads of its block are made in front of the merge, where the scheduler could have put
+  // them, so that the Phi is not live across them. A value that reaches no check may be
   // lost at the access: its lanes are values of the unsafe access window, and a zero predicate
   // drops lanes of such values or stores nothing. A mask that cannot be given a copy keeps the kill of
   // the mask registers at the accesses it is live across; for a vector, C is recorded as failing
