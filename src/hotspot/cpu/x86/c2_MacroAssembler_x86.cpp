@@ -5608,9 +5608,9 @@ void C2_MacroAssembler::vector_mask_operation(int opc, Register dst, KRegister m
   // The bits of up to 16 lanes by kmovw and of up to 32 by kmovd, which clear the upper half of
   // tmp: the same long as by kmovq, whose move of 64 bits to a general purpose register is the
   // slower one on AMD Zen 4.
-  if (masklen <= 16) {
+  if (NoTrapNarrowKmov && masklen <= 16) {
     kmovwl(tmp, mask);
-  } else if (masklen <= 32) {
+  } else if (NoTrapNarrowKmov && masklen <= 32) {
     kmovdl(tmp, mask);
   } else {
     kmovql(tmp, mask);

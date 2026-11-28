@@ -2810,6 +2810,9 @@ class X86NoTrap : public NoTrapPlatform {
   // the load on Intel Sapphire Rapids, Emerald Rapids and Granite Rapids, which other processors
   // keep too.
   static bool broadcasts_lane_faster_than_load() {
+    if (NoTrapBroadcastForm != 0) {
+      return NoTrapBroadcastForm == 2; // REVIEW ONLY
+    }
     return VM_Version::is_amd() || VM_Version::is_intel_icelake_server();
   }
 

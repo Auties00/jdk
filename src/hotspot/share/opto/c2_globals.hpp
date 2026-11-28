@@ -447,6 +447,16 @@
   product(bool, UseCMoveUnconditionally, false,                             \
           "Use CMove (scalar and vector) ignoring profitability test.")     \
                                                                             \
+  product(intx, NoTrapBroadcastForm, 0, DIAGNOSTIC,                         \
+          "REVIEW ONLY: how AvoidLosableStateAtTraps makes a vector of one "\
+          "constant again in front of a reader that checks: 0 by the "      \
+          "processor, 1 from the constant table, 2 from a register")        \
+          range(0, 2)                                                       \
+                                                                            \
+  product(bool, NoTrapNarrowKmov, true, DIAGNOSTIC,                         \
+          "REVIEW ONLY: the bits of a mask of up to 32 lanes by kmovw or "  \
+          "kmovd")                                                          \
+                                                                            \
   develop(bool, TraceSuperWord, false,                                      \
           "Trace superword transforms")                                     \
                                                                             \

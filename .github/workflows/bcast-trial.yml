@@ -1,0 +1,313 @@
+name: 'JDK-8365196 bcast trial'
+
+# Review-only. Builds a trial of the bcast branch (windows-x64 and linux-x64, release and fastdebug) in
+# which -XX:NoTrapBroadcastForm selects how a vector of one constant is made again in front of a reader
+# that checks (0 by the processor, 1 by a load, 2 from a register) and -XX:-NoTrapNarrowKmov moves the
+# bits of every mask by kmovq, prints the code of the kernels with each, and measures them against each
+# other, the mode off and the unpatched base, interleaved, on the machines the runners give.
+# The configurations: N1 the load and kmovq (the branch before this work), N2 the register and kmovq,
+# N3 the load and kmovw, N4 the register and kmovw, N0 what the branch does on this processor.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-bcasttrial-*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  # The unpatched base (2b376fb353c).
+  BASE_RUN: 46023299763
+  JMH_ARGS: '-f 2 -wi 4 -i 6 -w 1 -r 1'
+  CONFIGS: 'N1 N2 N3 N4 N0'
+  KERNELS: 'review9\..*\.(segmentMaskedSum|segmentCompareBlendStore|tailMaskedCopy|compareAcrossLoadMaskedStore|compareAcrossLoad|constantMaskPredicate|unsafeWithLiveMask|heapCompareBlendStore)$'
+
+jobs:
+  prepare:
+    name: 'Prepare'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+      - name: 'Build JTReg'
+        uses: ./.github/actions/build-jtreg
+
+  build-windows-x64:
+    name: windows-x64
+    needs: prepare
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      platform: windows-x64
+      runs-on: windows-2022
+      architecture: 'x86.x64'
+      msvc-toolset-version: '14.44'
+
+  build-linux-x64:
+    name: linux-x64
+    needs: prepare
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      platform: linux-x64
+      gcc-major-version: '10'
+
+  compiler-lane-linux-x64:
+    name: 'compiler, mode forced, the register form forced, linux-x64'
+    needs: [prepare, build-linux-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: linux-x64
+      bootjdk-platform: linux-x64
+      runs-on: ubuntu-24.04
+      debug-suffix: -debug
+      tag: lane
+      java-options: '-XX:+UnlockDiagnosticVMOptions -XX:+AvoidLosableStateAtTraps -XX:NoTrapBroadcastForm=2'
+      tests: '[{"test-name": "hs/tier1 compiler part 1", "test-suite": "test/hotspot/jtreg/:tier1_compiler_1", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 2", "test-suite": "test/hotspot/jtreg/:tier1_compiler_2", "debug-suffix": "-debug"}, {"test-name": "hs/tier1 compiler part 3", "test-suite": "test/hotspot/jtreg/:tier1_compiler_3", "debug-suffix": "-debug"}, {"test-name": "hs/vector", "test-suite": "test/hotspot/jtreg/compiler/vectorapi test/hotspot/jtreg/compiler/vectorization", "debug-suffix": "-debug"}, {"test-name": "hs/safepoints", "test-suite": "test/hotspot/jtreg/compiler/runtime/safepoints", "debug-suffix": "-debug"}, {"test-name": "jdk/foreign", "test-suite": "test/jdk/java/foreign", "debug-suffix": "-debug"}, {"test-name": "jdk/vector", "test-suite": "test/jdk/jdk/incubator/vector"}]'
+
+  compiler-lane-windows-2025:
+    name: 'vector, safepoints, the register form forced, windows-2025'
+    needs: [prepare, build-windows-x64]
+    uses: ./.github/workflows/test-scrub5.yml
+    with:
+      platform: windows-x64
+      bootjdk-platform: windows-x64
+      architecture: 'x86.x64'
+      runs-on: windows-2025
+      debug-suffix: -debug
+      tag: lane-2025
+      java-options: '-XX:+UnlockDiagnosticVMOptions -XX:NoTrapBroadcastForm=2'
+      tests: '[{"test-name": "hs/vector", "test-suite": "test/hotspot/jtreg/compiler/vectorapi test/hotspot/jtreg/compiler/vectorization", "debug-suffix": "-debug"}, {"test-name": "hs/safepoints", "test-suite": "test/hotspot/jtreg/compiler/runtime/safepoints", "debug-suffix": "-debug"}, {"test-name": "jdk/foreign", "test-suite": "test/jdk/java/foreign"}]'
+
+  asm:
+    name: 'the code of the kernels (linux-x64 fastdebug, ${{ matrix.slot }})'
+    needs: build-linux-x64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2, 3]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review9
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64-debug
+          path: b-new
+      - name: 'PrintOptoAssembly of the review9 kernels under JMH: each form (N<form>) and the mode off (O)'
+        run: |
+          set +e
+          mkdir -p out new
+          tar -xzf "$(ls b-new/jdk-linux-x64*.tar.gz | grep -v symbols | grep -v static | head -1)" -C new
+          NJ=$(dirname "$(find new -name java -path '*/bin/*' -type f | head -1)")
+          grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //' | tee out/cpu.txt
+          "$NJ/java" -version 2>&1 | tee out/version.txt
+          m2=https://repo1.maven.org/maven2
+          for a in org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar; do
+            curl -sfL --retry 6 --retry-all-errors --retry-delay 5 -o "lib-$(basename $a)" "$m2/$a" || echo "download failed: $a"
+          done
+          cp="lib-jmh-core-1.37.jar:lib-jopt-simple-5.0.4.jar:lib-commons-math3-3.6.1.jar"
+          "$NJ/javac" --add-modules jdk.incubator.vector -proc:full -cp "$cp:lib-jmh-generator-annprocess-1.37.jar" -d jmhc src/review9/*.java 2>&1 | grep -v -i warning | tail -5
+          avxs="2"; grep -q avx512vl /proc/cpuinfo && avxs="2 3"
+          one() {
+            local c=$1 avx=$2 k=$3 flags
+            local ON="-XX:+AvoidLosableStateAtTraps"
+            case $c in
+              O) flags="-XX:-AvoidLosableStateAtTraps";;
+              N1) flags="$ON -XX:NoTrapBroadcastForm=1 -XX:-NoTrapNarrowKmov";;
+              N2) flags="$ON -XX:NoTrapBroadcastForm=2 -XX:-NoTrapNarrowKmov";;
+              N3) flags="$ON -XX:NoTrapBroadcastForm=1";;
+              N4) flags="$ON -XX:NoTrapBroadcastForm=2";;
+              N0) flags="$ON";;
+            esac
+            "$NJ/java" -Djmh.ignoreLock=true -cp "jmhc:$cp" org.openjdk.jmh.Main -jvmArgsAppend "--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow -XX:+UnlockDiagnosticVMOptions $flags -XX:UseAVX=$avx -XX:CompileCommand=quiet -XX:CompileCommand=PrintOptoAssembly,*::$k -XX:+PrintOptoStatistics -Xlog:jit+compilation=debug" -f 1 -wi 3 -i 1 -w 1 -r 1 "review9.*\.$k\$" > "out/asm-$c-avx$avx-$k.log" 2>&1
+            grep 'no-trap:' "out/asm-$c-avx$avx-$k.log" | sed 's/^.*no-trap/no-trap/' | sort | uniq -c > "out/dec-$c-avx$avx-$k.txt"
+            echo "$c avx$avx $k: compilations $(grep -c 'OptoAssembly for' "out/asm-$c-avx$avx-$k.log"), $(grep -E "$k +avgt" "out/asm-$c-avx$avx-$k.log" | tr -s ' '), $(grep -c -E 'hs_err|Internal Error|assert' "out/asm-$c-avx$avx-$k.log") errors"
+          }
+          export -f one; export NJ cp CONFIGS
+          for avx in $avxs; do
+            for k in segmentMaskedSum segmentCompareBlendStore unsafeWithLiveMask heapCompareBlendStore tailMaskedCopy compareAcrossLoad compareAcrossLoadMaskedStore constantMaskPredicate; do
+              for c in O $CONFIGS; do echo "$c $avx $k"; done
+            done
+          done | xargs -P 4 -L 1 bash -c 'one $0 $1 $2' | sort | tee out/summary.txt
+          { echo "### $(cat out/cpu.txt)"; echo '```'; cat out/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: asm-linux-${{ matrix.slot }}
+          path: out
+          retention-days: 30
+
+  bench-windows:
+    name: bench (${{ matrix.os }}, ${{ matrix.slot }})
+    needs: build-windows-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+        slot: [1, 2, 3, 4, 5, 6]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: 'A processor with AVX-512?'
+        id: cpu
+        run: |
+          n=$(powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()")
+          echo "$n"
+          case "$n" in *7763*) echo "run=false" >> $GITHUB_OUTPUT;; *) echo "run=true" >> $GITHUB_OUTPUT;; esac
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: steps.cpu.outputs.run == 'true'
+        with:
+          path: src
+          sparse-checkout: |
+            review9
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: steps.cpu.outputs.run == 'true'
+        with:
+          name: bundles-windows-x64
+          path: b-new
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: steps.cpu.outputs.run == 'true'
+        with:
+          name: bundles-windows-x64-base
+          path: b-base
+          run-id: ${{ env.BASE_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'JMH: base (B), the mode off (O), each form with the mode on (N<form>)'
+        if: steps.cpu.outputs.run == 'true'
+        run: |
+          set +e
+          mkdir -p out new base
+          unzip -q b-new/jdk-windows-x64.zip -d new; unzip -q b-base/jdk-windows-x64.zip -d base
+          rm -rf b-new b-base
+          bin() { dirname "$(find "$1" -name java.exe -path '*/bin/*' | head -1)"; }
+          NBIN=$(bin new); BBIN=$(bin base)
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" | tee out/build.txt
+          "$NBIN/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|AvoidLosableStateAtTraps|NoTrapBroadcastForm|NoTrapNarrowKmov) ' | tee out/flags.txt
+          m2=https://repo1.maven.org/maven2
+          for a in org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar; do
+            curl -sfL --retry 6 --retry-all-errors --retry-delay 5 -o "lib-$(basename $a)" "$m2/$a" || echo "download failed: $a"
+          done
+          cp="lib-jmh-core-1.37.jar;lib-jopt-simple-5.0.4.jar;lib-commons-math3-3.6.1.jar"
+          "$BBIN/javac" --add-modules jdk.incubator.vector -proc:full -cp "$cp;lib-jmh-generator-annprocess-1.37.jar" -d jmhc src/review9/*.java 2>&1 | grep -v -i warning | tail -5
+          ON="-XX:+UnlockDiagnosticVMOptions -XX:+AvoidLosableStateAtTraps"
+          declare -A JAVA FLAGS
+          JAVA[B]="$BBIN/java"; FLAGS[B]=""
+          JAVA[O]="$NBIN/java"; FLAGS[O]="-XX:+UnlockDiagnosticVMOptions -XX:-AvoidLosableStateAtTraps"
+          cs="$CONFIGS"
+          for c in $cs; do
+            JAVA[$c]="$NBIN/java"
+            case $c in
+              N1) FLAGS[$c]="$ON -XX:NoTrapBroadcastForm=1 -XX:-NoTrapNarrowKmov";;
+              N2) FLAGS[$c]="$ON -XX:NoTrapBroadcastForm=2 -XX:-NoTrapNarrowKmov";;
+              N3) FLAGS[$c]="$ON -XX:NoTrapBroadcastForm=1";;
+              N4) FLAGS[$c]="$ON -XX:NoTrapBroadcastForm=2";;
+              N0) FLAGS[$c]="$ON";;
+            esac
+          done
+          for round in 1 2 3; do
+            order="B O $cs"; [ $round = 2 ] && order="$(echo $cs | tr ' ' '\n' | tac | tr '\n' ' ') O B"; [ $round = 3 ] && order="O $cs B"
+            for c in $order; do
+              "${JAVA[$c]}" -Djmh.ignoreLock=true -cp "jmhc;$cp" org.openjdk.jmh.Main \
+                -jvmArgsAppend "--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow ${FLAGS[$c]}" \
+                -rf csv -rff "out/jmh-$c-$round.csv" $JMH_ARGS "$KERNELS" > "out/jmh-$c-$round.log" 2>&1
+              echo "== $c $round"; tail -11 "out/jmh-$c-$round.log"
+            done
+          done
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && steps.cpu.outputs.run == 'true'
+        with:
+          name: kbench-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
+
+  bench-linux:
+    name: bench (linux, ${{ matrix.slot }})
+    needs: build-linux-x64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2, 3, 4, 5, 6]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: 'A processor with AVX-512?'
+        id: cpu
+        run: |
+          grep -m1 'model name' /proc/cpuinfo
+          if grep -q avx512vl /proc/cpuinfo; then echo "run=true" >> $GITHUB_OUTPUT; else echo "run=false" >> $GITHUB_OUTPUT; fi
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: steps.cpu.outputs.run == 'true'
+        with:
+          path: src
+          sparse-checkout: |
+            review9
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: steps.cpu.outputs.run == 'true'
+        with:
+          name: bundles-linux-x64
+          path: b-new
+      - name: 'JMH: the mode off (O), each form with the mode forced on (N<form>)'
+        if: steps.cpu.outputs.run == 'true'
+        run: |
+          set +e
+          mkdir -p out new
+          tar -xzf "$(ls b-new/jdk-linux-x64*.tar.gz | grep -v symbols | grep -v debug | grep -v static | head -1)" -C new
+          NJ=$(dirname "$(find new -name java -path '*/bin/*' -type f | head -1)")
+          grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //' | tee out/cpu.txt
+          echo "Linux $(uname -r)" | tee out/build.txt
+          "$NJ/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|AvoidLosableStateAtTraps|NoTrapBroadcastForm|NoTrapNarrowKmov) ' | tee out/flags.txt
+          m2=https://repo1.maven.org/maven2
+          for a in org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar; do
+            curl -sfL --retry 6 --retry-all-errors --retry-delay 5 -o "lib-$(basename $a)" "$m2/$a" || echo "download failed: $a"
+          done
+          cp="lib-jmh-core-1.37.jar:lib-jopt-simple-5.0.4.jar:lib-commons-math3-3.6.1.jar"
+          "$NJ/javac" --add-modules jdk.incubator.vector -proc:full -cp "$cp:lib-jmh-generator-annprocess-1.37.jar" -d jmhc src/review9/*.java 2>&1 | grep -v -i warning | tail -5
+          ON="-XX:+UnlockDiagnosticVMOptions -XX:+AvoidLosableStateAtTraps"
+          declare -A FLAGS
+          FLAGS[O]="-XX:+UnlockDiagnosticVMOptions -XX:-AvoidLosableStateAtTraps"
+          cs="$CONFIGS"
+          for c in $cs; do
+            case $c in
+              N1) FLAGS[$c]="$ON -XX:NoTrapBroadcastForm=1 -XX:-NoTrapNarrowKmov";;
+              N2) FLAGS[$c]="$ON -XX:NoTrapBroadcastForm=2 -XX:-NoTrapNarrowKmov";;
+              N3) FLAGS[$c]="$ON -XX:NoTrapBroadcastForm=1";;
+              N4) FLAGS[$c]="$ON -XX:NoTrapBroadcastForm=2";;
+              N0) FLAGS[$c]="$ON";;
+            esac
+          done
+          for round in 1 2 3; do
+            order="O $cs"; [ $round = 2 ] && order="$(echo $cs | tr ' ' '\n' | tac | tr '\n' ' ') O"
+            for c in $order; do
+              "$NJ/java" -Djmh.ignoreLock=true -cp "jmhc:$cp" org.openjdk.jmh.Main \
+                -jvmArgsAppend "--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow ${FLAGS[$c]}" \
+                -rf csv -rff "out/jmh-$c-$round.csv" $JMH_ARGS "$KERNELS" > "out/jmh-$c-$round.log" 2>&1
+              echo "== $c $round"; tail -11 "out/jmh-$c-$round.log"
+            done
+          done
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && steps.cpu.outputs.run == 'true'
+        with:
+          name: kbench-linux-${{ matrix.slot }}
+          path: out
+          retention-days: 30
