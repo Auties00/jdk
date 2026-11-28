@@ -584,7 +584,9 @@ protected:
     CPU_MODEL_HASWELL_E3     = 0x3c,
     CPU_MODEL_HASWELL_E7     = 0x3f,
     CPU_MODEL_BROADWELL      = 0x3d,
-    CPU_MODEL_SKYLAKE        = 0x55
+    CPU_MODEL_SKYLAKE        = 0x55,
+    CPU_MODEL_ICELAKE_SP     = 0x6a,
+    CPU_MODEL_ICELAKE_D      = 0x6c
   };
 
   // cpuid information block.  All info derived from executing cpuid with
@@ -978,6 +980,10 @@ public:
 
   static bool is_intel_skylake() { return is_intel_family_core() &&
                                           extended_cpu_model() == CPU_MODEL_SKYLAKE; }
+
+  static bool is_intel_icelake_server() { return is_intel_family_core() &&
+                                                 (extended_cpu_model() == CPU_MODEL_ICELAKE_SP ||
+                                                  extended_cpu_model() == CPU_MODEL_ICELAKE_D); }
 
 #ifdef COMPILER2
   // Determine if it's running on Cascade Lake using default options.

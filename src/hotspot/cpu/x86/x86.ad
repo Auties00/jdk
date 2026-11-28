@@ -2799,6 +2799,49 @@ class X86NoTrap : public NoTrapPlatform {
   virtual bool tests_masks_as_integers() const {
     return true;
   }
+
+  // With AVX-512, a vector of ints or longs that are one constant is made from the first lane of a
+  // vector of 128 bits that holds the constant, kept in xmm0-xmm15: vpbroadcastd or vpbroadcastq of
+  // a register, where its definition broadcasts the constant from the constant table. Which of the
+  // two a loop runs faster depends on the processor: the load takes a load port, and the register
+  // form the port of the shuffles, which on Intel processors is that of the vector compares.
+  // Measured with 512 bits in loops that load, compare and store under the mask (AUDIT.md, section
+  // 8, "The limit of a compare"): the register form is the faster one, or as fast, on AMD Zen 4 and
+  // Zen 5 and on Intel Ice Lake servers, and the load on Intel Emerald Rapids and Granite Rapids. A
+  // processor that is not known to run the register form at least as fast keeps the load.
+  static bool broadcasts_lane_faster_than_load() {
+    return VM_Version::is_amd() || VM_Version::is_intel_icelake_server();
+  }
+
+  virtual MachNode* broadcast_from_register(Compile* C, const MachNode* value, MachNode*& kept) const {
+    const TypeVect* vt = value->bottom_type()->isa_vect();
+    if (vt == nullptr || value->ideal_Opcode() != Op_Replicate || !VM_Version::supports_evex() ||
+        !broadcasts_lane_faster_than_load()) {
+      return nullptr;
+    }
+    // A vector of 128 bits that can be in xmm0-xmm15 is not lost and is not made again; and without
+    // AVX-512 VL the shorter vectors have no place here.
+    const BasicType bt = vt->element_basic_type();
+    const int bytes = vt->length_in_bytes();
+    if (!(bytes == 64 || (bytes == 32 && VM_Version::supports_avx512vl())) ||
+        !((value->rule() == ReplI_imm_rule && bt == T_INT) || (value->rule() == ReplL_imm_rule && bt == T_LONG))) {
+      return nullptr;
+    }
+    if (kept == nullptr) {
+      // The instruction of value, for a vector of 128 bits in xmm0-xmm15: the same constant of the
+      // constant table.
+      kept = value->clone()->as_Mach();
+      kept->_opnds[0] = new legVecXOper();
+      kept->_bottom_type = TypeVect::make(bt, 16 / type2aelembytes(bt));
+    }
+    MachNode* copy = new ReplLane_noTrapNode();
+    copy->_opnds[0] = value->_opnds[0]->clone();
+    copy->_opnds[1] = new legVecXOper();
+    copy->_bottom_type = vt;
+    copy->add_req(nullptr);
+    copy->add_req(kept);
+    return copy;
+  }
 };
 
 static const X86NoTrap x86_no_trap;
@@ -18823,6 +18866,25 @@ instruct ReplI_M1(vec dst, immI_M1 con) %{
   ins_encode %{
     int vector_len = vector_length_encoding(this);
     __ vallones($dst$$XMMRegister, vector_len);
+  %}
+  ins_pipe( pipe_slow );
+%}
+
+// AvoidLosableStateAtTraps (see X86NoTrap::broadcast_from_register()): every lane of dst is the first
+// lane of src, a vector of 128 bits in xmm0-xmm15, which no resumed exception loses. The node is made
+// by NoTrapSites::protect_checked_values(), not by the matcher.
+instruct ReplLane_noTrap(vec dst, legVec src) %{
+  // no match-rule, false predicate
+  effect(DEF dst, USE src);
+  predicate(false);
+  format %{ "replicate $dst,$src\t! the first lane" %}
+  ins_encode %{
+    int vlen_enc = vector_length_encoding(this);
+    if (Matcher::vector_element_basic_type(this) == T_LONG) {
+      __ vpbroadcastq($dst$$XMMRegister, $src$$XMMRegister, vlen_enc);
+    } else {
+      __ vpbroadcastd($dst$$XMMRegister, $src$$XMMRegister, vlen_enc);
+    }
   %}
   ins_pipe( pipe_slow );
 %}

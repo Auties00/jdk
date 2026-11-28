@@ -908,9 +908,9 @@ static void log_unprotected(const Node* value, const char* reason) {
 // vectors. The copy for a Phi goes to the end of the predecessor block.
 // Returns the number of values it protected. stacks holds, by ideal register class, the stack slots
 // a value of the class can be spilled to, made on demand.
-static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, const GrowableArray<Node*>& masks,
-                          VectorSet& stack_bound, VectorSet& moved, bool masks_followed, bool checks_move,
-                          RegMask** stacks) {
+static int protect_values(Compile* C, PhaseCFG* cfg, const NoTrapPlatform* platform, const CheckFlow& flow,
+                          const GrowableArray<Node*>& masks, VectorSet& stack_bound, VectorSet& moved,
+                          bool masks_followed, bool checks_move, RegMask** stacks) {
   int count = 0;
   for (int i = 0; i < masks.length(); i++) {
     Node* mask = masks.at(i);
@@ -1032,6 +1032,27 @@ static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, cons
       constant = false;
     }
     Node* keep = nullptr;
+    // A vector of one constant that its instruction loads from the constant table is made from a
+    // register that holds the constant and that no resumed fault loses, where the processor makes
+    // it faster that way (see NoTrapPlatform::broadcast_from_register()): that value is made once,
+    // in front of the vector, and each copy reads it in place of the memory. It is worth a register
+    // of its own where the vector is made less than half as often as it is read for a check, as
+    // the limit of a compare in a loop is; a copy of the instruction of the vector else. The value
+    // is a vector itself, in registers that keep it: the search of the next round and that on the
+    // allocated code follow it like any other.
+    MachNode* kept = nullptr;
+    bool from_register = constant && !constant_mask && is_vector_value(mask);
+    if (from_register) {
+      double reads = 0;
+      for (int r = 0; r < readers.length(); r++) {
+        const Block* reader_block = cfg->get_block_for_node(readers.at(r));
+        if (readers.at(r)->is_Phi()) {
+          reader_block = cfg->get_block_for_node(reader_block->pred(inputs.at(r)));
+        }
+        reads += reader_block->_freq;
+      }
+      from_register = 2 * block->_freq < reads;
+    }
     if (!constant) {
       keep = new MachSpillCopyNode(MachSpillCopyNode::RegToMem, mask, anywhere, stack);
       keep->remove_flag(Node::Flag_is_Copy);
@@ -1048,7 +1069,16 @@ static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, cons
       }
       Node* copy;
       if (constant) {
-        copy = mask->clone();
+        const bool made = kept != nullptr;
+        copy = from_register ? platform->broadcast_from_register(C, mask->as_Mach(), kept) : nullptr;
+        if (copy == nullptr) {
+          copy = mask->clone();
+        } else if (!made) {
+          block->insert_node(kept, block->find_node(mask));
+          cfg->map_node_to_block(kept, block);
+          log_debug(jit, compilation)("no-trap: the copies of %s %u of %s read a register that keeps its constant",
+                                      NodeClassNames[mask->as_Mach()->ideal_Opcode()], mask->_idx, method_name(C));
+        }
       } else {
         copy = new MachSpillCopyNode(MachSpillCopyNode::MemToReg, keep, stack, registers);
         copy->remove_flag(Node::Flag_is_Copy);
@@ -1373,7 +1403,7 @@ void NoTrapSites::protect_checked_values(Compile* C, const NoTrapPlatform* platf
     if (round == 16) {
       break;
     }
-    const int protected_now = protect_values(C, cfg, flow, values, stack_bound, moved, masks_losable,
+    const int protected_now = protect_values(C, cfg, platform, flow, values, stack_bound, moved, masks_losable,
                                              platform->tests_masks_as_integers(), stacks);
     if (protected_now == 0) {
       break;

@@ -26,8 +26,8 @@
  * @bug 8365196
  * @summary Vectors that a bounds check reads after a raw memory access (the lane numbers of the
  *          check of a masked access, the index vector of a gather, a check that the program keeps
- *          in a vector, a check that the program writes with allTrue()) keep their values, and
- *          the checks throw where they must.
+ *          in a vector, a check that the program writes with allTrue(), the constant limit of
+ *          such a check) keep their values, and the checks throw where they must.
  * @requires (os.arch == "amd64" | os.arch == "x86_64" | os.arch == "aarch64") & vm.compiler2.enabled
  * @modules jdk.incubator.vector
  * @library /test/lib /
@@ -60,6 +60,23 @@
  * @modules jdk.incubator.vector
  * @library /test/lib /
  * @run driver compiler.runtime.safepoints.TestCheckedVectorsAtRawAccesses protects
+ */
+
+/*
+ * @test id=fault512
+ * @bug 8365196
+ * @summary The same page error with the vectors and masks of AVX-512: the masks are in opmask
+ *          registers, their tests read general purpose registers, and the vector of a constant
+ *          limit is made again in front of its compare.
+ * @requires os.family == "windows" & (os.arch == "amd64" | os.arch == "x86_64") & vm.compiler2.enabled
+ * @requires vm.cpu.features ~= ".*avx512vl.*" & vm.cpu.features ~= ".*avx512bw.*" & vm.cpu.features ~= ".*avx512dq.*"
+ * @modules jdk.incubator.vector
+ * @library /test/lib /
+ * @build compiler.runtime.safepoints.ExceptionXState
+ * @run main/othervm/native/timeout=600 -XX:-TieredCompilation -Xbatch -XX:-UseOnStackReplacement
+ *      -XX:CompileCommand=dontinline,*TestCheckedVectorsAtRawAccesses::*Kernel
+ *      -Xlog:os+cpu=info --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED
+ *      compiler.runtime.safepoints.TestCheckedVectorsAtRawAccesses fault
  */
 
 /*
@@ -205,6 +222,24 @@ public class TestCheckedVectorsAtRawAccesses {
         }
     }
 
+    static final int FLOOR = 1000;
+
+    // A check against a constant that the loop keeps in a vector across the read: every index
+    // must be at least FLOOR. The indices are loaded after the read (where from depends on the
+    // value read), so the constant is the only operand of the compare from before it. A resumed
+    // fault that zeroed lanes of that vector would let a small index pass: it is not below zero.
+    static void constantLimitKernel(MemorySegment in, long[] pos, int[] ix, int[] offsets, byte[] flags, int iters) {
+        if (FILL) {
+            ExceptionXState.fillBelowStack();
+        }
+        IntVector floor = IntVector.broadcast(S, FLOOR);
+        for (int i = 0; i < iters; i++) {
+            int x = in.get(INT, pos[i]);
+            IntVector vix = IntVector.fromArray(S, ix, 8 * i + offsets[x & 1]);
+            flags[i] = (byte) (vix.compare(VectorOperators.GE, floor).allTrue() ? 0 : 1);
+        }
+    }
+
     static void check(boolean ok, String what) {
         if (!ok) {
             throw new RuntimeException(what);
@@ -229,6 +264,10 @@ public class TestCheckedVectorsAtRawAccesses {
         final int[] allIx = new int[8 * ITERS];
         final int[] intLimits = { 1000, 1000 };
         final byte[] allFlags = new byte[ITERS];
+        // The indices of constantLimitKernel: lane 7 is the bad one, below FLOOR.
+        final int[] floorIx = new int[8 * ITERS + 8];
+        final int[] offsets = { 0, 0 };
+        final byte[] floorFlags = new byte[ITERS];
         final int[] done = new int[1];
         final MemorySegment whole;
         final MemorySegment out;
@@ -263,6 +302,13 @@ public class TestCheckedVectorsAtRawAccesses {
                 allIx[8 * i + 7] = 5000;
             }
             Arrays.fill(allFlags, (byte) 4);
+            for (int i = 0; i < floorIx.length; i++) {
+                floorIx[i] = FLOOR + i % 400;
+            }
+            for (int i = badFrom; i < ITERS; i++) {
+                floorIx[8 * i + 7] = 5;
+            }
+            Arrays.fill(floorFlags, (byte) 4);
             whole = arena.allocate(LIMIT + 64, 64);
             out = whole.asSlice(0, LIMIT);
             // Not zero: a lane that a resumed exception zeroed would store zero.
@@ -310,6 +356,12 @@ public class TestCheckedVectorsAtRawAccesses {
                 check(a.allFlags[i] == 0, "allTrueCheckKernel: flag " + a.allFlags[i] + " at " + i);
             }
         }
+        if (only == null || only.equals("constantLimit")) {
+            constantLimitKernel(in, a.pos, a.floorIx, a.offsets, a.floorFlags, ITERS);
+            for (int i = 0; i < ITERS; i++) {
+                check(a.floorFlags[i] == 0, "constantLimitKernel: flag " + a.floorFlags[i] + " at " + i);
+            }
+        }
     }
 
     static void bad(Arena arena, MemorySegment in) {
@@ -334,6 +386,10 @@ public class TestCheckedVectorsAtRawAccesses {
         for (int i = 0; i < ITERS; i++) {
             check(a.allFlags[i] == (i < badFrom ? 0 : 3), "allTrueCheckKernel: flag " + a.allFlags[i] + " at " + i);
         }
+        constantLimitKernel(in, a.pos, a.floorIx, a.offsets, a.floorFlags, ITERS);
+        for (int i = 0; i < ITERS; i++) {
+            check(a.floorFlags[i] == (i < badFrom ? 0 : 1), "constantLimitKernel: flag " + a.floorFlags[i] + " at " + i);
+        }
     }
 
     static void run(int rounds, String only) {
@@ -350,7 +406,7 @@ public class TestCheckedVectorsAtRawAccesses {
     }
 
     static void protects() throws Exception {
-        for (String kernel : new String[] { "laneCheck", "gather", "userCheck", "allTrueCheck" }) {
+        for (String kernel : new String[] { "laneCheck", "gather", "userCheck", "allTrueCheck", "constantLimit" }) {
             OutputAnalyzer out = ProcessTools.executeTestJava(
                 "-XX:+UnlockDiagnosticVMOptions", "-XX:+AvoidLosableStateAtTraps", "-XX:-TieredCompilation", "-Xbatch",
                 "-XX:CompileCommand=compileonly,*TestCheckedVectorsAtRawAccesses::" + kernel + "Kernel",
@@ -434,11 +490,13 @@ public class TestCheckedVectorsAtRawAccesses {
                     good(local, in, null);
                     good(local, firstPage, null);
                     if (round % 32 == 31) {
-                        // Both outcomes of the checks of allTrueCheckKernel, so that neither is
-                        // compiled as an uncommon trap.
+                        // Both outcomes of the checks of allTrueCheckKernel and constantLimitKernel,
+                        // so that neither is compiled as an uncommon trap.
                         Arguments b = new Arguments(local, ITERS / 2);
                         allTrueCheckKernel(in, b.pos, b.allIx, b.intLimits, b.allFlags, ITERS);
                         allTrueCheckKernel(firstPage, b.pos, b.allIx, b.intLimits, b.allFlags, ITERS);
+                        constantLimitKernel(in, b.pos, b.floorIx, b.offsets, b.floorFlags, ITERS);
+                        constantLimitKernel(firstPage, b.pos, b.floorIx, b.offsets, b.floorFlags, ITERS);
                     }
                 }
             }
@@ -511,6 +569,28 @@ public class TestCheckedVectorsAtRawAccesses {
             // iteration did not get to store its flags (4).
             System.out.println("allTrueCheckKernel: " + outcome + ", flags of the faulting iteration: " + a.allFlags[faultAt]);
             if (a.allFlags[faultAt] != 3 && a.allFlags[faultAt] != 4) {
+                failures++;
+            }
+
+            a = new Arguments(arena, faultAt);
+            a.pos[faultAt] = 380 * PAGE;
+            try {
+                constantLimitKernel(mapped, a.pos, a.floorIx, a.offsets, a.floorFlags, ITERS);
+                outcome = "returned";
+            } catch (InternalError e) {
+                outcome = "InternalError";
+            }
+            // The check of the faulting iteration and of every later one must find the bad index of
+            // lane 7 (1), unless the iteration did not get to store its flag (4).
+            int passed = 0;
+            for (int i = faultAt; i < ITERS; i++) {
+                if (a.floorFlags[i] != 1 && a.floorFlags[i] != 4) {
+                    passed++;
+                }
+            }
+            System.out.println("constantLimitKernel: " + outcome + ", flag of the faulting iteration: " + a.floorFlags[faultAt]
+                               + ", checks that passed from there on: " + passed);
+            if (passed != 0) {
                 failures++;
             }
 
