@@ -908,9 +908,9 @@ static void log_unprotected(const Node* value, const char* reason) {
 // vectors. The copy for a Phi goes to the end of the predecessor block.
 // Returns the number of values it protected. stacks holds, by ideal register class, the stack slots
 // a value of the class can be spilled to, made on demand.
-static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, const GrowableArray<Node*>& masks,
-                          VectorSet& stack_bound, VectorSet& moved, bool masks_followed, bool checks_move,
-                          RegMask** stacks) {
+static int protect_values(Compile* C, PhaseCFG* cfg, const NoTrapPlatform* platform, const CheckFlow& flow,
+                          const GrowableArray<Node*>& masks, VectorSet& stack_bound, VectorSet& moved,
+                          bool masks_followed, bool checks_move, RegMask** stacks) {
   int count = 0;
   for (int i = 0; i < masks.length(); i++) {
     Node* mask = masks.at(i);
@@ -1032,6 +1032,7 @@ static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, cons
       constant = false;
     }
     Node* keep = nullptr;
+    MachNode* scalar = nullptr;
     if (!constant) {
       keep = new MachSpillCopyNode(MachSpillCopyNode::RegToMem, mask, anywhere, stack);
       keep->remove_flag(Node::Flag_is_Copy);
@@ -1048,7 +1049,19 @@ static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, cons
       }
       Node* copy;
       if (constant) {
-        copy = mask->clone();
+        // A vector of one constant that is loaded from the constant table is made from a general
+        // purpose register instead, where the processor makes it faster that way: the constant is
+        // put into the register once, where the vector was made, and a compilation with unsafe
+        // accesses keeps integers out of the losable registers.
+        const bool had_scalar = scalar != nullptr;
+        copy = constant_mask || !is_vector_value(mask) ? nullptr :
+               platform->broadcast_from_register(C, mask->as_Mach(), scalar);
+        if (copy == nullptr) {
+          copy = mask->clone();
+        } else if (!had_scalar) {
+          block->insert_node(scalar, block->find_node(mask));
+          cfg->map_node_to_block(scalar, block);
+        }
       } else {
         copy = new MachSpillCopyNode(MachSpillCopyNode::MemToReg, keep, stack, registers);
         copy->remove_flag(Node::Flag_is_Copy);
@@ -1373,7 +1386,7 @@ void NoTrapSites::protect_checked_values(Compile* C, const NoTrapPlatform* platf
     if (round == 16) {
       break;
     }
-    const int protected_now = protect_values(C, cfg, flow, values, stack_bound, moved, masks_losable,
+    const int protected_now = protect_values(C, cfg, platform, flow, values, stack_bound, moved, masks_losable,
                                              platform->tests_masks_as_integers(), stacks);
     if (protected_now == 0) {
       break;

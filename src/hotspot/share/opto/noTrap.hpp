@@ -32,6 +32,7 @@
 class C2_MacroAssembler;
 class Compile;
 class Label;
+class MachNode;
 class PhaseIterGVN;
 class RegMask;
 
@@ -109,6 +110,15 @@ class NoTrapPlatform {
   // behind the mask or vector it reads, in front of the raw accesses, where it can be (see
   // NoTrapSites::protect_checked_values()).
   virtual bool tests_masks_as_integers() const = 0;
+  // For value, a vector whose lanes are one constant that its instruction loads from memory: a
+  // node that makes the same vector from that constant in a general purpose register, where the
+  // platform has such an instruction and the processor makes the vector faster that way than by
+  // the load, or null. scalar is the node that puts the constant into the register: made by the
+  // call if it is null, and then to be placed by the caller where it dominates the result, with
+  // the root as its control input. Neither node is in a block.
+  virtual MachNode* broadcast_from_register(Compile* C, const MachNode* value, MachNode*& scalar) const {
+    return nullptr;
+  }
 };
 
 // The pass that gives C2 trap sites their non-trapping form after register allocation.

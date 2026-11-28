@@ -447,6 +447,12 @@
   product(bool, UseCMoveUnconditionally, false,                             \
           "Use CMove (scalar and vector) ignoring profitability test.")     \
                                                                             \
+  product(intx, NoTrapBroadcastForm, 0, DIAGNOSTIC,                         \
+          "REVIEW ONLY: how AvoidLosableStateAtTraps makes a vector of one "\
+          "constant again in front of a reader that checks: 0 from the "    \
+          "constant table, 1 from a general purpose register")              \
+          range(0, 3)                                                       \
+                                                                            \
   develop(bool, TraceSuperWord, false,                                      \
           "Trace superword transforms")                                     \
                                                                             \
