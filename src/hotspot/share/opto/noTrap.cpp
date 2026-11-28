@@ -541,6 +541,44 @@ static bool is_recomputable(const Node* n) {
   return true;
 }
 
+// Whether keeping value, which is_recomputable(), on the stack costs less than computing it again
+// for the readers that check it, by the frequencies of the blocks. On the stack it costs a store
+// where it is defined and a load for each reader. Computed again it costs its instruction for each
+// reader, and for each mask or vector among its inputs what that input costs in turn: its
+// instruction for each reader if it can be computed again, else a load for each reader and a store
+// where the input is defined. The mask of a loop with a masked tail, which is read for a check in a
+// slow path and made from the lane numbers, is computed again; a compare of a vector that the loop
+// has just loaded, which is tested on every iteration, is kept, instead of the vector.
+static bool is_cheaper_on_stack(PhaseCFG* cfg, const Node* value, const Block* block,
+                                const GrowableArray<Node*>& readers, const GrowableArray<uint>& inputs) {
+  double reads = 0;
+  for (int r = 0; r < readers.length(); r++) {
+    const Node* reader = readers.at(r);
+    const Block* reader_block = cfg->get_block_for_node(reader);
+    if (reader->is_Phi()) {
+      reader_block = cfg->get_block_for_node(reader_block->pred(inputs.at(r)));
+    }
+    reads += reader_block->_freq;
+  }
+  const double on_stack = block->_freq + reads;
+  double again = reads;
+  for (uint k = 1; k < value->req(); k++) {
+    const Node* in = value->in(k);
+    if (!is_mask_value(in) && !is_vector_value(in)) {
+      continue;
+    }
+    again += reads;
+    if (!(is_mask_value(in) && is_constant_mask(in)) && !is_recomputable(in)) {
+      const Block* in_block = cfg->get_block_for_node(in);
+      if (in_block == nullptr) {
+        return false;
+      }
+      again += in_block->_freq;
+    }
+  }
+  return on_stack < again;
+}
+
 // Logs why value, which reaches a check across a raw access, gets no copy.
 static void log_unprotected(const Node* value, const char* reason) {
   log_debug(jit, compilation)("no-trap: no copy for %s %u (%s): %s", NodeClassNames[value->Opcode()], value->_idx,
@@ -560,7 +598,8 @@ static void log_unprotected(const Node* value, const char* reason) {
 // - for a constant mask (see is_constant_mask()) and for a value that can be computed again from
 //   values that are not losable (see is_recomputable(): the mask of a loop iteration, a compare of
 //   the lane numbers with a broadcast of the lanes left), a copy of its definition right in front
-//   of the reader, which costs the paths that do not check nothing;
+//   of the reader, which costs the paths that do not check nothing, unless the stack is cheaper
+//   (see is_cheaper_on_stack());
 // - for any other mask, a copy bound to the stack that is made right after the definition (keep),
 //   and a reload of that copy right in front of the reader. Neither is marked as a copy, so that
 //   the allocator's copy removal, which follows copies to a register that still holds the value,
@@ -596,8 +635,10 @@ static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, cons
            block->get_node(keep_at)->in(0) == mask) {
       keep_at++;
     }
-    const bool constant = (is_mask_value(mask) && is_constant_mask(mask)) || is_recomputable(mask);
-    if (!constant && (keep_at >= block->number_of_nodes() || block->get_node(keep_at)->is_MachNullCheck())) {
+    const bool can_keep = keep_at < block->number_of_nodes() && !block->get_node(keep_at)->is_MachNullCheck();
+    const bool constant_mask = is_mask_value(mask) && is_constant_mask(mask);
+    bool constant = constant_mask || is_recomputable(mask);
+    if (!constant && !can_keep) {
       log_unprotected(mask, "nothing can follow it in its block"); // the access of an implicit null check
       continue;
     }
@@ -651,6 +692,9 @@ static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, cons
       continue;
     }
 
+    if (constant && !constant_mask && can_keep && is_cheaper_on_stack(cfg, mask, block, readers, inputs)) {
+      constant = false;
+    }
     Node* keep = nullptr;
     if (!constant) {
       keep = new MachSpillCopyNode(MachSpillCopyNode::RegToMem, mask, anywhere, stack);
