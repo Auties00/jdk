@@ -1226,11 +1226,77 @@ void NoTrapSites::test_masks_as_integers(Compile* C, PhaseIterGVN& igvn, const N
     }
     replaced++;
   }
-  if (replaced > 0) {
-    log_debug(jit, compilation)("no-trap: %d of %d tests of masks of %s read the mask as an integer", replaced,
-                                tests.length(), method_name(C));
-    igvn.optimize();
+  if (replaced == 0) {
+    return;
   }
+  // The lanes of a mask as booleans (VectorStoreMask), for the debug info of a trap or for a box:
+  // a reader of the mask that always checks, behind whatever raw accesses lie between the mask and
+  // the trap, and the mask of a loop iteration is named by every trap of the iteration. Where a
+  // test reads the bits of that mask, the booleans are made from the bits, which are in a general
+  // purpose register, and the mask has no reader in front of the trap.
+  Unique_Node_List<Node> after;
+  C->identify_useful_nodes(after);
+  int payloads = 0;
+  for (uint i = 0; i < after.size(); i++) {
+    Node* booleans = after.at(i);
+    if (booleans->Opcode() != Op_VectorStoreMask || booleans->in(1) == nullptr) {
+      continue;
+    }
+    Node* mask = booleans->in(1)->uncast();
+    const TypeVect* vt = mask->bottom_type()->isa_vect();
+    if (vt == nullptr || vt->length() > 64 ||
+        !Matcher::match_rule_supported_vector(Op_VectorLongToMask, vt->length(), vt->element_basic_type())) {
+      continue;
+    }
+    // The conversion of the mask that a test reads: of the mask itself, or of its lanes as bytes.
+    Node* bits = nullptr;
+    for (DUIterator_Fast kmax, k = mask->fast_outs(kmax); k < kmax && bits == nullptr; k++) {
+      Node* out = mask->fast_out(k);
+      if (vt->is_pvectmask()) {
+        if (out->Opcode() == Op_VectorMaskToLong) {
+          bits = out;
+        }
+      } else if (out->Opcode() == Op_VectorStoreMask) {
+        for (DUIterator_Fast jmax, j = out->fast_outs(jmax); j < jmax && bits == nullptr; j++) {
+          if (out->fast_out(j)->Opcode() == Op_VectorMaskToLong) {
+            bits = out->fast_out(j);
+          }
+        }
+      }
+    }
+    if (bits == nullptr) {
+      continue;
+    }
+    if (vt->is_pvectmask()) {
+      // The mask again, from its bits, for the conversion to booleans.
+      Node* again = igvn.transform(new VectorLongToMaskNode(bits, vt));
+      igvn.replace_input_of(booleans, 1, again);
+    } else {
+      // The booleans themselves, for every reader but the conversion to the bits.
+      GrowableArray<Node*> readers;
+      for (DUIterator_Fast kmax, k = booleans->fast_outs(kmax); k < kmax; k++) {
+        if (booleans->fast_out(k)->Opcode() != Op_VectorMaskToLong) {
+          readers.append_if_missing(booleans->fast_out(k));
+        }
+      }
+      if (readers.is_empty()) {
+        continue;
+      }
+      Node* again = igvn.transform(new VectorLongToMaskNode(bits, booleans->bottom_type()->as_vect()));
+      for (int r = 0; r < readers.length(); r++) {
+        Node* reader = readers.at(r);
+        for (uint k = 0; k < reader->req(); k++) {
+          if (reader->in(k) == booleans) {
+            igvn.replace_input_of(reader, k, again);
+          }
+        }
+      }
+    }
+    payloads++;
+  }
+  log_debug(jit, compilation)("no-trap: %d of %d tests of masks of %s read the mask as an integer, %d masks are made "
+                              "again from their bits", replaced, tests.length(), method_name(C), payloads);
+  igvn.optimize();
 }
 
 bool NoTrapSites::kill_follows_masks(const Compile* C, const NoTrapPlatform* platform) {
