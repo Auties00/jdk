@@ -30,6 +30,7 @@
 #include "opto/addnode.hpp"
 #include "opto/block.hpp"
 #include "opto/c2compiler.hpp"
+#include "opto/cfgnode.hpp"
 #include "opto/compile.hpp"
 #include "opto/connode.hpp"
 #include "opto/machnode.hpp"
@@ -1107,24 +1108,30 @@ static int bits_opcode(const Node* n) {
   }
 }
 
-// Whether the bits of mask are better read from the masks it is made of by bitwise operations:
-// one of them is tested itself (tested), so that its bits are in a general purpose register in any
-// case, or is the mask with every lane set, whose bits are a constant.
+// Whether mask is a merge of masks at a place that is not the head of a loop.
+static bool is_merge_of_masks(const Node* mask) {
+  return mask->is_Phi() && mask->in(0) != nullptr && mask->in(0)->is_Region() && !mask->in(0)->is_Loop();
+}
+
+// Whether the bits of mask are better read from the masks it is made of, by bitwise operations or
+// by a merge: one of them is tested itself (tested, which holds the masks without their casts), so
+// that its bits are in a general purpose register in any case, or is the mask with every lane set,
+// whose bits are a constant.
 static bool reads_bits_of_inputs(const Node* mask, const VectorSet& tested, int depth) {
-  if (bits_opcode(mask) == 0 || depth > 3) {
+  if ((bits_opcode(mask) == 0 && !is_merge_of_masks(mask)) || depth > 3) {
     return false;
   }
   // Masks of one shape: the bits of each are then those of its lanes.
   const TypeVect* vt = mask->bottom_type()->isa_vect();
-  for (uint k = 1; k <= 2; k++) {
+  for (uint k = 1; k < mask->req(); k++) {
     const TypeVect* in_vt = mask->in(k) == nullptr ? nullptr : mask->in(k)->bottom_type()->isa_vect();
     if (vt == nullptr || in_vt == nullptr || in_vt->element_basic_type() != vt->element_basic_type() ||
         in_vt->length() != vt->length() || in_vt->is_pvectmask() != vt->is_pvectmask()) {
       return false;
     }
   }
-  for (uint k = 1; k <= 2; k++) {
-    const Node* in = mask->in(k);
+  for (uint k = 1; k < mask->req(); k++) {
+    const Node* in = mask->in(k)->uncast();
     if (tested.test(in->_idx) || is_all_true_constant(in) || reads_bits_of_inputs(in, tested, depth + 1)) {
       return true;
     }
@@ -1133,13 +1140,23 @@ static bool reads_bits_of_inputs(const Node* mask, const VectorSet& tested, int 
 }
 
 // The bits of mask as a long: of a mask that is made by a bitwise operation from masks of which
-// one is tested itself, the same operation on their bits, so that the check of each mask reads that
-// mask alone and can be made right behind it; of the mask with every lane set, the constant every;
-// of any other mask, its conversion (of its lanes as bytes first, if as_bytes).
+// one is tested itself, the same operation on their bits, and of a merge of such masks, the merge
+// of their bits, so that the check of each mask reads that mask alone and can be made right behind
+// it; of the mask with every lane set, the constant every; of any other mask, its conversion (of its
+// lanes as bytes first, if as_bytes). A cast of a mask is the mask: the conversion reads the mask
+// itself, so that every test of one mask reads one conversion.
 static Node* mask_bits(PhaseIterGVN& igvn, Node* mask, const VectorSet& tested, int depth, bool as_bytes,
                        BasicType bt, uint lanes, jlong every) {
+  mask = mask->uncast();
   if (is_all_true_constant(mask)) {
     return igvn.longcon(every);
+  }
+  if (reads_bits_of_inputs(mask, tested, depth) && is_merge_of_masks(mask)) {
+    PhiNode* merge = new PhiNode(mask->in(0), TypeLong::LONG);
+    for (uint k = 1; k < mask->req(); k++) {
+      merge->init_req(k, mask_bits(igvn, mask->in(k), tested, depth + 1, as_bytes, bt, lanes, every));
+    }
+    return igvn.transform(merge);
   }
   if (reads_bits_of_inputs(mask, tested, depth)) {
     Node* a = mask_bits(igvn, mask->in(1), tested, depth + 1, as_bytes, bt, lanes, every);
@@ -1169,7 +1186,7 @@ void NoTrapSites::test_masks_as_integers(Compile* C, PhaseIterGVN& igvn, const N
   for (uint i = 0; i < useful.size(); i++) {
     if (useful.at(i)->Opcode() == Op_VectorTest) {
       tests.append(useful.at(i));
-      tested.set(useful.at(i)->in(1)->_idx);
+      tested.set(useful.at(i)->in(1)->uncast()->_idx);
     }
   }
   int replaced = 0;
@@ -1267,10 +1284,17 @@ void NoTrapSites::test_masks_as_integers(Compile* C, PhaseIterGVN& igvn, const N
     if (bits == nullptr) {
       continue;
     }
+    // Made where the cast of the mask is, the trap it is made for: with nothing to hold them there,
+    // the conversions for all the traps would be one, in a block that runs for all of them.
+    Node* control = nullptr;
+    for (Node* cast = booleans->in(1); cast->is_ConstraintCast() && control == nullptr; cast = cast->in(1)) {
+      control = cast->in(0);
+    }
     if (vt->is_pvectmask()) {
       // The mask again, from its bits, for the conversion to booleans.
-      Node* again = igvn.transform(new VectorLongToMaskNode(bits, vt));
-      igvn.replace_input_of(booleans, 1, again);
+      Node* again = new VectorLongToMaskNode(bits, vt);
+      again->init_req(0, control);
+      igvn.replace_input_of(booleans, 1, igvn.transform(again));
     } else {
       // The booleans themselves, for every reader but the conversion to the bits.
       GrowableArray<Node*> readers;
@@ -1282,7 +1306,9 @@ void NoTrapSites::test_masks_as_integers(Compile* C, PhaseIterGVN& igvn, const N
       if (readers.is_empty()) {
         continue;
       }
-      Node* again = igvn.transform(new VectorLongToMaskNode(bits, booleans->bottom_type()->as_vect()));
+      Node* again = new VectorLongToMaskNode(bits, booleans->bottom_type()->as_vect());
+      again->init_req(0, control);
+      again = igvn.transform(again);
       for (int r = 0; r < readers.length(); r++) {
         Node* reader = readers.at(r);
         for (uint k = 0; k < reader->req(); k++) {
