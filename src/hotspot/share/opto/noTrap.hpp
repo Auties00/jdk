@@ -153,7 +153,11 @@ class NoTrapSites : public AllStatic {
   // instructions between a mask and its test, a long can: protect_checked_values() moves the
   // conversion to the long in front of the raw accesses that the scheduler put between the mask
   // and its test, so that the test reads a general purpose register across them and neither the
-  // mask nor a vector it is made from is read after them for the test.
+  // mask nor a vector it is made from is read after them for the test. Where the tested mask is
+  // made by bitwise operations from masks of which one is tested itself (the lanes of a mask that
+  // are out of bounds, in the slow path of an access whose mask is also tested for all lanes),
+  // the bits of each of those masks are converted and the operations are made on the longs, so
+  // that every mask is read by a conversion of its own, right behind it.
   static void test_masks_as_integers(Compile* C, PhaseIterGVN& igvn, const NoTrapPlatform* platform);
 
   // After scheduling and before register allocation, in a compilation with unsafe accesses: finds
