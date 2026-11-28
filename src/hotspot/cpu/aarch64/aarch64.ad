@@ -2564,6 +2564,10 @@ class AArch64NoTrap : public NoTrapPlatform {
   virtual bool tests_masks_as_integers() const {
     return false;
   }
+
+  virtual bool matches_with_compare(const Node* binary, const Node* m) const {
+    return false;
+  }
 };
 
 static const AArch64NoTrap aarch64_no_trap;

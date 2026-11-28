@@ -3104,6 +3104,12 @@ private:
   void evpcmpq(KRegister kdst, KRegister mask, XMMRegister nds, Address src,
                int comparison, bool is_signed, int vector_len);
 
+  // Vector compares with one element at src, which is broadcast to every lane (EVEX.b)
+  void evpcmpd_bcst(KRegister kdst, KRegister mask, XMMRegister nds, Address src,
+                    int comparison, bool is_signed, int vector_len);
+  void evpcmpq_bcst(KRegister kdst, KRegister mask, XMMRegister nds, Address src,
+                    int comparison, bool is_signed, int vector_len);
+
   // Vector byte compares
   void evpcmpb(KRegister kdst, KRegister mask, XMMRegister nds, XMMRegister src,
                int comparison, bool is_signed, int vector_len);

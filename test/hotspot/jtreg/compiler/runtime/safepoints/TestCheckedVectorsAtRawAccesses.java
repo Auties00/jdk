@@ -27,7 +27,8 @@
  * @summary Vectors that a bounds check reads after a raw memory access (the lane numbers of the
  *          check of a masked access, the index vector of a gather, a check that the program keeps
  *          in a vector, a check that the program writes with allTrue()) keep their values, and
- *          the checks throw where they must.
+ *          the checks throw where they must; the compares with constants of a compilation with
+ *          unsafe accesses give the masks they must.
  * @requires (os.arch == "amd64" | os.arch == "x86_64" | os.arch == "aarch64") & vm.compiler2.enabled
  * @modules jdk.incubator.vector
  * @library /test/lib /
@@ -205,6 +206,131 @@ public class TestCheckedVectorsAtRawAccesses {
         }
     }
 
+    static final VectorSpecies<Integer> S512 = IntVector.SPECIES_512;
+    static final VectorSpecies<Long> L512 = LongVector.SPECIES_512;
+    static final boolean WIDE = IntVector.SPECIES_PREFERRED.length() >= 16;
+
+    static long mix(long h, VectorMask<?> m) {
+        return h * 31 + m.toLong();
+    }
+
+    // Compares of vectors with vectors of one constant, in a compilation with unsafe accesses, which
+    // reads such a constant from the constant table where the compare makes a mask register:
+    // signed and unsigned, of int and long lanes, of every vector length.
+    static long constantCompareKernel(MemorySegment in, int[] ints, long[] longs) {
+        long h = in.get(INT, 0);
+        for (int i = 0; i <= ints.length - S.length(); i += S.length()) {
+            IntVector v = IntVector.fromArray(S, ints, i);
+            h = mix(h, v.compare(VectorOperators.LT, 100));
+            h = mix(h, v.compare(VectorOperators.GE, -5));
+            h = mix(h, v.compare(VectorOperators.EQ, 7));
+            h = mix(h, v.compare(VectorOperators.NE, 7));
+            h = mix(h, v.compare(VectorOperators.ULT, 50));
+            h = mix(h, v.compare(VectorOperators.UGE, 1 << 30));
+        }
+        for (int i = 0; i <= ints.length - S128.length(); i += S128.length()) {
+            IntVector v = IntVector.fromArray(S128, ints, i);
+            h = mix(h, v.compare(VectorOperators.GT, 100));
+            h = mix(h, v.compare(VectorOperators.LE, -5));
+            h = mix(h, v.compare(VectorOperators.UGT, 50));
+        }
+        for (int i = 0; i <= longs.length - L256.length(); i += L256.length()) {
+            LongVector v = LongVector.fromArray(L256, longs, i);
+            h = mix(h, v.compare(VectorOperators.LT, 100L));
+            h = mix(h, v.compare(VectorOperators.GE, -5L));
+            h = mix(h, v.compare(VectorOperators.EQ, 7L));
+            h = mix(h, v.compare(VectorOperators.ULE, 50L));
+        }
+        if (WIDE) {
+            for (int i = 0; i <= ints.length - S512.length(); i += S512.length()) {
+                IntVector v = IntVector.fromArray(S512, ints, i);
+                h = mix(h, v.compare(VectorOperators.LT, 100));
+                h = mix(h, v.compare(VectorOperators.UGE, 1 << 30));
+            }
+            for (int i = 0; i <= longs.length - L512.length(); i += L512.length()) {
+                LongVector v = LongVector.fromArray(L512, longs, i);
+                h = mix(h, v.compare(VectorOperators.GT, 100L));
+                h = mix(h, v.compare(VectorOperators.ULT, 50L));
+            }
+        }
+        return h;
+    }
+
+    interface IntTest {
+        boolean test(int x);
+    }
+
+    interface LongTest {
+        boolean test(long x);
+    }
+
+    static long mix(long h, int[] a, int at, int lanes, IntTest t) {
+        long bits = 0;
+        for (int j = 0; j < lanes; j++) {
+            bits |= t.test(a[at + j]) ? 1L << j : 0;
+        }
+        return h * 31 + bits;
+    }
+
+    static long mix(long h, long[] a, int at, int lanes, LongTest t) {
+        long bits = 0;
+        for (int j = 0; j < lanes; j++) {
+            bits |= t.test(a[at + j]) ? 1L << j : 0;
+        }
+        return h * 31 + bits;
+    }
+
+    // What constantCompareKernel must return (the segment holds zero), by the elements.
+    static long constantCompareExpected(int[] ints, long[] longs) {
+        long h = 0;
+        for (int i = 0; i <= ints.length - 8; i += 8) {
+            h = mix(h, ints, i, 8, x -> x < 100);
+            h = mix(h, ints, i, 8, x -> x >= -5);
+            h = mix(h, ints, i, 8, x -> x == 7);
+            h = mix(h, ints, i, 8, x -> x != 7);
+            h = mix(h, ints, i, 8, x -> Integer.compareUnsigned(x, 50) < 0);
+            h = mix(h, ints, i, 8, x -> Integer.compareUnsigned(x, 1 << 30) >= 0);
+        }
+        for (int i = 0; i <= ints.length - 4; i += 4) {
+            h = mix(h, ints, i, 4, x -> x > 100);
+            h = mix(h, ints, i, 4, x -> x <= -5);
+            h = mix(h, ints, i, 4, x -> Integer.compareUnsigned(x, 50) > 0);
+        }
+        for (int i = 0; i <= longs.length - 4; i += 4) {
+            h = mix(h, longs, i, 4, x -> x < 100L);
+            h = mix(h, longs, i, 4, x -> x >= -5L);
+            h = mix(h, longs, i, 4, x -> x == 7L);
+            h = mix(h, longs, i, 4, x -> Long.compareUnsigned(x, 50L) <= 0);
+        }
+        if (WIDE) {
+            for (int i = 0; i <= ints.length - 16; i += 16) {
+                h = mix(h, ints, i, 16, x -> x < 100);
+                h = mix(h, ints, i, 16, x -> Integer.compareUnsigned(x, 1 << 30) >= 0);
+            }
+            for (int i = 0; i <= longs.length - 8; i += 8) {
+                h = mix(h, longs, i, 8, x -> x > 100L);
+                h = mix(h, longs, i, 8, x -> Long.compareUnsigned(x, 50L) < 0);
+            }
+        }
+        return h;
+    }
+
+    static final int[] COMPARED_INTS = new int[256];
+    static final long[] COMPARED_LONGS = new long[256];
+    static final long COMPARED;
+    static {
+        java.util.Random random = new java.util.Random(8365196);
+        // Around the constants of the compares, and anything.
+        int[] near = { 100, 99, 101, -5, -6, -4, 7, 50, 49, 51, 1 << 30, (1 << 30) - 1, -1, 0,
+                       Integer.MIN_VALUE, Integer.MAX_VALUE };
+        for (int i = 0; i < COMPARED_INTS.length; i++) {
+            COMPARED_INTS[i] = random.nextBoolean() ? near[random.nextInt(near.length)] : random.nextInt();
+            COMPARED_LONGS[i] = random.nextBoolean() ? near[random.nextInt(near.length)]
+                                                     : (random.nextBoolean() ? random.nextLong() : random.nextInt(200) - 100);
+        }
+        COMPARED = constantCompareExpected(COMPARED_INTS, COMPARED_LONGS);
+    }
+
     static void check(boolean ok, String what) {
         if (!ok) {
             throw new RuntimeException(what);
@@ -309,6 +435,10 @@ public class TestCheckedVectorsAtRawAccesses {
             for (int i = 0; i < ITERS; i++) {
                 check(a.allFlags[i] == 0, "allTrueCheckKernel: flag " + a.allFlags[i] + " at " + i);
             }
+        }
+        if (only == null) {
+            long compared = constantCompareKernel(in, COMPARED_INTS, COMPARED_LONGS);
+            check(compared == COMPARED, "constantCompareKernel: " + compared + ", expected " + COMPARED);
         }
     }
 

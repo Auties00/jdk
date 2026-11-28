@@ -13794,6 +13794,46 @@ void Assembler::evpcmpq(KRegister kdst, KRegister mask, XMMRegister nds, Address
   emit_int8((unsigned char)comparison);
 }
 
+void Assembler::evpcmpd_bcst(KRegister kdst, KRegister mask, XMMRegister nds, Address src,
+                             int comparison, bool is_signed, int vector_len) {
+  assert(VM_Version::supports_evex(), "");
+  assert(comparison >= Assembler::eq && comparison <= Assembler::_true, "");
+  // Encoding: EVEX.NDS.XXX.66.0F3A.W0 1F /r ib, with EVEX.b: the source is m32bcst
+  InstructionMark im(this);
+  InstructionAttr attributes(vector_len, /* vex_w */ false, /* legacy_mode */ false, /* no_mask_reg */ false, /* uses_vl */ true);
+  attributes.set_address_attributes(/* tuple_type */ EVEX_FV, /* input_size_in_bits */ EVEX_32bit);
+  attributes.set_is_evex_instruction();
+  attributes.set_extended_context();
+  attributes.set_embedded_opmask_register_specifier(mask);
+  attributes.reset_is_clear_context();
+  int dst_enc = kdst->encoding();
+  vex_prefix(src, nds->encoding(), dst_enc, VEX_SIMD_66, VEX_OPCODE_0F_3A, &attributes);
+  int opcode = is_signed ? 0x1F : 0x1E;
+  emit_int8((unsigned char)opcode);
+  emit_operand(as_Register(dst_enc), src, 1);
+  emit_int8((unsigned char)comparison);
+}
+
+void Assembler::evpcmpq_bcst(KRegister kdst, KRegister mask, XMMRegister nds, Address src,
+                             int comparison, bool is_signed, int vector_len) {
+  assert(VM_Version::supports_evex(), "");
+  assert(comparison >= Assembler::eq && comparison <= Assembler::_true, "");
+  // Encoding: EVEX.NDS.XXX.66.0F3A.W1 1F /r ib, with EVEX.b: the source is m64bcst
+  InstructionMark im(this);
+  InstructionAttr attributes(vector_len, /* vex_w */ true, /* legacy_mode */ false, /* no_mask_reg */ false, /* uses_vl */ true);
+  attributes.set_address_attributes(/* tuple_type */ EVEX_FV, /* input_size_in_bits */ EVEX_64bit);
+  attributes.set_is_evex_instruction();
+  attributes.set_extended_context();
+  attributes.set_embedded_opmask_register_specifier(mask);
+  attributes.reset_is_clear_context();
+  int dst_enc = kdst->encoding();
+  vex_prefix(src, nds->encoding(), dst_enc, VEX_SIMD_66, VEX_OPCODE_0F_3A, &attributes);
+  int opcode = is_signed ? 0x1F : 0x1E;
+  emit_int8((unsigned char)opcode);
+  emit_operand(as_Register(dst_enc), src, 1);
+  emit_int8((unsigned char)comparison);
+}
+
 void Assembler::evpcmpb(KRegister kdst, KRegister mask, XMMRegister nds, XMMRegister src,
                         int comparison, bool is_signed, int vector_len) {
   assert(VM_Version::supports_evex(), "");
