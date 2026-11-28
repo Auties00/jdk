@@ -13,7 +13,8 @@ takes no hardware exception that the VM resumes while losable state is live.** T
 kernel, no scrub and no fallback: the code is shaped so that the question does not arise.
 
 - C2 loop polls and implicit null checks take a non-trapping form wherever losable state is live at the point the
-  trap would resume at (sections 2 and 3).
+  trap would resume at (sections 2 and 3). A trap that must throw names only what the handlers it can reach
+  read, so a null check whose exception leaves the frame through a `finally` keeps its trap (section 3).
 - C2 takes no implicit div0 and no min_int / -1 trap; C1 uses xmm16-31 only where no trap of its own resumes its
   frame (section 4); the interpreter holds no losable state.
 - Java code always runs with the standard MXCSR, so no FP exception is resumed in it (section 6).
@@ -311,6 +312,125 @@ a second use, stays.
 The explicit null check and the branch poll are conditional branches that C2's mitigation did not know: on the
 affected processors they could cross a 32 byte boundary, which C2 avoids for every other branch. They are now
 tagged and padded like the others (cpu/x86/c2_intelJccErratum_x86.cpp). No effect on the invariant.
+
+### A trap that must throw names what the handlers it can reach read
+
+What the explicit null checks of the segment kernels were. Every Vector API access to a memory segment runs,
+in `ScopedMemoryAccess`, `session.checkValidStateRaw()` on the scope of the segment, and the null check of
+that receiver is an implicit one on the load of `MemorySessionImpl.owner`. Its null path is the uncommon trap
+of a null check that must throw (GraphKit::builtin_throw()), like the null check of the segment itself in
+`IntVector.fromMemorySegment`. For such a trap GraphKit::add_safepoint_edges() names only the inputs of the
+bytecode, in every frame, but only while no frame has an exception handler ("as a quick and dirty
+approximation, we look for any handlers at all"): from the first frame whose method has one, that frame and
+all its callers are described in full. The check of the scope is in
+`...ScopedInternal()`, a method with a `finally` (`Reference.reachabilityFence(session)`), called from one with
+a `catch (ScopedAccessError)`. So its trap described every frame up to the kernel: the vector that a store
+writes, the mask of the iteration, the accumulator of a reduction, as fields of scalarized boxes in ymm, zmm
+or mask registers. Losable state was live into the null successor and the check was explicit, once per access
+and iteration (PrintOptoAssembly of the review9 kernels under JMH: every explicit check of a hot block was
+this one, at `...ScopedInternal @ bci:1`, reason `null_check`; the null check of the segment, in frames
+without handlers, was implicit).
+
+Now, with the mode, add_safepoint_edges() looks at the handlers (handlers_reached_by_throw(),
+handler_always_throws(), opto/graphKit.cpp). For each frame of a trap that must throw, from the youngest, as
+long as the throw is known to reach the frame:
+
+- the handlers that cover the bytecode of the frame are found (the bytecode that throws, or the call that the
+  throw comes out of), whatever class they catch;
+- the frame keeps the locals that are live into one of those handlers (MethodLiveness at the handler) and
+  nothing of its stack but, in the youngest frame, the inputs of the bytecode. Without a covering handler it
+  keeps nothing, as a frame of a method without handlers did before;
+- the throw is known to reach the caller if every covering handler always leaves the frame by an exception:
+  its code runs in a straight line (no branch, switch, jsr, ret or return) to an `athrow`, and every handler
+  that covers a bytecode on the way does the same. That is the handler javac makes for a `finally`, and a
+  `catch` that throws another exception. Otherwise the callers are described in full, as before.
+
+For the check of the scope: `...ScopedInternal()` keeps `session`, the one local its `finally` reads;
+`loadFromMemorySegmentMasked()` keeps nothing (its handler reads the exception); the frames of the Vector API
+and the kernel have no handler and keep nothing. The trap names no vector, nothing losable is live into the
+null successor, and the check is implicit again, in a loop or in front of it, whatever the kernel keeps in
+vector registers. The same holds for a null, range or class check inside a `try` with a `finally` or with
+resources in the user's own method.
+
+Argument. A trap that must throw re-executes its bytecode in the interpreter, and the bytecode throws: the
+value that failed the check is among its inputs, which the trap keeps (null checks, range checks, division
+by zero, class and array store checks, and the same when the trap is taken to post a JVMTI exception event).
+An asynchronous exception delivered at that point (the ScopedAccessError of a concurrent close, a JVMTI
+stop) is thrown at the same bytecode. The interpreter then looks for a handler of the frame that covers the
+bytecode and catches the class of the exception, and unwinds the frame if there is none:
+
+- a handler that is entered reads only locals that are live into it, and starts with a stack that holds
+  the exception alone. The locals the frame keeps are the union over all the covering handlers, so it does not
+  matter which of them catches, or what was thrown;
+- a frame that is unwound is read by nothing;
+- a handler that always leaves by an exception never returns to the caller and never falls out of its code:
+  the only ways out of a straight line that ends in `athrow` are that `athrow` and an exception of a bytecode
+  on the way; either is caught by a handler that covers that bytecode, of which the same was checked (a
+  handler that covers its own code, as javac's `finally` handlers do with their first instruction, is entered
+  again and leaves in no other way), or unwinds the frame. So the caller is reached, if at all, by the same
+  throw at its call, and the argument repeats there. Where it cannot be shown, the callers keep everything.
+
+What reads a frame's locals besides its own code is ruled out as before: a debugger or an agent that can
+read locals or pop frames turns the pruning off altogether (`should_retain_local_variables()`), and
+ciMethod::liveness_at_bci() then reports every local live.
+
+For the invariant nothing changes: the rule for implicit null checks still counts what is live into the null
+successor, and its debug check still asserts that a check is explicit exactly there. The trap simply names
+less. A handler that goes on (the `catch (NullPointerException)` of TestExceptionXStateLoss and of
+TestAvoidLosableStateAtTraps.kernel(), whose loops continue with their accumulators) keeps what it reads
+live, in its frame and in every caller, and those checks stay explicit. The change is made with the mode
+only: without it the traps are as upstream.
+
+Tests: TestAvoidLosableStateAtTraps.finallyKernel() keeps a vector in a local across a null check inside a
+`try` with a `finally`. The id `explicit` checks that the check is implicit with the mode (it was explicit:
+the trap named the vector), and the other ids take the trap with a null and check that the `finally` read
+the index it was given, the one local the trap keeps.
+
+### The checks of a native memory segment leave the loop of a masked Vector API access
+
+Before: in a loop that reads or writes a native memory segment through the Vector API with a mask
+(`fromMemorySegment(..., m)`, `intoMemorySegment(..., m)`), every iteration ran, for each access, all the
+checks of the segment: its null and class check (`ms.byteSize()`), and the null check of its scope, the owner
+check and the state check. LibraryCallKit::inline_vector_mem_masked_operation() put a MemBarCPUOrder around
+every masked access whose base can be null, which includes the base that is always null of a native segment.
+The barrier defines the whole memory state, so every field load after it in the loop (the field that holds
+the segment, `scope`, `owner`, `state`, `length`, `min`) depended on the memory of the previous iteration,
+none was loop invariant, and loop predication could hoist none of their checks. The unmasked accesses
+(inline_vector_mem_operation()) and the scalar ones (C2Access::needs_cpu_membar()) place the barrier only for
+an access that may be to the heap or not, and their loops keep no such check: in compareAcrossLoad every
+check of the three segments is a loop predicate in front of the loop.
+
+Now the masked access follows the same rule: a barrier only when the base may be null or not. With a base
+that is always null the loop has no barrier, the field loads are invariant, loop predication hoists the null
+check and the class check of the segment, and the profiled loop predicates hoist the checks of the scope in
+the path of the full iterations. This is not a rule of the mode, and it changes the code with the mode off
+as well; it is here because the checks it removes from the loop were the trap sites the mode paid for.
+
+Argument. The barrier exists to keep an access whose alias category is unknown ordered with the accesses to
+the heap it may alias. An access whose base is the null constant has a raw address
+(LibraryCallKit::make_unsafe_address() returns `CastX2P(offset)`), its alias category is the raw one
+(TypeRawPtr::BOTTOM), and its load or store takes and defines the memory of that category alone: it is
+ordered with every other raw access by its memory edges, and it cannot alias a field or an array element.
+The load keeps its control input, the last check in front of it, and a load from raw memory never follows a
+test to a dominating one (LoadNode::depends_only_on_test_impl()), so it cannot move above its bounds check:
+when loop predication hoists the checks of the scope, the load stays in the loop under the bounds check of
+its iteration. A session that is closed while the loop runs is handled as for the scalar and unmasked
+accesses, which already hoist the state check: the handshake of the close deoptimizes a frame of an nmethod
+with scoped accesses (`nmethod::has_scoped_access()`, set when a `@Scoped` method is inlined, whatever
+barriers it has). The trap sites that are left go through NoTrapSites::apply() like any other.
+
+Where the checks stay in the loop: a segment that may be on or off the heap keeps the barrier; and the
+profiled predicates are gone from a method after one of them failed, which happens to the loop with a masked
+tail and a store: tailMaskedCopy takes a `profile_predicate` trap at the entry of its loop in every run and
+is compiled again without profiled predicates, so the checks under a branch stay in its loop
+(`intoMemorySegment(..., m)` stores without a mask when the mask is all true, and a check of that store,
+hoisted for every iteration, fails for the last one, whose mask is partial). Those loops are where the rule
+above matters: their null checks of the scope are implicit.
+
+Tests: compiler/vectorapi/TestMaskedNativeSegmentChecks, id `ir`, has no MemBarCPUOrder in a masked sum and a
+masked copy over native segments (it fails on the build before); id `close` runs the compiled loop on a
+segment whose arena is closed before the call, closed by another thread during the loop (30 times), confined
+to another thread, and with a mask that reaches past the end.
 
 ## 4. C1
 
@@ -634,6 +754,32 @@ a memory segment, the common case, for the sake of that one.
      right in front of each reader. Neither node carries the copy flag, so the allocator's copy removal, which
      follows copies back to a register that still holds the value, cannot point the reader at the value's
      register, or at an earlier reload, again.
+
+   Two choices between these forms are made by cost, and neither adds a form:
+   - a value that can be computed again is kept on the stack instead where that costs less by the frequencies
+     of the blocks (is_cheaper_on_stack()): a store where it is defined and a load for each reader, against
+     its instruction for each reader plus, for each mask or vector among its inputs, that input's instruction
+     for each reader or, if the input cannot be computed again, a load for each reader and a store where the
+     input is defined. The mask of a loop with a masked tail, read for a check in a slow path, is still computed
+     again there. A compare of a vector that the loop has just loaded, tested on every iteration, was computed
+     again from a copy of that vector, stored and loaded on every iteration; now the compare's own result is
+     stored and loaded;
+   - where the masks are followed, a vector that cannot be computed again and is read, after the access, by an
+     instruction of its block that makes a mask from its inputs alone (the same compare, where the scheduler
+     put it behind the access) is not copied for that reader: the instruction is moved up, right behind the
+     definition of the vector and in front of the access, with the copies of constants an earlier round put in
+     front of it (move_in_front_of_accesses()). The next round finds its result, the mask, live across the
+     access and keeps that on the stack: a few bytes, where the vector took a slot of its own size, 64 bytes
+     for a zmm register in a frame that is aligned to 16.
+
+   Argument. The form on the stack is the general one, sound for every value. The instruction that is moved
+   has no memory or control input, no TEMP and no kill, so it computes the same mask wherever its inputs are
+   defined, and they are (checked: each is defined in another block, which dominates this one, or earlier in
+   this block, or is such a constant that moves with it); every reader of the mask follows the old place of
+   the instruction. The dataflow is run again after every round, on the code as it then is, and once more on
+   the allocated code (step 2), so a move or a choice that left a value in a losable register across a raw
+   access on its way to a check would be found like any other. A mask that was moved is always kept on the
+   stack: computed again for its readers it would read the vector behind the access once more.
    A reader that follows the definition in its block with no raw access in between reads the value itself. For a
    Phi the copy or reload goes to the end of the predecessor block. Nothing can follow the access of an implicit
    null check in its block, so in these compilations an access that defines a mask or a vector is no candidate
@@ -824,7 +970,8 @@ the store, and the lane numbers feed it), so the rule was not narrowed; the mask
 are computed again in the slow path instead, and tailMaskedCopy is +8% (before +7%; the same build measures +2%
 and +6% on AVX-512, where it was +14% to +22%). segmentMaskedSum stays at +9% on the 7763 against +4% before,
 in both runs: its compilation has no unsafe access (no decision of the rule is logged for it), so the rule for
-vectors does not touch it, and the difference is not explained here.
+vectors does not touch it; the difference is where the branches of the loop fall (see "segmentMaskedSum on
+AVX2" below).
 
 On Linux (the same runs, mode forced, against the build before with the mode off): unsafeWithLiveMask +20% -> -4%,
 constantMaskPredicate +35% -> -2%, tailMaskedCopy +14% -> +1% (two Xeon 6975P-C). No compilation of a bench kernel
@@ -848,6 +995,197 @@ off moves against the base by as much as the mode on does, so nothing here is ou
 one benchmark where the mode on is above the mode off on three of the four machines (by 2 to 5 points). mnemonics,
 which was 7% to 9% slower than the branch before on two of three 9V74 in run 46048738808, is not slower than the
 base on any machine of this run.
+
+### The segment kernels: the checks of the segment, and what the mode adds to their loops
+
+The kernels are those of review9: Vector API loops over native memory segments (segmentMaskedSum,
+segmentCompareBlendStore, tailMaskedCopy, compareAcrossLoad, compareAcrossLoadMaskedStore,
+constantMaskPredicate), a heap loop with a scalar Unsafe read (unsafeWithLiveMask) and two heap controls. All
+but segmentMaskedSum and the controls are compilations with unsafe accesses (a scalar tail loop or a scalar
+read), where the rule of section 5 applies as well.
+
+What the mode added to their loops before, and why (PrintOptoAssembly under JMH, fastdebug builds of the branch
+at e77590df934, with AVX2 and with AVX-512, on Linux and Windows):
+
+- one explicit null check per access and iteration: the null check of the scope of the segment
+  (`session.checkValidStateRaw()` in `ScopedMemoryAccess`), whose trap named every local of every frame because
+  of the `finally` around it, and with them the accumulator, the vector to store and the mask of the iteration
+  (section 3). It was the only explicit check of the hot blocks: 1 per iteration in segmentMaskedSum,
+  segmentCompareBlendStore and tailMaskedCopy, 2 in compareAcrossLoadMaskedStore, none in compareAcrossLoad,
+  whose checks were loop predicates already;
+- in the compilations with unsafe accesses, the copies of section 5 for what
+  `intoMemorySegment(..., m)` tests with `m.allTrue()` on every iteration, behind a raw load: the mask of the
+  iteration in tailMaskedCopy (a mask register stored and loaded), and in compareAcrossLoadMaskedStore the
+  vector that the mask is compared from (a zmm or ymm register stored and loaded, with a broadcast of the
+  limit made again).
+
+Four changes (sections 3 and 5):
+
+1. the trap of a check that must throw names what the handlers it can reach read: the null check of the scope
+   is implicit, in a loop or not;
+2. a masked access to raw memory has no memory barrier, so the checks of a native segment leave the loop, as
+   they did for the unmasked accesses. This changes the code without the mode as well: the loops lose four
+   to ten loads and branches per iteration, and their main loops are unrolled;
+3. a value that can be computed again is kept on the stack where that is cheaper;
+4. a mask that is made from a vector behind a raw access is made in front of it, so that the mask, not the
+   vector, is kept on the stack.
+
+Null checks in the hot blocks of the loops, implicit + explicit, before -> now, and in brackets the same with
+the mode off (the same counts with UseAVX=2 and 3, on Linux and on Windows): segmentMaskedSum 1+1 -> 0
+(2 -> 0), segmentCompareBlendStore 3+1 -> 0 (4 -> 0), tailMaskedCopy 3+1 -> 3+0 (4 -> 3),
+compareAcrossLoadMaskedStore 4+2 -> 0 (6 -> 0), compareAcrossLoad 0 -> 0. No null check of a loop is explicit
+any more. What is left explicit is in front of the loops, once per call: the null checks that C2 folds into
+the first load of a hoisted check, whose loop predicate trap names the initial value of an accumulator (2 in
+segmentMaskedSum, 6 in compareAcrossLoad, as before).
+
+JMH, three interleaved rounds of two forks per configuration on each machine; a cell is the median of the
+forks of all the machines with that processor. "before" is the branch at e77590df934 (the bundles of run
+46062686610), "now" this branch (the bundles of run 46095852250); each is compared with itself with
+-XX:-AvoidLosableStateAtTraps (on Linux the mode is forced on and off). Bench run 46099646297
+(https://github.com/Auties00/jdk/actions/runs/46099646297); the runs of the rounds before it, on other
+machines (two Xeon 8573C, three EPYC 9V45, three Xeon 8370C, two more EPYC 7763), are 46088774917 (the memory
+barrier alone) and 46095375455 (with the traps).
+
+The cost of the mode: the mode on against the mode off of the same build, before -> now.
+
+| kernel | EPYC 9V74, windows-2025 (2 machines) | Xeon 8573C, windows-2022 | EPYC 7763, windows-2025 (4 machines) | EPYC 9V45, Linux |
+|---|---|---|---|---|
+| segmentMaskedSum | +1% -> +0% | +10% -> -4% | +9% -> -0% | +2% -> -0% |
+| segmentCompareBlendStore | +1% -> +3% | +3% -> +5% | +4% -> +4% | -0% -> +5% |
+| tailMaskedCopy | +9% -> +1% | +10% -> +1% | +10% -> +10% | +6% -> +13% |
+| compareAcrossLoadMaskedStore | +18% -> +45% | +7% -> +30% | +4% -> +8% | +12% -> +55% |
+| compareAcrossLoad | +3% -> +2% | -2% -> -3% | +1% -> +1% | -0% -> +1% |
+| constantMaskPredicate | +2% -> +2% | +1% -> +3% | +0% -> -0% | +2% -> +2% |
+| unsafeWithLiveMask | +8% -> +8% | +7% -> +4% | +5% -> +6% | +1% -> +3% |
+| heapMaskedSum (control) | -2% -> +2% | +1% -> -2% | +1% -> +1% | -8% -> -6% |
+| heapCompareBlendStore (control) | -2% -> -1% | +7% -> -2% | -0% -> +0% | -2% -> +2% |
+
+The times behind it: ns per call, the mode off / on, before -> now.
+
+| kernel | EPYC 9V74, windows-2025 (2 machines) | Xeon 8573C, windows-2022 | EPYC 7763, windows-2025 (4 machines) | EPYC 9V45, Linux |
+|---|---|---|---|---|
+| segmentMaskedSum | 112 / 113 -> 35 / 35 | 127 / 140 -> 48 / 46 | 267 / 292 -> 84 / 84 | 71 / 72 -> 25 / 25 |
+| segmentCompareBlendStore | 204 / 206 -> 54 / 55 | 219 / 225 -> 59 / 61 | 891 / 922 -> 536 / 555 | 128 / 128 -> 33 / 34 |
+| tailMaskedCopy | 208 / 227 -> 145 / 146 | 239 / 262 -> 214 / 216 | 502 / 551 -> 420 / 461 | 134 / 142 -> 99 / 112 |
+| compareAcrossLoadMaskedStore | 284 / 335 -> 63 / 91 | 314 / 337 -> 58 / 75 | 1095 / 1142 -> 561 / 605 | 190 / 212 -> 35 / 54 |
+| compareAcrossLoad | 51 / 52 -> 51 / 52 | 47 / 46 -> 47 / 45 | 58 / 59 -> 58 / 59 | 28 / 28 -> 27 / 27 |
+| constantMaskPredicate | 23 / 24 -> 23 / 24 | 19 / 19 -> 18 / 19 | 68 / 68 -> 68 / 68 | 12 / 13 -> 12 / 13 |
+| unsafeWithLiveMask | 47 / 51 -> 46 / 50 | 56 / 60 -> 57 / 59 | 88 / 93 -> 87 / 93 | 30 / 31 -> 31 / 32 |
+| heapMaskedSum (control) | 38 / 37 -> 37 / 38 | 51 / 52 -> 51 / 50 | 80 / 81 -> 80 / 81 | 25 / 23 -> 25 / 23 |
+| heapCompareBlendStore (control) | 71 / 70 -> 71 / 70 | 66 / 71 -> 64 / 63 | 532 / 531 -> 530 / 531 | 33 / 32 -> 32 / 32 |
+
+Against the unpatched base: the mode off / on, before -> now.
+
+| kernel | EPYC 9V74, windows-2025 (2 machines) | Xeon 8573C, windows-2022 | EPYC 7763, windows-2025 (4 machines) |
+|---|---|---|---|
+| segmentMaskedSum | -0% / +1% -> -69% / -69% | +3% / +14% -> -61% / -63% | -0% / +9% -> -69% / -69% |
+| segmentCompareBlendStore | +3% / +4% -> -73% / -72% | +2% / +5% -> -73% / -71% | +1% / +4% -> -40% / -37% |
+| tailMaskedCopy | -1% / +7% -> -31% / -31% | -2% / +8% -> -12% / -11% | -1% / +9% -> -17% / -9% |
+| compareAcrossLoadMaskedStore | +0% / +19% -> -78% / -68% | -1% / +6% -> -82% / -76% | -0% / +4% -> -49% / -45% |
+| compareAcrossLoad | -1% / +2% -> +0% / +2% | -2% / -4% -> -2% / -6% | -0% / +1% -> -0% / +1% |
+| constantMaskPredicate | -0% / +2% -> +0% / +2% | -2% / -1% -> -5% / -2% | -0% / -0% -> -0% / -0% |
+| unsafeWithLiveMask | +2% / +10% -> -1% / +7% | -4% / +2% -> -3% / +1% | -0% / +5% -> -1% / +5% |
+| heapMaskedSum (control) | +0% / -2% -> -2% / +0% | -3% / -2% -> -3% / -5% | +0% / +1% -> -0% / +1% |
+| heapCompareBlendStore (control) | +3% / +1% -> +2% / +1% | +1% / +8% -> -2% / -4% | +0% / +0% -> -0% / +0% |
+
+What the tables say:
+
+- the checks of the segment were most of the time of the masked loops, with or without the mode: without the
+  barrier the four masked kernels take 10% to 82% less time with the mode off, and 16% to 78% less with it on;
+- segmentMaskedSum, the one kernel here without unsafe accesses, costs nothing with the mode (it was +1% to
+  +10%): its loop is the same code with the mode on and off;
+- compareAcrossLoad, constantMaskPredicate and the heap kernels are as before, within the scatter of the
+  machines;
+- in the three compilations with unsafe accesses and a masked store, what the mode adds is now the copies of
+  section 5 alone (the hot loops differ from the mode off by these instructions, and here and there by a
+  spill move of a general purpose register), and in loops that are up to five times shorter they weigh as
+  much as before or more:
+  - compareAcrossLoadMaskedStore, AVX-512: 17 to 28 ns per call where it was 22 to 51 ns, which is +30% to +55%
+    of the shorter loop (it was +7% to +18% of the longer one); AVX2: 44 ns where it was 47 ns, +8% (+4%).
+    Before the fourth change (round 2, bench run 46095375455), with the zmm register still stored and loaded,
+    it was +81% on an EPYC 9V45 and +120% on two Xeon 8370C;
+  - tailMaskedCopy, AVX-512: 1 to 13 ns per call where it was 8 to 23 ns, +1% to +13% (+6% to +10%); AVX2:
+    41 ns where it was 49 ns, +10% (+10%). On the EPYC 7763 its forks fall on two levels with the mode on and
+    off alike (6 of 24 forks near 320 to 340 ns, 18 near 420 to 460 ns): the mode is +6% on the first and
+    +10% on the second;
+  - segmentCompareBlendStore: 1 to 2 ns per call with AVX-512 and 19 ns with AVX2, +3% to +5% (+0% to +4%).
+
+What is left, and what would remove it. With AVX-512 the loop of compareAcrossLoadMaskedStore has, per
+iteration, a broadcast of the limit, a store of the mask to the stack and a load of it (it had a store and a
+load of a zmm register in an unaligned slot and the broadcast); tailMaskedCopy has a store and a load of the
+mask; segmentCompareBlendStore the broadcast. With AVX2, where a mask is a ymm vector, the stores and loads
+are of 32 bytes, and an all-ones vector is made again for the test. All of it exists for one reader, the
+`m.allTrue()` with which `intoMemorySegment(..., m)` picks between the store without a mask and the masked one. That test is not a
+bounds check (both paths check their own bounds, the first in general purpose registers, the second with
+`anyTrue()` on the lanes out of bounds in a slow path), and a wrong answer after a resumed fault would store
+lanes in bounds that the mask excluded, which section 5 accepts for the stores of the window. But the rule
+counts every flags producer as a reader that checks, so that a check a program computes itself is covered
+whatever it is written with, and telling the two apart needs either trust in the shape of the Vector API (its
+own bounds checks use `anyTrue()` only) or a look at what the branch leads to. That is a narrowing of the rule
+of section 5, not of its enforcement, and it is not made here. Short of it, the test could be made in front of
+the raw load and its result carried in a general purpose register (a `kmov` and a compare in place of the
+store, the load and the `ktest`), which needs instructions that the matcher does not select today; or the raw
+load that sits between the compare and the test could be scheduled first, which needs it not to be folded
+into the add as a memory operand. unsafeWithLiveMask is as before (+3% to +8%): on the EPYC 7763 its +6% is
+two spill moves of a general purpose register in the loop, which is otherwise the same instruction for
+instruction with the mode on and off, and not a trap site.
+
+### Renaissance scrabble
+
+Round 17 had scrabble 2 to 5 points slower with the mode on than off on three of four machines, from three
+runs of 12 repetitions per configuration. That is not a difference. Measured again with ten interleaved pairs
+of runs per machine (30 repetitions each, the median of the last 15; the order within the pair alternates),
+and six pairs with C2 alone (-XX:-TieredCompilation) and with C1 alone (-XX:TieredStopAtLevel=1), in the
+bench runs of rounds 1, 2 and 4 of this branch (46088774917, 46095375455, 46099646297):
+
+| processor (machines) | every tier | C2 alone | C1 alone | sd of the runs, mode off |
+|---|---|---|---|---|
+| EPYC 7763 (6) | -0.8% (-2.1% to +0.6%), 25 of 60 | -1.8% (-3.8% to +0.3%), 15 of 36 | -2.2% (-5.7% to +1.3%), 18 of 36 | 2.5% to 4.7% |
+| EPYC 9V45 (3) | -0.2% (-1.1% to +0.8%), 15 of 30 | +0.0% (-1.6% to +1.7%), 7 of 18 | -0.2% (-5.8% to +5.7%), 7 of 18 | 1.8% to 2.7% |
+| EPYC 9V74 (2) | -0.1% (-1.7% to +1.5%), 11 of 20 | +2.9% (+0.7% to +5.2%), 9 of 12 | -2.1% (-7.5% to +3.6%), 6 of 12 | 1.6% to 2.4% |
+| Xeon 8370C (3) | -0.1% (-1.4% to +1.2%), 19 of 30 | -2.3% (-5.6% to +1.1%), 8 of 18 | +1.8% (-1.6% to +5.3%), 8 of 18 | 1.3% to 13.5% |
+| Xeon 8573C (3) | +0.8% (-0.7% to +2.3%), 18 of 30 | +0.0% (-1.0% to +1.1%), 12 of 18 | +3.9% (-1.2% to +9.4%), 9 of 18 | 1.4% to 3.7% |
+| all (17) | -0.2% (-0.9% to +0.4%), 88 of 170 | -0.7% (-1.7% to +0.4%), 51 of 102 | -0.1% (-2.1% to +1.9%), 48 of 102 | |
+
+Each cell is the mode on against the mode off: the mean of the pairs, its 95% interval, and the number of
+pairs in which the mode on was the slower one.
+
+One run of a configuration differs from the next by 1% to 5% (the standard deviation of the ten runs with the
+mode off on a machine), and now and then a whole run is 10% to 40% slower: 21 of 352 runs with the mode on and
+22 of 352 with it off are more than 8% above the median of their configuration on their machine. Over all 170
+pairs the mode on is 0.2% faster, between 0.9% faster and 0.4% slower, and the slower one in 88; one cell of
+the fifteen by processor has an interval that leaves out zero (C2 alone on the EPYC 9V74, 12 pairs). The
+fastdebug build counts no trap site of scrabble that the mode changes (0 of 823 implicit null checks explicit,
+0 of 125 loop polls branch). So the mode costs scrabble nothing that these machines can show. With three runs
+per configuration and this scatter, medians 2 to 5 points apart are what such a comparison gives every second
+or third time; the mode on was above the mode off on three of the four machines of round 17 by chance.
+
+### segmentMaskedSum on AVX2: +9% where it was +4%
+
+On the two EPYC 7763 of round 17, segmentMaskedSum took 292 ns with the mode on at e77590df934 and 278 ns at
+2fc793f7a63 (the base 265 ns, the mode off 267 ns), although the later build has one explicit null check per
+iteration where the earlier one had two. The compiled code of the two builds was compared (fastdebug, the same
+flags, the Intel JCC padding off as on AMD): the hot loop is the same, instruction for instruction and register
+for register, except that the earlier build has the explicit null check of the segment in front of its klass
+load (`test`, `jz`, 8 bytes) and the later one does not (the rule for null checks was narrowed in between);
+the rule for masks and vectors does not touch the compilation, which has no unsafe access. So nothing was
+added between the two builds: one check was removed, and every instruction behind it moved 8 bytes down. The
+loop had nine conditional branches in about 220 bytes, and its time on Zen 3 follows where they fall. The three
+of them again on four EPYC 7763 (bench run 46099646297; two rounds of two forks each; -XX:CodeEntryAlignment=64
+and the loops aligned as the row says; the median and the range of the eight measurements, ns):
+
+| loops aligned to | 2fc793f7a63, mode on | e77590df934, mode on | e77590df934, mode off |
+|---|---|---|---|
+| 16 bytes | 293 (286 to 295) | 274 (274 to 277) | 263 (262 to 276) |
+| 32 bytes | 278 (278 to 282) | 275 (273 to 292) | 292 (291 to 297) |
+| 64 bytes | 278 (277 to 283) | 292 (291 to 294) | 292 (291 to 294) |
+
+Each build is on one of three levels (near 263, 276 and 292 ns) and changes level with the alignment alone; the
+code without the mode goes from the lowest to the highest, 11%, when its loops are aligned to 32 bytes. With the
+default alignment the earlier build was on the middle level, the later one on the highest and the mode off on
+the lowest, which read as +4% and +9%. There was nothing to fix in the rules. The loop itself is gone with the
+memory barrier (its checks are in front of it): the kernel takes 84 ns on the same processor, with the mode on
+or off.
 
 ### MXCSR
 
@@ -976,7 +1314,8 @@ What was looked at and found to be no cost of the shapes:
   so the spill rule changes nothing by default.
 - The explicit null check that remains is `test reg, reg` and `jz`, one fused instruction of 8 or 9 bytes, at the
   sites whose null path reads losable state. No form without it exists: the null path needs the registers the trap
-  would lose.
+  would lose. (The null path of a check that must throw reads less than its trap named in frames with handlers:
+  see "A trap that must throw" in section 3 and the segment kernels below.)
 
 ### Masks at raw accesses
 
@@ -1041,6 +1380,10 @@ no check reads costs nothing, whatever raw accesses it is live across.
 - Explicit null checks: MachExplicitNullCheckNode (share/opto/machnode.hpp/.cpp); the MachNullCheck it replaces
   records no implicit exception (share/opto/output.cpp, fill_buffer() and FillExceptionTables()). x64 refuses
   flag-consuming candidates (share/opto/lcm.cpp).
+- What a trap that must throw names in frames with exception handlers: GraphKit::add_safepoint_edges(),
+  handlers_reached_by_throw() and handler_always_throws() (share/opto/graphKit.cpp), with the mode only.
+- No memory barrier at a masked Vector API access to raw memory: LibraryCallKit::
+  inline_vector_mem_masked_operation() (share/opto/vectorIntrinsics.cpp), whatever the mode.
 - Branch loop polls: MachSafePointNode::is_branch_poll(), the safePoint instructs of both .ad files,
   C2LoopPollStub (share/opto/c2_CodeStubs.hpp, cpu/*/c2_CodeStubs_*.cpp), and the shared blob
   polling_page_branch_safepoint_handler (share/runtime/stubDeclarations.hpp, sharedRuntime.cpp), generated by
@@ -1048,6 +1391,7 @@ no check reads costs nothing, whatever raw accesses it is live across.
 - The unsafe window: spill masks (share/opto/matcher.cpp, init_first_stack_mask()), rematerialization
   (MachNode::rematerialize(), has_losable_input()), APX exclusion (opto/chaitin.cpp), the masks and vectors that
   reach a check (NoTrapSites::protect_checked_values() from Compile::Code_Gen(), CheckFlow and protect_values()
+  with is_cheaper_on_stack() and move_in_front_of_accesses()
   in opto/noTrap.cpp, the check on the allocated code in NoTrapSites::apply(), the retries in
   opto/c2compiler.cpp, the kill of the mask registers in Matcher::kill_masks_at_raw_accesses(), no implicit null
   check on an access that defines a mask or a vector in opto/lcm.cpp), comment at the handler
@@ -1076,7 +1420,10 @@ Tests (test/hotspot/jtreg):
   into the handler that only the compiler knows. Fails on an affected kernel without the mode.
 - compiler/runtime/safepoints/TestExceptionXStateLossC1: the same for C1 in xmm16-31, C1 only and tiered.
 - compiler/runtime/safepoints/TestAvoidLosableStateAtTraps: the trap sites and their forms, with `invariantKernel`
-  for the narrowed null check rule.
+  for the narrowed null check rule and `finallyKernel` for the trap that must throw in a frame with a `finally`.
+- compiler/vectorapi/TestMaskedNativeSegmentChecks: no memory barrier at a masked access to a native segment
+  (id `ir`), and the loop whose checks were hoisted when its segment is closed, before the call or by another
+  thread during it, confined to another thread, or too short (id `close`).
 - compiler/runtime/safepoints/TestMaskKillAtRawAccesses: masks live across raw accesses as predicates and as the
   results of checks; its `kills` id reads the decisions of protect_checked_values() from the log.
 - compiler/runtime/safepoints/TestCheckedVectorsAtRawAccesses: the lane numbers of the check of a masked store
@@ -1092,6 +1439,24 @@ the first compiler tier1 group; on windows-11-arm compiler/runtime/safepoints, r
 compiler/vectorapi. All pass but compiler/vectorapi/TestMaskedNotAllOnes.java on windows-11-arm, which fails in
 the matcher (`duplicating node that's already been matched`) with the mode off as well: it is JDK-8386697 of
 mainline, open at the base of this branch.
+
+CI of the changes to the null checks of the segment kernels and to the copies of section 5 (the last two
+subsections of section 3, "Two choices" in section 5): run 46095852250
+(https://github.com/Auties00/jdk/actions/runs/46095852250), 22 jobs, all pass: the builds of windows-x64 and
+linux-x64, release and fastdebug; on linux-x64 with the mode forced the three compiler tier1 groups, tier2,
+compiler/vectorapi and compiler/vectorization, compiler/runtime/safepoints and jdk/foreign; on windows-2025 the
+same vector tests, jdk/incubator/vector, jdk/foreign, compiler/runtime/safepoints with runtime/jni/mxcsr and
+compiler/c1, and the first compiler tier1 group; and the reproducers on windows-2025 (26100.33828, bug present,
+an EPYC 7763 and an EPYC 9V45) and on windows-2022, which is not affected and where everything passes. On the
+affected kernel TestExceptionXStateLoss passes with the mode (5 of 5 ids,
+twice per machine) and fails with -XX:-AvoidLosableStateAtTraps and on the base; TestExceptionXStateLossC1
+passes with the mode and fails without it on the AVX-512 machine; TestCheckedVectorsAtRawAccesses passes with
+the mode (4 of 4 ids, twice per machine, `fault` with the page error) and its `fault` id fails with the mode
+off, on cost-kmask and on the base. The same passed with the change to the memory barrier alone (run
+46084046187) and with that and the change to the traps (run 46089976745). On windows-11-arm (run 46101545889,
+https://github.com/Auties00/jdk/actions/runs/46101545889) compiler/runtime/safepoints with runtime/jni/mxcsr and
+jdk/foreign pass, and compiler/vectorapi passes (114 tests, the new one included) but for
+TestMaskedNotAllOnes.java, the failure of mainline that is there with the mode off as well (JDK-8386697).
 
 The reproducers, in the same run and in run 46078200747 (https://github.com/Auties00/jdk/actions/runs/46078200747,
 the final test), on windows-2025 (26100.33828, native probe: bug present; EPYC 9V74 and 9V45) and windows-2022
@@ -1118,6 +1483,10 @@ the final test), on windows-2025 (26100.33828, native probe: bug present; EPYC 9
   gets its copy, and nothing is compiled again; that id fails on the build without the rule.
 
 ## 10. History
+
+The null checks of the segment kernels (the last two subsections of section 3, the two choices by cost in
+section 5, the segment kernels, scrabble and segmentMaskedSum on AVX2 in section 8) were done on branch
+JDK-8365196-cost-nullseg, on top of e77590df934.
 
 The first audit found the design (explicit null test, explicit div0 test, branch loop poll, C1 off
 xmm16-31) sound for loop polls, implicit null checks, div0, stack banging, deoptimization, handshakes, async
