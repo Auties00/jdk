@@ -1,0 +1,59 @@
+name: 'JDK-8365196 bcast native'
+
+# Review-only. The main loops of compareAcrossLoadMaskedStore and segmentCompareBlendStore as C2
+# emits them with AVX-512, in assembly (review11/kern.S), with the limit of the compare made in
+# different ways: which form costs what on which processor.
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-bcastbench-*'
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: native (${{ matrix.os }}, ${{ matrix.slot }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, windows-2025]
+        slot: [1, 2, 3, 4, 5, 6, 7, 8]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            review11
+      - name: 'Build and run'
+        run: |
+          set +e
+          mkdir -p out
+          if [ "$RUNNER_OS" = Windows ]; then
+            clang -O2 -o bench.exe review11/bench.c review11/kern.S
+          else
+            gcc -O2 -g -o bench.exe review11/bench.c review11/kern.S
+            grep -m1 flags /proc/cpuinfo | grep -o 'avx512[a-z0-9_]*' | xargs echo
+          fi
+          ./bench.exe > out/run-1.txt 2>&1
+          code=$?
+          cat out/run-1.txt
+          if [ $code != 0 ] && [ "$RUNNER_OS" = Linux ]; then
+            gdb -batch -ex run -ex bt -ex 'x/8i $pc' -ex 'info registers' ./bench.exe 2>&1 | tail -70 | tee out/gdb.txt
+          fi
+          if [ $code = 0 ]; then
+            for p in 2 3; do ./bench.exe | tee out/run-$p.txt; done
+          fi
+          { echo "### $(head -1 out/run-1.txt)"; echo '```'; cat out/run-*.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: native-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
