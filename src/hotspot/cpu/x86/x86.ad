@@ -4249,7 +4249,36 @@ static bool is_bmi_pattern(Node* n, Node* m) {
 }
 
 // Should the matcher clone input 'm' of node 'n'?
+// (VectorMaskCmp src (Replicate con) cond) with a mask register as its result, in a compilation with
+// unsafe accesses under AvoidLosableStateAtTraps. The vector of the constant, which a loop keeps
+// in a register across its raw accesses, would be made again in front of every compare whose mask
+// reaches a check (NoTrapSites::protect_checked_values()); matched with the compare (evcmp_con,
+// evcmp_conL), the constant is a memory operand of the compare, read from the constant table, and
+// there is no such vector.
+static bool is_vcmp_con_pattern(Node* n, Node* m) {
+  if (Matcher::no_trap() == nullptr || !Compile::current()->has_unsafe_access() ||
+      n->Opcode() != Op_VectorMaskCmp || m->Opcode() != Op_Replicate ||
+      n->req() != 4 || n->in(2) != m || n->in(1) == m || // no mask input, and the constant on the right
+      !n->bottom_type()->is_pvectmask() || m->in(1) == nullptr || !m->in(1)->is_Con()) {
+    return false;
+  }
+  const TypeVect* vt = n->in(1)->bottom_type()->isa_vect();
+  if (vt == nullptr || vt->length_in_bytes() < 16) {
+    return false;
+  }
+  const BasicType bt = vt->element_basic_type();
+  const Type* con = m->in(1)->bottom_type();
+  if (bt == T_LONG) {
+    return con->is_long();
+  }
+  return (is_subword_type(bt) || bt == T_INT) && con->is_int();
+}
+
 bool Matcher::pd_clone_node(Node* n, Node* m, Matcher::MStack& mstack) {
+  if (is_vcmp_con_pattern(n, m)) { // VectorMaskCmp src (Replicate con) cond
+    mstack.push(m, Visit);         // m = Replicate
+    return true;
+  }
   // If 'n' and 'm' are part of a graph for BMI instruction, clone the input 'm'.
   if (VM_Version::supports_bmi1() && VM_Version::supports_avx() && is_bmi_pattern(n, m)) {
     mstack.push(m, Visit);
@@ -22590,6 +22619,66 @@ instruct evcmp(kReg dst, vec src1, vec src2, immI8 cond) %{
       }
       default: assert(false, "%s", type2name(src1_elem_bt));
     }
+  %}
+  ins_pipe( pipe_slow );
+%}
+
+// With AvoidLosableStateAtTraps, in a compilation with unsafe accesses: the compare of a vector
+// with a vector of one constant reads the constant from the constant table (see
+// is_vcmp_con_pattern()).
+instruct evcmp_con(kReg dst, vec src1, immI con, immI8 cond) %{
+  predicate(n->bottom_type()->is_pvectmask() &&
+            Matcher::is_non_long_integral_vector(n->in(1)->in(1)) && // src1
+            Matcher::vector_length_in_bytes(n->in(1)->in(1)) >= 16 &&
+            Matcher::no_trap() != nullptr && Compile::current()->has_unsafe_access());
+  match(Set dst (VectorMaskCmp (Binary src1 (Replicate con)) cond));
+  format %{ "vector_compared_evex $dst,$src1,[$con],$cond\t!" %}
+  ins_encode %{
+    assert(UseAVX > 2, "required");
+    assert(bottom_type()->is_pvectmask(), "TypePVectMask expected");
+
+    int vlen_enc = vector_length_encoding(this, $src1);
+    Assembler::ComparisonPredicate cmp = booltest_pred_to_comparison_pred($cond$$constant);
+    bool is_unsigned = Matcher::is_unsigned_booltest_pred($cond$$constant);
+    BasicType src1_elem_bt = Matcher::vector_element_basic_type(this, $src1);
+    InternalAddress addr = $constantaddress(vreplicate_imm(Matcher::vector_element_basic_type(this, $src1), $con$$constant,
+                                                           Matcher::vector_length(this, $src1)));
+
+    switch (src1_elem_bt) {
+      case T_BYTE: {
+        __ evpcmpb($dst$$KRegister, k0, $src1$$XMMRegister, addr, cmp, !is_unsigned, vlen_enc, noreg);
+        break;
+      }
+      case T_SHORT: {
+        __ evpcmpw($dst$$KRegister, k0, $src1$$XMMRegister, addr, cmp, !is_unsigned, vlen_enc, noreg);
+        break;
+      }
+      case T_INT: {
+        __ evpcmpd($dst$$KRegister, k0, $src1$$XMMRegister, addr, cmp, !is_unsigned, vlen_enc, noreg);
+        break;
+      }
+      default: assert(false, "%s", type2name(src1_elem_bt));
+    }
+  %}
+  ins_pipe( pipe_slow );
+%}
+
+instruct evcmp_conL(kReg dst, vec src1, immL con, immI8 cond) %{
+  predicate(n->bottom_type()->is_pvectmask() &&
+            Matcher::vector_element_basic_type(n->in(1)->in(1)) == T_LONG && // src1
+            Matcher::vector_length_in_bytes(n->in(1)->in(1)) >= 16 &&
+            Matcher::no_trap() != nullptr && Compile::current()->has_unsafe_access());
+  match(Set dst (VectorMaskCmp (Binary src1 (Replicate con)) cond));
+  format %{ "vector_compared_evex $dst,$src1,[$con],$cond\t!" %}
+  ins_encode %{
+    assert(UseAVX > 2, "required");
+    assert(bottom_type()->is_pvectmask(), "TypePVectMask expected");
+
+    int vlen_enc = vector_length_encoding(this, $src1);
+    Assembler::ComparisonPredicate cmp = booltest_pred_to_comparison_pred($cond$$constant);
+    bool is_unsigned = Matcher::is_unsigned_booltest_pred($cond$$constant);
+    InternalAddress addr = $constantaddress(vreplicate_imm(T_LONG, $con$$constant, Matcher::vector_length(this, $src1)));
+    __ evpcmpq($dst$$KRegister, k0, $src1$$XMMRegister, addr, cmp, !is_unsigned, vlen_enc, noreg);
   %}
   ins_pipe( pipe_slow );
 %}
