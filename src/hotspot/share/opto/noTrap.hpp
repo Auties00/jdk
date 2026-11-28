@@ -32,6 +32,7 @@
 class C2_MacroAssembler;
 class Compile;
 class Label;
+class MachNode;
 class PhaseIterGVN;
 class RegMask;
 
@@ -109,6 +110,14 @@ class NoTrapPlatform {
   // behind the mask or vector it reads, in front of the raw accesses, where it can be (see
   // NoTrapSites::protect_checked_values()).
   virtual bool tests_masks_as_integers() const = 0;
+  // For value, a vector whose lanes are one constant that its instruction loads from memory: a
+  // node that makes the same vector from kept, a value that holds the constant in a register that
+  // no resumed fault loses, where the platform has such an instruction and the processor makes the
+  // vector faster that way than by the load; or null. kept is made by the call if it is null, and
+  // the caller then places it where it dominates the result. Neither node is in a block.
+  virtual MachNode* broadcast_from_register(Compile* C, const MachNode* value, MachNode*& kept) const {
+    return nullptr;
+  }
 };
 
 // The pass that gives C2 trap sites their non-trapping form after register allocation.
