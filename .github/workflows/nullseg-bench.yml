@@ -1,0 +1,252 @@
+name: 'JDK-8365196 nullseg bench'
+
+# Review-only. The cost of AvoidLosableStateAtTraps on the off-heap MemorySegment and Vector API kernels of
+# review9, with the bundles of a run of the nullseg CI workflow against the integrated branch before it
+# (round 17) and the unpatched base; Renaissance scrabble with the mode on and off, with every tier, with C2
+# only and with C1 only; and the code of the kernels on the machine that measured them (fastdebug builds).
+
+on:
+  push:
+    branches:
+      - 'JDK-8365196-ci-nullsegbench-*'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  # The nullseg CI run whose bundles are measured.
+  NEW_RUN: 46089976745
+  # The CI run of the integrated branch before this work (round 17, the code of e77590df934).
+  BEFORE_RUN: 46062686610
+  # The unpatched base (2b376fb353c).
+  BASE_RUN: 46023299763
+  # The notrap branch before the cost branches (2fc793f7a63).
+  PREV_RUN: 45896947412
+  JMH_ARGS: '-f 2 -wi 4 -i 6 -w 1 -r 1'
+
+jobs:
+  bench:
+    name: bench (${{ matrix.os }}, ${{ matrix.slot }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2025, slot: 1 }
+          - { os: windows-2025, slot: 2 }
+          - { os: windows-2025, slot: 3 }
+          - { os: windows-2025, slot: 4 }
+          - { os: windows-2022, slot: 1 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review9
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-new
+          run-id: ${{ env.NEW_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64
+          path: b-before
+          run-id: ${{ env.BEFORE_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-base
+          path: b-base
+          run-id: ${{ env.BASE_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'JMH: base (B), before with the mode on (P) and off (Q), now with the mode on (N) and off (O)'
+        run: |
+          set +e
+          mkdir -p out new before base
+          unzip -q b-new/jdk-windows-x64.zip -d new; unzip -q b-before/jdk-windows-x64.zip -d before; unzip -q b-base/jdk-windows-x64.zip -d base
+          rm -rf b-new b-before b-base
+          bin() { dirname "$(find "$1" -name java.exe -path '*/bin/*' | head -1)"; }
+          NBIN=$(bin new); PBIN=$(bin before); BBIN=$(bin base)
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()" | tee out/cpu.txt
+          powershell -NoProfile -Command "\$v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; \"\$(\$v.ProductName) \$(\$v.CurrentBuild).\$(\$v.UBR)\"" | tee out/build.txt
+          "$NBIN/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|AvoidLosableStateAtTraps) ' | tee out/flags.txt
+          "$NBIN/java" -version 2>&1 | tee out/version.txt
+          m2=https://repo1.maven.org/maven2
+          for a in org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar; do
+            curl -sfL --retry 6 --retry-all-errors --retry-delay 5 -o "lib-$(basename $a)" "$m2/$a" || echo "download failed: $a"
+          done
+          cp="lib-jmh-core-1.37.jar;lib-jopt-simple-5.0.4.jar;lib-commons-math3-3.6.1.jar"
+          "$BBIN/javac" --add-modules jdk.incubator.vector -proc:full -cp "$cp;lib-jmh-generator-annprocess-1.37.jar" -d jmhc src/review9/*.java 2>&1 | grep -v -i warning | tail -5
+          for v in 0.16.1 0.16.0 0.15.0; do
+            curl -sfL -o renaissance.jar "https://github.com/renaissance-benchmarks/renaissance/releases/download/v$v/renaissance-gpl-$v.jar" && break
+          done
+          OFF="-XX:+UnlockDiagnosticVMOptions -XX:-AvoidLosableStateAtTraps"
+          declare -A JAVA FLAGS
+          JAVA[B]="$BBIN/java"; FLAGS[B]=""
+          JAVA[P]="$PBIN/java"; FLAGS[P]=""
+          JAVA[Q]="$PBIN/java"; FLAGS[Q]="$OFF"
+          JAVA[N]="$NBIN/java"; FLAGS[N]=""
+          JAVA[O]="$NBIN/java"; FLAGS[O]="$OFF"
+          for round in 1 2 3; do
+            order="B P Q N O"; [ $round = 2 ] && order="N O B Q P"; [ $round = 3 ] && order="O Q N P B"
+            for c in $order; do
+              "${JAVA[$c]}" -cp "jmhc;$cp" org.openjdk.jmh.Main \
+                -jvmArgsAppend "--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow ${FLAGS[$c]}" \
+                -rf csv -rff "out/jmh-$c-$round.csv" $JMH_ARGS "review9" > "out/jmh-$c-$round.log" 2>&1
+              tail -14 "out/jmh-$c-$round.log"
+            done
+          done
+          "${JAVA[N]}" -cp "jmhc;$cp" org.openjdk.jmh.Main \
+            -jvmArgsAppend "--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow -Xlog:jit+compilation=debug" \
+            -f 1 -wi 3 -i 1 -w 1 -r 1 "review9" > out/decisions.log 2>&1
+          grep "no-trap:" out/decisions.log | sed 's/^.*no-trap/no-trap/' | sort | uniq -c | sort -rn > out/decisions.txt
+          echo "retried or without a copy: $(grep -c -E 'retrying|no copy|cannot be kept' out/decisions.txt)" | tee -a out/decisions.txt
+          rm -f out/decisions.log
+          # scrabble: the mode on (N) against the mode off (O), in alternating order; every tier, C2 only, C1 only
+          declare -A TIER
+          TIER[all]=""; TIER[c2]="-XX:-TieredCompilation"; TIER[c1]="-XX:TieredStopAtLevel=1"
+          scrabble() {
+            local t=$1 round=$2 order=$3
+            for c in $order; do
+              timeout 600 "${JAVA[$c]}" ${FLAGS[$c]} ${TIER[$t]} -Xms2g -Xmx2g -jar renaissance.jar -r 30 --csv "out/scr-$t-$c-$round.csv" scrabble > "out/scr-$t-$c-$round.log" 2>&1 || echo "scrabble $t $c $round failed: $(tail -3 out/scr-$t-$c-$round.log | tr '\n' ' ')"
+            done
+          }
+          for round in 1 2 3 4 5 6 7 8 9 10; do
+            order="O N B"; [ $((round % 2)) = 0 ] && order="N O B"
+            scrabble all $round "$order"
+          done
+          for round in 1 2 3 4 5 6; do
+            order="O N"; [ $((round % 2)) = 0 ] && order="N O"
+            scrabble c2 $round "$order"
+            scrabble c1 $round "$order"
+          done
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: kbench-${{ matrix.os }}-${{ matrix.slot }}
+          path: out
+          retention-days: 30
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-debug
+          path: d-new
+          run-id: ${{ env.NEW_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-windows-x64-debug
+          path: d-before
+          run-id: ${{ env.BEFORE_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'The code of the kernels on this machine: before (P), now (N), now with the mode off (O)'
+        run: |
+          set +e
+          mkdir -p asm dnew dbefore
+          unzip -q d-new/jdk-windows-x64-debug.zip -d dnew; unzip -q d-before/jdk-windows-x64-debug.zip -d dbefore
+          rm -rf d-new d-before
+          bin() { dirname "$(find "$1" -name java.exe -path '*/bin/*' | head -1)"; }
+          NBIN=$(bin dnew); PBIN=$(bin dbefore)
+          cp out/cpu.txt asm/cpu.txt
+          cp="lib-jmh-core-1.37.jar;lib-jopt-simple-5.0.4.jar;lib-commons-math3-3.6.1.jar"
+          one() {
+            local c=$1 k=$2 java flags=""
+            case $c in
+              P) java="$PBIN/java";;
+              N) java="$NBIN/java";;
+              O) java="$NBIN/java"; flags="-XX:-AvoidLosableStateAtTraps";;
+            esac
+            "$java" -Djmh.ignoreLock=true -cp "jmhc;$cp" org.openjdk.jmh.Main \
+              -jvmArgsAppend "--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow -XX:+UnlockDiagnosticVMOptions $flags -XX:CompileCommand=quiet -XX:CompileCommand=PrintOptoAssembly,*::$k -XX:+PrintOptoStatistics" \
+              -f 1 -wi 3 -i 1 -w 1 -r 1 "review9.*\\.$k\$" > "asm/asm-$c-$k.log" 2>&1
+            echo "$c $k: compilations $(grep -c 'OptoAssembly for' "asm/asm-$c-$k.log"), null checks $(grep -c 'NullCheck' "asm/asm-$c-$k.log"), explicit $(grep -c 'explicit null check' "asm/asm-$c-$k.log"), $(grep -E 'AvoidLosableStateAtTraps: ' "asm/asm-$c-$k.log" | tail -1)"
+          }
+          export -f one; export NBIN PBIN cp
+          for k in segmentMaskedSum segmentCompareBlendStore tailMaskedCopy compareAcrossLoad compareAcrossLoadMaskedStore constantMaskPredicate unsafeWithLiveMask heapMaskedSum; do
+            for c in P N O; do echo "$c $k"; done
+          done | xargs -P 3 -L 1 bash -c 'one $0 $1' | sort | tee asm/summary.txt
+          # scrabble in the fastdebug build: how many trap sites take the non-trapping form
+          "$NBIN/java" -XX:+PrintOptoStatistics -Xms2g -Xmx2g -jar renaissance.jar -r 6 scrabble 2>&1 | grep -E 'AvoidLosableStateAtTraps: ' | tee asm/scrabble-sites.txt
+          { echo "### $(cat asm/cpu.txt)"; echo '```'; cat asm/summary.txt asm/scrabble-sites.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: kasm-${{ matrix.os }}-${{ matrix.slot }}
+          path: asm
+          retention-days: 30
+
+  bench-linux:
+    name: bench (linux, ${{ matrix.slot }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: src
+          sparse-checkout: |
+            review9
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64
+          path: b-new
+          run-id: ${{ env.NEW_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bundles-linux-x64
+          path: b-before
+          run-id: ${{ env.BEFORE_RUN }}
+          github-token: ${{ github.token }}
+      - name: 'JMH: before with the mode forced on (P) and off (Q), now forced on (N) and off (O)'
+        run: |
+          set +e
+          mkdir -p out new before
+          tar -xzf "$(ls b-new/jdk-linux-x64*.tar.gz | grep -v symbols | grep -v debug | grep -v static | head -1)" -C new
+          tar -xzf "$(ls b-before/jdk-linux-x64*.tar.gz | grep -v symbols | grep -v debug | grep -v static | head -1)" -C before
+          NJ=$(dirname "$(find new -name java -path '*/bin/*' -type f | head -1)")
+          PJ=$(dirname "$(find before -name java -path '*/bin/*' -type f | head -1)")
+          grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //' | tee out/cpu.txt
+          echo "Linux $(uname -r)" | tee out/build.txt
+          "$NJ/java" -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version | grep -E ' (UseAVX|MaxVectorSize|AvoidLosableStateAtTraps) ' | tee out/flags.txt
+          m2=https://repo1.maven.org/maven2
+          for a in org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar; do
+            curl -sfL --retry 6 --retry-all-errors --retry-delay 5 -o "lib-$(basename $a)" "$m2/$a" || echo "download failed: $a"
+          done
+          cp="lib-jmh-core-1.37.jar:lib-jopt-simple-5.0.4.jar:lib-commons-math3-3.6.1.jar"
+          "$PJ/javac" --add-modules jdk.incubator.vector -proc:full -cp "$cp:lib-jmh-generator-annprocess-1.37.jar" -d jmhc src/review9/*.java 2>&1 | grep -v -i warning | tail -5
+          declare -A JAVA FLAGS
+          JAVA[P]="$PJ/java"; FLAGS[P]="-XX:+AvoidLosableStateAtTraps"
+          JAVA[Q]="$PJ/java"; FLAGS[Q]="-XX:-AvoidLosableStateAtTraps"
+          JAVA[N]="$NJ/java"; FLAGS[N]="-XX:+AvoidLosableStateAtTraps"
+          JAVA[O]="$NJ/java"; FLAGS[O]="-XX:-AvoidLosableStateAtTraps"
+          for round in 1 2 3; do
+            order="P Q N O"; [ $round = 2 ] && order="N O Q P"; [ $round = 3 ] && order="O N P Q"
+            for c in $order; do
+              "${JAVA[$c]}" -cp "jmhc:$cp" org.openjdk.jmh.Main \
+                -jvmArgsAppend "--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow -XX:+UnlockDiagnosticVMOptions ${FLAGS[$c]}" \
+                -rf csv -rff "out/jmh-$c-$round.csv" $JMH_ARGS "review9" > "out/jmh-$c-$round.log" 2>&1
+              tail -14 "out/jmh-$c-$round.log"
+            done
+          done
+          exit 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: kbench-linux-${{ matrix.slot }}
+          path: out
+          retention-days: 30
