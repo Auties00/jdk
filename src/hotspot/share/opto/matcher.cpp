@@ -1656,6 +1656,12 @@ static bool match_into_reg( const Node *n, Node *m, Node *control, int i, bool s
       // efficiently fold into them on X64 in some cases.
       return false;
     }
+    // AvoidLosableStateAtTraps: the vector of a constant that a compare reads is matched with the
+    // compare, like a constant, whatever else reads it (see NoTrapPlatform::matches_with_compare()).
+    const NoTrapPlatform* no_trap = Matcher::no_trap();
+    if (no_trap != nullptr && no_trap->matches_with_compare(n, m)) {
+      return false;
+    }
   }
 
   // Not forceable cloning.  If shared, put it into a register.

@@ -32,6 +32,7 @@
 class C2_MacroAssembler;
 class Compile;
 class Label;
+class Node;
 class PhaseIterGVN;
 class RegMask;
 
@@ -109,6 +110,12 @@ class NoTrapPlatform {
   // behind the mask or vector it reads, in front of the raw accesses, where it can be (see
   // NoTrapSites::protect_checked_values()).
   virtual bool tests_masks_as_integers() const = 0;
+  // Whether m, an input of the Binary binary of a vector compare, is matched as a part of the
+  // compare even where other nodes read it, which then read a copy of their own in a register:
+  // the vector of a constant, which the compare reads from the constant table instead of from a
+  // register that a resumed fault can zero (the debug info of every trap of a method names such a
+  // vector, where the method keeps it in a local).
+  virtual bool matches_with_compare(const Node* binary, const Node* m) const = 0;
 };
 
 // The pass that gives C2 trap sites their non-trapping form after register allocation.
