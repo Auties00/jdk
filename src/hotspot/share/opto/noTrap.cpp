@@ -579,6 +579,49 @@ static bool is_cheaper_on_stack(PhaseCFG* cfg, const Node* value, const Block* b
   return on_stack < again;
 }
 
+// Moves reader, a mask that is made from its inputs alone (see is_recomputable()) and that follows a
+// raw access of block, up to position at, in front of the access, if its inputs are defined there;
+// those that are defined later in the block and can be made anywhere (the copies of constants that
+// an earlier round put in front of the reader) move with it. The reader then reads its inputs
+// before the access, and what crosses the access for the check is its result, a mask, which is
+// kept on the stack in a few bytes where a vector among the inputs would take a slot of its own
+// size (64 bytes for a zmm register, which no frame aligns). Returns whether it moved the reader.
+static bool move_in_front_of_accesses(PhaseCFG* cfg, Block* block, Node* reader, uint at, VectorSet& moved) {
+  if (!is_mask_value(reader) || !is_recomputable(reader) || moved.test(reader->_idx)) {
+    return false;
+  }
+  GrowableArray<Node*> late;
+  for (uint k = 1; k < reader->req(); k++) {
+    Node* in = reader->in(k);
+    const Block* in_block = cfg->get_block_for_node(in);
+    if (in_block == nullptr) {
+      return false;
+    }
+    if (in_block != block || block->find_node(in) < at) {
+      continue;
+    }
+    if (!is_recomputable(in) && !(is_mask_value(in) && is_constant_mask(in))) {
+      return false;
+    }
+    for (uint j = 1; j < in->req(); j++) {
+      const Block* from = cfg->get_block_for_node(in->in(j));
+      if (from == nullptr || (from == block && block->find_node(in->in(j)) >= at)) {
+        return false;
+      }
+    }
+    late.append_if_missing(in);
+  }
+  uint to = at;
+  for (int i = 0; i < late.length(); i++) {
+    block->find_remove(late.at(i));
+    block->insert_node(late.at(i), to++);
+  }
+  block->find_remove(reader);
+  block->insert_node(reader, to);
+  moved.set(reader->_idx);
+  return true;
+}
+
 // Logs why value, which reaches a check across a raw access, gets no copy.
 static void log_unprotected(const Node* value, const char* reason) {
   log_debug(jit, compilation)("no-trap: no copy for %s %u (%s): %s", NodeClassNames[value->Opcode()], value->_idx,
@@ -605,11 +648,13 @@ static void log_unprotected(const Node* value, const char* reason) {
 //   the allocator's copy removal, which follows copies to a register that still holds the value,
 //   cannot make a reader read the register of the mask, or an earlier reload, again.
 // A reader that follows the definition in its block with no raw access in between reads the mask
-// itself. The copy for a Phi goes to the end of the predecessor block. Returns the number of values
-// it protected. stacks holds, by ideal register class, the stack slots a value of the class can be
-// spilled to, made on demand.
+// itself; and where the masks are followed (masks_followed: no raw access kills the mask registers),
+// a reader of a vector that makes a mask from it is moved there (see move_in_front_of_accesses()),
+// which the moved set remembers. The copy for a Phi goes to the end of the predecessor block.
+// Returns the number of values it protected. stacks holds, by ideal register class, the stack slots
+// a value of the class can be spilled to, made on demand.
 static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, const GrowableArray<Node*>& masks,
-                          VectorSet& stack_bound, RegMask** stacks) {
+                          VectorSet& stack_bound, VectorSet& moved, bool masks_followed, RegMask** stacks) {
   int count = 0;
   for (int i = 0; i < masks.length(); i++) {
     Node* mask = masks.at(i);
@@ -650,6 +695,7 @@ static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, cons
     }
     GrowableArray<Node*> readers;
     GrowableArray<uint> inputs;
+    bool moved_readers = false;
     for (int u = 0; u < users.length(); u++) {
       Node* user = users.at(u);
       Block* user_block = cfg->get_block_for_node(user);
@@ -682,17 +728,31 @@ static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, cons
           if (user_at > def_at && !raw_access_between(block, def_at, user_at)) {
             continue;
           }
+          // A vector that cannot be computed again and is read, after the access, for a mask: the
+          // mask is made in front of the access instead, and found in the next round.
+          if (masks_followed && user_at > def_at && !constant && can_keep && is_vector_value(mask) &&
+              move_in_front_of_accesses(cfg, block, user, keep_at, moved)) {
+            moved_readers = true;
+            break;
+          }
         }
         readers.append(user);
         inputs.append(k);
       }
     }
     if (readers.is_empty()) {
-      log_unprotected(mask, "no reader that checks after a raw access");
+      if (moved_readers) {
+        count++;
+      } else {
+        log_unprotected(mask, "no reader that checks after a raw access");
+      }
       continue;
     }
 
-    if (constant && !constant_mask && can_keep && is_cheaper_on_stack(cfg, mask, block, readers, inputs)) {
+    // A mask that was moved in front of the accesses is kept on the stack: computed again for its
+    // readers, it would read its inputs after the accesses again.
+    if (constant && !constant_mask && can_keep &&
+        (moved.test(mask->_idx) || is_cheaper_on_stack(cfg, mask, block, readers, inputs))) {
       constant = false;
     }
     Node* keep = nullptr;
@@ -755,6 +815,7 @@ void NoTrapSites::protect_checked_values(Compile* C, const NoTrapPlatform* platf
     stacks[i] = nullptr;
   }
   VectorSet stack_bound;
+  VectorSet moved;
   GrowableArray<MachNode*> accesses;
   bool vector_lost = false;
   int protected_values = 0;
@@ -768,7 +829,7 @@ void NoTrapSites::protect_checked_values(Compile* C, const NoTrapPlatform* platf
     if (round == 8) {
       break;
     }
-    const int protected_now = protect_values(C, cfg, flow, values, stack_bound, stacks);
+    const int protected_now = protect_values(C, cfg, flow, values, stack_bound, moved, masks_losable, stacks);
     if (protected_now == 0) {
       break;
     }
