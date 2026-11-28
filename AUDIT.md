@@ -1489,8 +1489,12 @@ no check reads costs nothing, whatever raw accesses it is live across.
 - The unsafe window: spill masks (share/opto/matcher.cpp, init_first_stack_mask()), rematerialization
   (MachNode::rematerialize(), has_losable_input()), APX exclusion (opto/chaitin.cpp), the masks and vectors that
   reach a check (NoTrapSites::protect_checked_values() from Compile::Code_Gen(), CheckFlow and protect_values()
-  with is_cheaper_on_stack() and move_in_front_of_accesses()
-  in opto/noTrap.cpp, the check on the allocated code in NoTrapSites::apply(), the retries in
+  with is_cheaper_on_stack(), move_in_front_of_accesses(), move_check_behind_value() and
+  hoist_accesses_above_merge() in opto/noTrap.cpp; the tests of masks as integers, with the bits of masks that
+  are made or merged from tested masks and the booleans of a mask from its bits, in
+  NoTrapSites::test_masks_as_integers() from Compile::Optimize(); the compare with a constant from the constant
+  table in cpu/x86/x86.ad, evcmp_con and evcmp_conL, with X86NoTrap::matches_with_compare() asked by
+  match_into_reg() in opto/matcher.cpp; the check on the allocated code in NoTrapSites::apply(), the retries in
   opto/c2compiler.cpp, the kill of the mask registers in Matcher::kill_masks_at_raw_accesses(), no implicit null
   check on an access that defines a mask or a vector in opto/lcm.cpp), comment at the handler
   (os/windows/os_windows.cpp, EXCEPTION_IN_PAGE_ERROR).
@@ -1525,8 +1529,10 @@ Tests (test/hotspot/jtreg):
 - compiler/runtime/safepoints/TestMaskKillAtRawAccesses: masks live across raw accesses as predicates and as the
   results of checks; its `kills` id reads the decisions of protect_checked_values() from the log.
 - compiler/runtime/safepoints/TestCheckedVectorsAtRawAccesses: the lane numbers of the check of a masked store
-  (counterexample 4), the index vector of a gather, and a check kept in long-lane vectors; its `protects` id reads
-  the decisions from the log, and its `fault` id takes a real page error at the raw access.
+  (counterexample 4), the index vector of a gather, a check kept in long-lane vectors, and two checks that the
+  program writes with `allTrue()` (`allTrueCheckKernel`: the negation of a mask from before the read, and a
+  compare, behind the read, of a vector from before it); its `protects` id reads the decisions from the log,
+  and its `fault` id takes a real page error at the raw access.
 - runtime/jni/mxcsr/TestMXCSRRestore (JNI, FFM downcalls and upcalls) and TestMXCSRAfterJVMTICallback.
 
 CI of the integrated branch: run 46062686610 (https://github.com/Auties00/jdk/actions/runs/46062686610), builds
@@ -1581,6 +1587,10 @@ the final test), on windows-2025 (26100.33828, native probe: bug present; EPYC 9
   gets its copy, and nothing is compiled again; that id fails on the build without the rule.
 
 ## 10. History
+
+The tests of masks as integers, the checks that are made behind their masks, the raw loads in front of a merge
+and the compare with a constant from the constant table (steps 0 and 1 of "How the rule is enforced" in section
+5, "The tests of masks" in section 8) were done on branch JDK-8365196-cost-alltrue, on top of 666f6f18254.
 
 The null checks of the segment kernels (the last two subsections of section 3, the two choices by cost in
 section 5, the segment kernels, scrabble and segmentMaskedSum on AVX2 in section 8) were done on branch
