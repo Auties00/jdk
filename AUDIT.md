@@ -683,7 +683,10 @@ opto/noTrap.cpp):
   a boxed mask).
 - **A reader that checks**: everything else that defines no mask or vector. Flags producers (VectorTest, that is
   `anyTrue`/`allTrue`, on masks and, with AVX2, on vectors), conversions of a mask to an integer (`toLong`,
-  `trueCount`, `firstTrue`, `lastTrue`), the arguments of calls, returns.
+  `trueCount`, `firstTrue`, `lastTrue`), the arguments of calls, returns. On x64 `anyTrue` and `allTrue` are
+  themselves conversions to an integer in these compilations (step 0 below): the reader that checks is then the
+  instruction that moves the bits of the mask to a general purpose register, and the compare of that register
+  reads no mask and no vector.
 - **A reader that does not check**: the vector stores and scatters (they store what the vector holds or, with a
   zeroed mask, nothing), and the arithmetic reductions and lane extracts. The integer or floating point result of
   a reduction or an extract is a value of the window like the vector it is computed from, and it is tested as an
@@ -734,6 +737,50 @@ a memory segment, the common case, for the sake of that one.
 
 ### How the rule is enforced
 
+0. **Before matching, the tests of masks read integers** (`NoTrapSites::test_masks_as_integers()`, called from
+   `Compile::Optimize()` once the compilation is known to have unsafe accesses; x64 only,
+   `NoTrapPlatform::tests_masks_as_integers()`). A test of all or any lanes of a mask is a VectorTest, whose
+   result is the condition codes: a `kortest` of the mask register or, where masks are vectors, a `ptest` against
+   a vector of ones. The condition codes cannot be kept across the instructions that the scheduler puts between a
+   mask and its test (an add with a memory operand sets them, and so does the explicit null test of section 3),
+   so the instruction that reads the mask for the test was always the last one in front of the branch, behind
+   every raw access of its block. Each VectorTest is replaced by `VectorMaskToLong(mask)` and a compare of that
+   long: equal to the bits of a mask with every lane set for `allTrue`, not zero for `anyTrue` (a `kmov`, or a
+   `movmsk` of the vector, and a `cmp` with an immediate). It is the conversion behind `VectorMask.toLong()`, with
+   the same bits. Nothing about the rule changes: the conversion defines no mask and no vector, so it is a reader
+   that checks, as the VectorTest was, and a mask or a vector that reaches it across a raw access is found and
+   protected like any other. What changes is that its result can cross an access: it is a long in a general
+   purpose register, and these compilations keep integers out of every losable register (counterexample 1, and
+   r16-r31 with APX). A VectorTest stays as it is where its shape is not the one the Vector API makes (a second
+   input that is not the mask or a vector of ones, a Bool that is neither the test nor its negation) or where the
+   conversion is not supported for the mask (more than 64 lanes; a vector mask of two lanes or of more than 256
+   bits): it is then a reader that checks whose value comes from the stack or is computed again, as before.
+
+   A tested mask that is made by bitwise operations from other masks is converted through them where one of
+   those masks is tested itself, or is the constant with every lane set: the bits of each mask are converted
+   and the operation is made on the longs (`toLong(a & b)` is `toLong(a) & toLong(b)`, bit for bit, also where
+   masks are vectors and the bit of a lane is its sign). The slow path of a masked access tests whether any lane
+   of its mask is out of bounds, `m.and(outOfBounds).anyTrue()`, and `intoMemorySegment(..., m)` tests the same
+   `m` with `allTrue()` on the fast path: with the operation on the longs, both tests read one conversion of
+   `m`, which step 1 puts right behind `m`, and `m` has no other reader that checks. Without it, the `and` of
+   the slow path was a reader of `m` that defines a mask, behind every raw access of the loop, and `m` was
+   kept on the stack on every iteration for it. A merge of masks of which one is tested itself is converted
+   the same way, as the merge of their bits: the slow paths of the copies of an unrolled loop share their
+   code, which tests the Phi of the masks of the copies. And a conversion reads the mask itself, not a cast of
+   it (the casts that pin an unboxed mask under the check of its box are of the same value), so that all the
+   tests of one mask read one conversion.
+
+   The same is done for the other reader of a mask that every loop has: the debug info. A mask that a Java
+   local holds is named by every trap behind its definition, as the booleans of its box
+   (`VectorStoreMask(mask)`, a reader that always checks: a mask in the debug info can be the result of a
+   check that the interpreter tests after the deoptimization). Those conversions sit in the blocks of the
+   traps, behind the raw accesses of the iteration, so the mask of every iteration was kept on the stack for
+   them. Where a test reads the bits of the mask, the booleans are made from those bits instead
+   (`VectorLongToMask`, a `kmov` back into a mask register in the block of the trap, or the bytes themselves
+   where masks are vectors): the trap reads the general purpose register that the test reads, and the mask
+   has no reader behind the accesses. The mask that the trap describes is the one the program computed,
+   bit for bit. Each of these conversions keeps the control of the cast it replaces, so that it stays in the
+   block of its trap.
 1. **Before register allocation, on the scheduled code** (`NoTrapSites::protect_checked_values()`, called from
    `Compile::Code_Gen()` after global code motion). `CheckFlow` is a backward dataflow over the masks and vectors,
    "reaches a check"; it finds the values that can be in a losable register across a raw access (a vector whose
@@ -755,7 +802,33 @@ a memory segment, the common case, for the sake of that one.
      follows copies back to a register that still holds the value, cannot point the reader at the value's
      register, or at an earlier reload, again.
 
-   Two choices between these forms are made by cost, and neither adds a form:
+   In front of these three forms, on x64, a reader that checks and whose result is an integer (the bits of a
+   mask for its test, by step 0; `toLong`, `trueCount`, `firstTrue`, `lastTrue`) is not given a copy at all: the
+   reader itself is moved up, right behind the definition of the value, in its block or from a block that the
+   definition dominates (move_check_behind_value()). Nothing losable then crosses the accesses for that check:
+   the check has read the value before any raw access can follow, and its result waits for the compare in a
+   general purpose register. The move is made wherever the reader can run there: it has no control input and
+   reads no memory, every other input is defined at that place (in a block that dominates it, or earlier in the
+   block), and what it kills besides its own TEMPs, which move with it, is the condition codes, which must then
+   not be live at that place (set before it and read behind it). Where the value could be computed again for
+   the reader instead, the move is made unless the definition runs more than twice as often as the reader (a
+   test in a slow path of a loop keeps its copy there); where the value would be kept on the stack, the move
+   always costs less, one instruction where there would be a store.
+
+   And in front of all of these, on x64, for a value that is a Phi: the raw loads of its block are moved to the
+   end of the block that immediately dominates it, in front of its branch, if every raw access of the block is
+   a load that can be made there and that block does not run more often (hoist_accesses_above_merge()). The
+   mask of an iteration of a loop with a masked tail (`S.indexInRange(i, n)`) is such a Phi: every lane on one
+   side of a branch on the lanes left, the lanes left on the other. A raw read of the same iteration that the
+   scheduler put behind the merge is one the Phi is live across, although the read does not depend on the
+   branch; in front of the branch, the Phi does not exist yet. The Phi then needs nothing: no store on every
+   iteration for a check in a slow path, and no check made behind it. A load can be made there if the
+   scheduler could have put it there itself: its control, its memory state and its other inputs are defined
+   there, the nodes of the block that compute its address (which read no memory and have no control) move with
+   it, and what they kill besides their TEMPs is the condition codes, which are then not live in front of the
+   branch and of the compare that sets them for it. An access is moved once.
+
+   Two choices between the three forms are made by cost, and neither adds a form:
    - a value that can be computed again is kept on the stack instead where that costs less by the frequencies
      of the blocks (is_cheaper_on_stack()): a store where it is defined and a load for each reader, against
      its instruction for each reader plus, for each mask or vector among its inputs, that input's instruction
@@ -770,9 +843,25 @@ a memory segment, the common case, for the sake of that one.
      definition of the vector and in front of the access, with the copies of constants an earlier round put in
      front of it (move_in_front_of_accesses()). The next round finds its result, the mask, live across the
      access and keeps that on the stack: a few bytes, where the vector took a slot of its own size, 64 bytes
-     for a zmm register in a frame that is aligned to 16.
+     for a zmm register in a frame that is aligned to 16. Where the masks are vectors (AVX2), the instruction that
+     is moved is one that makes a vector from its inputs alone; and a value that was moved this way lets its own
+     readers be moved behind it in the next round. With the checks that read integers, the chain ends in a general
+     purpose register and nothing is kept on the stack: the vector is loaded, the compare that makes the mask
+     follows it, the conversion to the long follows the compare, and only then comes the raw access that the
+     scheduler had put in between.
 
-   Argument. The form on the stack is the general one, sound for every value. The instruction that is moved
+   Argument. The form on the stack is the general one, sound for every value. A check that is moved behind its
+   value reads the value itself, with no raw access between the definition and the read, so it reads what the
+   program computed; its instruction has no memory and no control input, so it computes at the new place what
+   it computed at the old one, from the same inputs; the test that follows reads an integer, which is in no
+   losable register across the accesses in between (the debug check of the placement of integers and step 2
+   below are run on the code as it then is). A raw load that is moved in front of a merge is made in a block
+   between the earliest one its inputs allow and the one the scheduler chose, which is a placement the
+   scheduler was free to make: the load reads the same memory state, a load changes nothing that the nodes it
+   now precedes read, and a page error at it is reported as before, by an error that is thrown at a later
+   poll. Neither move is trusted for the rule: after each, the dataflow is run again on the code as it then
+   is, and whatever a move left or put in a losable register across a raw access on its way to a check is
+   found and given one of the three forms. The instruction that is moved
    has no memory or control input, no TEMP and no kill, so it computes the same mask wherever its inputs are
    defined, and they are (checked: each is defined in another block, which dominates this one, or earlier in
    this block, or is such a constant that moves with it); every reader of the mask follows the old place of
@@ -806,8 +895,17 @@ never killed: losing it only stops the accesses it governs.
 What a protected value costs: for a constant mask, one kxnor in front of each reader that checks it; for a value
 that can be computed again, its instruction once more in front of each such reader; for any other mask or vector,
 one store to the stack after its definition and one load in front of each reader that checks it,
-which in Vector API code is on the slow paths (an access that is not wholly in bounds) and at explicit tests. A
-value that no check reads costs nothing, whatever raw accesses it is live across.
+which in Vector API code is on the slow paths (an access that is not wholly in bounds) and at explicit tests. On
+x64 a test of the lanes of a mask (`allTrue`, `anyTrue`) and a conversion of a mask to an integer cost nothing
+where the reader can be made behind the mask: the same instruction, earlier. What is left in that case is what
+the mask itself is made from: a vector that the loop keeps in a register across its raw accesses and that the
+compare reads is made again in front of the compare, once per iteration (the limit of a compare, broadcast
+from an integer; the lane numbers, reloaded from the stack, where masks are vectors). Where that vector is a
+broadcast of a constant and the compare makes a mask register (AVX-512), there is no such vector: in a
+compilation with unsafe accesses the compare is matched with the constant, which it reads from the constant
+table as a memory operand (evcmp_con and evcmp_conL in cpu/x86/x86.ad; `X86NoTrap::matches_with_compare()`
+lets the matcher do so although the debug info of every trap of the method reads the same vector, as it does
+for a scalar constant). A value that no check reads costs nothing, whatever raw accesses it is live across.
 
 ### What holds without a rule
 
@@ -1391,8 +1489,12 @@ no check reads costs nothing, whatever raw accesses it is live across.
 - The unsafe window: spill masks (share/opto/matcher.cpp, init_first_stack_mask()), rematerialization
   (MachNode::rematerialize(), has_losable_input()), APX exclusion (opto/chaitin.cpp), the masks and vectors that
   reach a check (NoTrapSites::protect_checked_values() from Compile::Code_Gen(), CheckFlow and protect_values()
-  with is_cheaper_on_stack() and move_in_front_of_accesses()
-  in opto/noTrap.cpp, the check on the allocated code in NoTrapSites::apply(), the retries in
+  with is_cheaper_on_stack(), move_in_front_of_accesses(), move_check_behind_value() and
+  hoist_accesses_above_merge() in opto/noTrap.cpp; the tests of masks as integers, with the bits of masks that
+  are made or merged from tested masks and the booleans of a mask from its bits, in
+  NoTrapSites::test_masks_as_integers() from Compile::Optimize(); the compare with a constant from the constant
+  table in cpu/x86/x86.ad, evcmp_con and evcmp_conL, with X86NoTrap::matches_with_compare() asked by
+  match_into_reg() in opto/matcher.cpp; the check on the allocated code in NoTrapSites::apply(), the retries in
   opto/c2compiler.cpp, the kill of the mask registers in Matcher::kill_masks_at_raw_accesses(), no implicit null
   check on an access that defines a mask or a vector in opto/lcm.cpp), comment at the handler
   (os/windows/os_windows.cpp, EXCEPTION_IN_PAGE_ERROR).
@@ -1427,8 +1529,10 @@ Tests (test/hotspot/jtreg):
 - compiler/runtime/safepoints/TestMaskKillAtRawAccesses: masks live across raw accesses as predicates and as the
   results of checks; its `kills` id reads the decisions of protect_checked_values() from the log.
 - compiler/runtime/safepoints/TestCheckedVectorsAtRawAccesses: the lane numbers of the check of a masked store
-  (counterexample 4), the index vector of a gather, and a check kept in long-lane vectors; its `protects` id reads
-  the decisions from the log, and its `fault` id takes a real page error at the raw access.
+  (counterexample 4), the index vector of a gather, a check kept in long-lane vectors, and two checks that the
+  program writes with `allTrue()` (`allTrueCheckKernel`: the negation of a mask from before the read, and a
+  compare, behind the read, of a vector from before it); its `protects` id reads the decisions from the log,
+  and its `fault` id takes a real page error at the raw access.
 - runtime/jni/mxcsr/TestMXCSRRestore (JNI, FFM downcalls and upcalls) and TestMXCSRAfterJVMTICallback.
 
 CI of the integrated branch: run 46062686610 (https://github.com/Auties00/jdk/actions/runs/46062686610), builds
@@ -1483,6 +1587,10 @@ the final test), on windows-2025 (26100.33828, native probe: bug present; EPYC 9
   gets its copy, and nothing is compiled again; that id fails on the build without the rule.
 
 ## 10. History
+
+The tests of masks as integers, the checks that are made behind their masks, the raw loads in front of a merge
+and the compare with a constant from the constant table (steps 0 and 1 of "How the rule is enforced" in section
+5, "The tests of masks" in section 8) were done on branch JDK-8365196-cost-alltrue, on top of 666f6f18254.
 
 The null checks of the segment kernels (the last two subsections of section 3, the two choices by cost in
 section 5, the segment kernels, scrabble and segmentMaskedSum on AVX2 in section 8) were done on branch

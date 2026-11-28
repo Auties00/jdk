@@ -2805,7 +2805,9 @@ class X86NoTrap : public NoTrapPlatform {
   // across its raw accesses, would be made again in front of every compare whose mask reaches a
   // check (NoTrapSites::protect_checked_values()). Matched with the compare (evcmp_con, evcmp_conL,
   // whose predicates accept what this accepts), the constant is a memory operand of the compare,
-  // read from the constant table, and the compare reads no such vector.
+  // one element in the constant table that the compare broadcasts, and the compare reads no such
+  // vector. (The whole vector as a memory operand would be a load of its own of up to 64 bytes on
+  // every iteration, which costs a loop of 512-bit loads more than the broadcast of the element.)
   virtual bool matches_with_compare(const Node* binary, const Node* m) const {
     if (!Compile::current()->has_unsafe_access() || binary->Opcode() != Op_Binary || m->Opcode() != Op_Replicate ||
         binary->in(2) != m || binary->in(1) == m || binary->outcnt() != 1 ||
@@ -2824,10 +2826,8 @@ class X86NoTrap : public NoTrapPlatform {
     }
     const BasicType bt = vt->element_basic_type();
     const Type* con = m->in(1)->bottom_type();
-    if (bt == T_LONG) {
-      return con->is_long();
-    }
-    return (is_subword_type(bt) || bt == T_INT) && con->is_int();
+    // An element that the compare broadcasts: of 32 or 64 bits.
+    return bt == T_LONG ? con->is_long() : (bt == T_INT && con->is_int());
   }
 };
 
@@ -22625,15 +22625,15 @@ instruct evcmp(kReg dst, vec src1, vec src2, immI8 cond) %{
 %}
 
 // With AvoidLosableStateAtTraps, in a compilation with unsafe accesses: the compare of a vector
-// with a vector of one constant reads the constant from the constant table (see
-// X86NoTrap::matches_with_compare()).
+// with a vector of one constant reads the constant from the constant table, one element that the
+// instruction broadcasts (see X86NoTrap::matches_with_compare()).
 instruct evcmp_con(kReg dst, vec src1, immI con, immI8 cond) %{
   predicate(n->bottom_type()->is_pvectmask() &&
-            Matcher::is_non_long_integral_vector(n->in(1)->in(1)) && // src1
+            Matcher::vector_element_basic_type(n->in(1)->in(1)) == T_INT && // src1
             Matcher::vector_length_in_bytes(n->in(1)->in(1)) >= 16 &&
             Matcher::no_trap() != nullptr && Compile::current()->has_unsafe_access());
   match(Set dst (VectorMaskCmp (Binary src1 (Replicate con)) cond));
-  format %{ "vector_compared_evex $dst,$src1,[$con],$cond\t!" %}
+  format %{ "vector_compared_evex $dst,$src1,[$con] (broadcast),$cond\t!" %}
   ins_encode %{
     assert(UseAVX > 2, "required");
     assert(bottom_type()->is_pvectmask(), "TypePVectMask expected");
@@ -22641,25 +22641,7 @@ instruct evcmp_con(kReg dst, vec src1, immI con, immI8 cond) %{
     int vlen_enc = vector_length_encoding(this, $src1);
     Assembler::ComparisonPredicate cmp = booltest_pred_to_comparison_pred($cond$$constant);
     bool is_unsigned = Matcher::is_unsigned_booltest_pred($cond$$constant);
-    BasicType src1_elem_bt = Matcher::vector_element_basic_type(this, $src1);
-    InternalAddress addr = $constantaddress(vreplicate_imm(Matcher::vector_element_basic_type(this, $src1), $con$$constant,
-                                                           Matcher::vector_length(this, $src1)));
-
-    switch (src1_elem_bt) {
-      case T_BYTE: {
-        __ evpcmpb($dst$$KRegister, k0, $src1$$XMMRegister, addr, cmp, !is_unsigned, vlen_enc, noreg);
-        break;
-      }
-      case T_SHORT: {
-        __ evpcmpw($dst$$KRegister, k0, $src1$$XMMRegister, addr, cmp, !is_unsigned, vlen_enc, noreg);
-        break;
-      }
-      case T_INT: {
-        __ evpcmpd($dst$$KRegister, k0, $src1$$XMMRegister, addr, cmp, !is_unsigned, vlen_enc, noreg);
-        break;
-      }
-      default: assert(false, "%s", type2name(src1_elem_bt));
-    }
+    __ evpcmpd_bcst($dst$$KRegister, k0, $src1$$XMMRegister, __ as_Address($constantaddress($con)), cmp, !is_unsigned, vlen_enc);
   %}
   ins_pipe( pipe_slow );
 %}
@@ -22670,7 +22652,7 @@ instruct evcmp_conL(kReg dst, vec src1, immL con, immI8 cond) %{
             Matcher::vector_length_in_bytes(n->in(1)->in(1)) >= 16 &&
             Matcher::no_trap() != nullptr && Compile::current()->has_unsafe_access());
   match(Set dst (VectorMaskCmp (Binary src1 (Replicate con)) cond));
-  format %{ "vector_compared_evex $dst,$src1,[$con],$cond\t!" %}
+  format %{ "vector_compared_evex $dst,$src1,[$con] (broadcast),$cond\t!" %}
   ins_encode %{
     assert(UseAVX > 2, "required");
     assert(bottom_type()->is_pvectmask(), "TypePVectMask expected");
@@ -22678,8 +22660,7 @@ instruct evcmp_conL(kReg dst, vec src1, immL con, immI8 cond) %{
     int vlen_enc = vector_length_encoding(this, $src1);
     Assembler::ComparisonPredicate cmp = booltest_pred_to_comparison_pred($cond$$constant);
     bool is_unsigned = Matcher::is_unsigned_booltest_pred($cond$$constant);
-    InternalAddress addr = $constantaddress(vreplicate_imm(T_LONG, $con$$constant, Matcher::vector_length(this, $src1)));
-    __ evpcmpq($dst$$KRegister, k0, $src1$$XMMRegister, addr, cmp, !is_unsigned, vlen_enc, noreg);
+    __ evpcmpq_bcst($dst$$KRegister, k0, $src1$$XMMRegister, __ as_Address($constantaddress($con)), cmp, !is_unsigned, vlen_enc);
   %}
   ins_pipe( pipe_slow );
 %}
@@ -24927,7 +24908,10 @@ instruct mask_all_true_evexI_LE16(kReg dst, immI_M1 src) %{
   format %{ "mask_all_true_evexI_LE16 $dst \t" %}
   ins_encode %{
     int mask_len = Matcher::vector_length(this);
-    __ kxnorwl($dst$$KRegister, $dst$$KRegister, $dst$$KRegister);
+    // Of k0 with itself, not of dst with itself: the instruction waits for its sources, and dst
+    // is the register of the mask it replaces, which in a loop can be the result of the compare
+    // of the iteration before (k0 is never allocated).
+    __ kxnorwl($dst$$KRegister, k0, k0);
     if (mask_len != 16) {
       __ kshiftrwl($dst$$KRegister, $dst$$KRegister, 16 - mask_len);
     }
@@ -24941,7 +24925,10 @@ instruct mask_all_true_evexL_LE16(kReg dst, immL_M1 src) %{
   format %{ "mask_all_true_evexL_LE16 $dst \t" %}
   ins_encode %{
     int mask_len = Matcher::vector_length(this);
-    __ kxnorwl($dst$$KRegister, $dst$$KRegister, $dst$$KRegister);
+    // Of k0 with itself, not of dst with itself: the instruction waits for its sources, and dst
+    // is the register of the mask it replaces, which in a loop can be the result of the compare
+    // of the iteration before (k0 is never allocated).
+    __ kxnorwl($dst$$KRegister, k0, k0);
     if (mask_len != 16) {
       __ kshiftrwl($dst$$KRegister, $dst$$KRegister, 16 - mask_len);
     }
