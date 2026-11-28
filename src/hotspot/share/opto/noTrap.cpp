@@ -30,12 +30,16 @@
 #include "opto/block.hpp"
 #include "opto/c2compiler.hpp"
 #include "opto/compile.hpp"
+#include "opto/connode.hpp"
 #include "opto/machnode.hpp"
 #include "opto/matcher.hpp"
 #include "opto/noTrap.hpp"
 #include "opto/opcodes.hpp"
+#include "opto/phaseX.hpp"
 #include "opto/regalloc.hpp"
+#include "opto/subnode.hpp"
 #include "opto/type.hpp"
+#include "opto/vectornode.hpp"
 #include "runtime/atomicAccess.hpp"
 #include "utilities/ostream.hpp"
 
@@ -585,9 +589,14 @@ static bool is_cheaper_on_stack(PhaseCFG* cfg, const Node* value, const Block* b
 // an earlier round put in front of the reader) move with it. The reader then reads its inputs
 // before the access, and what crosses the access for the check is its result, a mask, which is
 // kept on the stack in a few bytes where a vector among the inputs would take a slot of its own
-// size (64 bytes for a zmm register, which no frame aligns). Returns whether it moved the reader.
-static bool move_in_front_of_accesses(PhaseCFG* cfg, Block* block, Node* reader, uint at, VectorSet& moved) {
-  if (!is_mask_value(reader) || !is_recomputable(reader) || moved.test(reader->_idx)) {
+// size (64 bytes for a zmm register, which no frame aligns), or which crosses no access at all
+// once the check that reads it is moved behind it (see move_check_behind_value()). Where the masks
+// are not followed (masks_followed is false: they are vectors, or their registers are killed at
+// every raw access), the reader is a vector instead. Returns whether it moved the reader.
+static bool move_in_front_of_accesses(PhaseCFG* cfg, Block* block, Node* reader, uint at, VectorSet& moved,
+                                      bool masks_followed) {
+  if (!(masks_followed ? is_mask_value(reader) : is_vector_value(reader)) || !is_recomputable(reader) ||
+      moved.test(reader->_idx)) {
     return false;
   }
   GrowableArray<Node*> late;
@@ -619,6 +628,118 @@ static bool move_in_front_of_accesses(PhaseCFG* cfg, Block* block, Node* reader,
   block->find_remove(reader);
   block->insert_node(reader, to);
   moved.set(reader->_idx);
+  return true;
+}
+
+// Whether the condition codes are live in front of position at of block: set before it and read at
+// or after it.
+static bool flags_live_at(PhaseCFG* cfg, const Block* block, uint at) {
+  for (uint i = 1; i < block->number_of_nodes(); i++) {
+    const Node* n = block->get_node(i);
+    if (i < at) {
+      if (value_ideal_reg(n) != Op_RegFlags) {
+        continue;
+      }
+      for (DUIterator_Fast kmax, k = n->fast_outs(kmax); k < kmax; k++) {
+        const Node* use = n->fast_out(k);
+        if (cfg->get_block_for_node(use) != block || block->find_node(use) >= at) {
+          return true;
+        }
+      }
+    } else {
+      for (uint k = 1; k < n->req(); k++) {
+        const Node* in = n->in(k);
+        if (in != nullptr && in->is_Mach() && value_ideal_reg(in) == Op_RegFlags &&
+            cfg->get_block_for_node(in) != block) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+// Moves reader, which reads the mask or vector value for a check and whose result is an integer (the
+// bits of a mask as a long, the number or the position of its set lanes), to position at of block,
+// right behind the definition of value, if it can run there: it has no control and reads no memory,
+// its other inputs are defined there, and what it kills besides its TEMPs is the condition codes,
+// which are then not live there. The TEMPs and the kill move with it. The check then reads value
+// before any raw access can follow, and what crosses the accesses up to the test of the integer is
+// a general purpose register, which a compilation with unsafe accesses keeps out of the losable
+// ones (NoTrapPlatform::allocation_exclusion(), gpr_spill_exclusion()). The instruction computes
+// the same integer at either place, since value is the same at both. Returns whether it moved the
+// reader.
+static bool move_check_behind_value(PhaseCFG* cfg, Block* block, uint at, Node* reader, const Node* value) {
+  if (!reader->is_Mach() || reader->is_MachSpillCopy() || reader->is_MachTemp() || reader->is_MachReturn() ||
+      reader->is_MachBranch() || reader->is_MachNullCheck() || reader->is_MachConstant() ||
+      (reader->in(0) != nullptr && !reader->in(0)->is_Root()) ||
+      !is_general_purpose_ideal_reg(value_ideal_reg(reader))) {
+    return false;
+  }
+  Block* reader_block = cfg->get_block_for_node(reader);
+  if (reader_block == nullptr || (reader_block != block && !block->dominates(reader_block))) {
+    return false;
+  }
+  GrowableArray<Node*> temps;
+  for (uint k = 1; k < reader->req(); k++) {
+    Node* in = reader->in(k);
+    if (in == nullptr || in->bottom_type() == Type::MEMORY) {
+      return false;
+    }
+    Block* in_block = cfg->get_block_for_node(in);
+    if (in_block == nullptr) {
+      return false;
+    }
+    if (in->is_MachTemp()) {
+      if (in->outcnt() != 1) {
+        return false;
+      }
+      if (in_block != block || block->find_node(in) >= at) {
+        temps.append_if_missing(in);
+      }
+      continue;
+    }
+    if (in == value) {
+      continue;
+    }
+    if (in_block == block ? block->find_node(in) >= at : !in_block->dominates(block)) {
+      return false;
+    }
+  }
+  GrowableArray<Node*> kills;
+  for (DUIterator_Fast kmax, k = reader->fast_outs(kmax); k < kmax; k++) {
+    Node* out = reader->fast_out(k);
+    if (!out->is_Proj()) {
+      continue;
+    }
+    if (!out->is_MachProj() || out->as_MachProj()->_ideal_reg != Op_RegFlags || out->outcnt() != 0 ||
+        cfg->get_block_for_node(out) != reader_block) {
+      return false;
+    }
+    kills.append(out);
+  }
+  if (!kills.is_empty() && flags_live_at(cfg, block, at)) {
+    return false;
+  }
+  uint to = at;
+  for (int i = 0; i < temps.length(); i++) {
+    Node* temp = temps.at(i);
+    cfg->get_block_for_node(temp)->find_remove(temp);
+    block->insert_node(temp, to++);
+    cfg->map_node_to_block(temp, block);
+  }
+  reader_block->find_remove(reader);
+  block->insert_node(reader, to++);
+  cfg->map_node_to_block(reader, block);
+  for (int i = 0; i < kills.length(); i++) {
+    Node* kill = kills.at(i);
+    reader_block->find_remove(kill);
+    block->insert_node(kill, to++);
+    cfg->map_node_to_block(kill, block);
+  }
+  log_debug(jit, compilation)("no-trap: %s %u (%s), a check of %s %u, is made behind it", NodeClassNames[reader->Opcode()],
+                              reader->_idx, NodeClassNames[reader->as_Mach()->ideal_Opcode()],
+                              NodeClassNames[value->Opcode()], value->_idx);
   return true;
 }
 
@@ -728,13 +849,24 @@ static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, cons
           if (user_at > def_at && !raw_access_between(block, def_at, user_at)) {
             continue;
           }
-          // A vector that cannot be computed again and is read, after the access, for a mask: the
-          // mask is made in front of the access instead, and found in the next round.
-          if (masks_followed && user_at > def_at && !constant && can_keep && is_vector_value(mask) &&
-              move_in_front_of_accesses(cfg, block, user, keep_at, moved)) {
+          // A vector that cannot be computed again, or that was itself made here, and is read,
+          // after the access, for a mask (for a vector, where the masks are not followed): the
+          // reader is made in front of the access instead, and its result is found in the next
+          // round.
+          if (user_at > def_at && (!constant || moved.test(mask->_idx)) && can_keep && is_vector_value(mask) &&
+              move_in_front_of_accesses(cfg, block, user, keep_at, moved, masks_followed)) {
             moved_readers = true;
             break;
           }
+        }
+        // A check whose result is an integer is made right behind the value, in front of the
+        // accesses: always where the value would be kept on the stack, which costs a store there,
+        // and else unless that place runs much more often than the check.
+        if (!user->is_Phi() && !flow.is_mask(user) && can_keep &&
+            (!constant || moved.test(mask->_idx) || user_block == block || block->_freq <= 2 * user_block->_freq) &&
+            move_check_behind_value(cfg, block, keep_at, user, mask)) {
+          moved_readers = true;
+          break;
         }
         readers.append(user);
         inputs.append(k);
@@ -798,6 +930,99 @@ static int protect_values(Compile* C, PhaseCFG* cfg, const CheckFlow& flow, cons
   return count;
 }
 
+// Whether n is a vector with every bit of every lane set, made from a constant.
+static bool is_all_ones_constant(const Node* n) {
+  if (n->Opcode() != Op_Replicate || n->in(1) == nullptr || !n->in(1)->is_Con()) {
+    return false;
+  }
+  const Type* t = n->in(1)->bottom_type();
+  switch (t->base()) {
+    case Type::Int:     return t->is_int()->get_con() == -1;
+    case Type::Long:    return t->is_long()->get_con() == -1;
+    case Type::FloatCon:  return jint_cast(t->getf()) == -1;
+    case Type::DoubleCon: return jlong_cast(t->getd()) == -1;
+    default:            return false;
+  }
+}
+
+void NoTrapSites::test_masks_as_integers(Compile* C, PhaseIterGVN& igvn, const NoTrapPlatform* platform) {
+  if (!C->has_unsafe_access() || !platform->tests_masks_as_integers()) {
+    return;
+  }
+  ResourceMark rm;
+  Unique_Node_List<Node> useful;
+  C->identify_useful_nodes(useful);
+  GrowableArray<Node*> tests;
+  for (uint i = 0; i < useful.size(); i++) {
+    if (useful.at(i)->Opcode() == Op_VectorTest) {
+      tests.append(useful.at(i));
+    }
+  }
+  int replaced = 0;
+  for (int i = 0; i < tests.length(); i++) {
+    VectorTestNode* test = static_cast<VectorTestNode*>(tests.at(i));
+    Node* mask = test->in(1);
+    const TypeVect* vt = mask->bottom_type()->isa_vect();
+    const bool all = test->get_predicate() == BoolTest::overflow;
+    if (vt == nullptr || (!all && test->get_predicate() != BoolTest::ne)) {
+      continue;
+    }
+    const bool predicate = vt->isa_vectmask() != nullptr;
+    const uint lanes = vt->length();
+    const BasicType bt = vt->element_basic_type();
+    // The test of all lanes of a mask that is a vector reads the lanes through its second input,
+    // which the Vector API sets to a vector of ones; any other test reads its first input alone.
+    if (Matcher::vectortest_needs_second_argument(all, predicate) ? !is_all_ones_constant(test->in(2))
+                                                                   : test->in(2) != mask) {
+      continue;
+    }
+    // The bits of the mask as a long: of the mask itself, or of its lanes as bytes.
+    const bool as_bytes = !Matcher::mask_op_prefers_predicate(Op_VectorMaskToLong, vt);
+    if (lanes > 64 || !Matcher::match_rule_supported_vector(Op_VectorMaskToLong, lanes, bt) ||
+        (as_bytes && (!Matcher::match_rule_supported_vector(Op_VectorStoreMask, lanes, bt) ||
+                      vt->length_in_bytes() > 32))) {
+      continue;
+    }
+    // The readers of the test: the test holds if the Bool is the one the Vector API makes for it,
+    // and does not hold if it is the opposite one.
+    const BoolTest::mask holds = Matcher::vectortest_mask(all, predicate, (int)lanes);
+    GrowableArray<BoolNode*> bools;
+    bool known = true;
+    for (DUIterator_Fast kmax, k = test->fast_outs(kmax); k < kmax; k++) {
+      Node* out = test->fast_out(k);
+      if (!out->is_Bool() || (out->as_Bool()->_test._test != holds &&
+                              out->as_Bool()->_test._test != BoolTest::negate_mask(holds))) {
+        known = false;
+        break;
+      }
+      bools.append(out->as_Bool());
+    }
+    if (!known || bools.is_empty()) {
+      continue;
+    }
+    Node* bits_of = mask;
+    if (as_bytes) {
+      bits_of = igvn.transform(VectorStoreMaskNode::make(igvn, mask, bt, lanes));
+    }
+    Node* bits = igvn.transform(new VectorMaskToLongNode(bits_of, TypeLong::LONG));
+    // Every lane set: the bits are those of a mask with every lane set. Any lane set: they are not 0.
+    const jlong every = lanes == 64 ? (jlong)-1 : (((jlong)1 << lanes) - 1);
+    Node* cmp = igvn.transform(new CmpLNode(bits, igvn.longcon(all ? every : 0)));
+    for (int b = 0; b < bools.length(); b++) {
+      BoolNode* bol = bools.at(b);
+      const bool positive = bol->_test._test == holds;
+      Node* as_integer = igvn.transform(new BoolNode(cmp, positive == all ? BoolTest::eq : BoolTest::ne));
+      igvn.replace_node(bol, as_integer);
+    }
+    replaced++;
+  }
+  if (replaced > 0) {
+    log_debug(jit, compilation)("no-trap: %d of %d tests of masks of %s read the mask as an integer", replaced,
+                                tests.length(), method_name(C));
+    igvn.optimize();
+  }
+}
+
 bool NoTrapSites::kill_follows_masks(const Compile* C, const NoTrapPlatform* platform) {
   return C->has_unsafe_access() && platform->raw_access_kill() != nullptr &&
          platform->raw_access_kill_follows_masks() && !C->kill_masks_at_every_raw_access();
@@ -825,8 +1050,9 @@ void NoTrapSites::protect_checked_values(Compile* C, const NoTrapPlatform* platf
     CheckFlow flow(C, nullptr, platform, masks_losable, &stack_bound);
     vector_lost = flow.accesses_before_checks(accesses, &values);
     // The copies of a protected value are read right where they are made, and a value computed
-    // from them can itself be found, so a few rounds are enough.
-    if (round == 8) {
+    // from them can itself be found, so a few rounds are enough; a chain of readers that are made
+    // in front of the accesses takes one round for each.
+    if (round == 16) {
       break;
     }
     const int protected_now = protect_values(C, cfg, flow, values, stack_bound, moved, masks_losable, stacks);

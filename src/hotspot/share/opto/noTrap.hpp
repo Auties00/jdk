@@ -32,6 +32,7 @@
 class C2_MacroAssembler;
 class Compile;
 class Label;
+class PhaseIterGVN;
 class RegMask;
 
 // AvoidLosableStateAtTraps. On some Windows kernels, resuming from a hardware exception resets
@@ -100,6 +101,11 @@ class NoTrapPlatform {
   // values to their uses (NoTrapSites::protect_checked_values()); otherwise every raw access of
   // a compilation with unsafe accesses kills them.
   virtual bool raw_access_kill_follows_masks() const = 0;
+  // Whether a compilation with unsafe accesses tests its masks as integers: the test of all or any
+  // lanes of a mask reads the bits of the mask in a general purpose register, which no resumed
+  // fault loses, instead of setting the condition codes from the mask (see
+  // NoTrapSites::test_masks_as_integers()).
+  virtual bool tests_masks_as_integers() const = 0;
 };
 
 // The pass that gives C2 trap sites their non-trapping form after register allocation.
@@ -130,6 +136,15 @@ class NoTrapSites : public AllStatic {
   // Whether the raw accesses of C that need the kill of NoTrapPlatform::raw_access_kill() are found
   // by following the mask values, instead of every raw access getting it in the matcher.
   static bool kill_follows_masks(const Compile* C, const NoTrapPlatform* platform);
+
+  // Before matching, in a compilation with unsafe accesses: replaces every test of all or any lanes
+  // of a mask (VectorTest, whose result is the condition codes) by the bits of the mask as a long
+  // (VectorMaskToLong) and a compare of that long. The condition codes cannot be kept across the
+  // instructions between a mask and its test, a long can: protect_checked_values() moves the
+  // conversion to the long in front of the raw accesses that the scheduler put between the mask
+  // and its test, so that the test reads a general purpose register across them and neither the
+  // mask nor a vector it is made from is read after them for the test.
+  static void test_masks_as_integers(Compile* C, PhaseIterGVN& igvn, const NoTrapPlatform* platform);
 
   // After scheduling and before register allocation, in a compilation with unsafe accesses: finds
   // the masks and vectors that can be in a losable register across a raw access and reach a check

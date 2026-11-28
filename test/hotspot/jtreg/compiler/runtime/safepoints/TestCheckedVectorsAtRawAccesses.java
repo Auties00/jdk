@@ -26,7 +26,8 @@
  * @bug 8365196
  * @summary Vectors that a bounds check reads after a raw memory access (the lane numbers of the
  *          check of a masked access, the index vector of a gather, a check that the program keeps
- *          in a vector) keep their values, and the checks throw where they must.
+ *          in a vector, a check that the program writes with allTrue()) keep their values, and
+ *          the checks throw where they must.
  * @requires (os.arch == "amd64" | os.arch == "x86_64" | os.arch == "aarch64") & vm.compiler2.enabled
  * @modules jdk.incubator.vector
  * @library /test/lib /
@@ -51,8 +52,9 @@
 /*
  * @test id=protects
  * @bug 8365196
- * @summary With the mode, each of the three kernels has a mask or a vector that is live across a
- *          raw access and reaches a check, and the readers that check get a copy from the stack.
+ * @summary With the mode, each of the kernels has a mask or a vector that is live across a raw
+ *          access and reaches a check, and the readers that check get a copy from the stack or
+ *          are made in front of the access; the tests of all lanes read their masks as integers.
  * @requires (os.arch == "amd64" | os.arch == "x86_64") & vm.compiler2.enabled & vm.flagless
  * @requires vm.cpu.features ~= ".*avx2.*"
  * @modules jdk.incubator.vector
@@ -183,6 +185,26 @@ public class TestCheckedVectorsAtRawAccesses {
         }
     }
 
+    // Checks that the program writes with allTrue(). The first reads, after the read of the
+    // segment, the negation of a mask of the bad indices that is made before it (the address of the
+    // read depends on the mask). The second compares the indices, a vector from before the read (the
+    // address depends on a lane of it), with a limit that depends on the value read, so the compare
+    // follows the read. A resumed fault that zeroed the upper lanes of the mask or of the indices
+    // would let both pass: no lane of a zeroed mask is bad, and index 0 is below the limit.
+    static void allTrueCheckKernel(MemorySegment in, long[] pos, int[] ix, int[] limits, byte[] flags, int iters) {
+        if (FILL) {
+            ExceptionXState.fillBelowStack();
+        }
+        for (int i = 0; i < iters; i++) {
+            IntVector vix = IntVector.fromArray(S, ix, 8 * i);
+            VectorMask<Integer> bad = vix.compare(VectorOperators.GE, limits[0]);
+            int x = in.get(INT, pos[i] + 4L * (bad.trueCount() + (vix.lane(0) & 1)));
+            boolean none = bad.not().allTrue();
+            boolean below = vix.compare(VectorOperators.LT, limits[x & 1]).allTrue();
+            flags[i] = (byte) ((none ? 0 : 1) | (below ? 0 : 2));
+        }
+    }
+
     static void check(boolean ok, String what) {
         if (!ok) {
             throw new RuntimeException(what);
@@ -203,6 +225,10 @@ public class TestCheckedVectorsAtRawAccesses {
         final int[] userIx = new int[4 * ITERS];
         final long[] limits = { 1000, 1000 };
         final byte[] flags = new byte[ITERS];
+        // The indices of allTrueCheckKernel: lane 0 is even, lane 7 is the bad one.
+        final int[] allIx = new int[8 * ITERS];
+        final int[] intLimits = { 1000, 1000 };
+        final byte[] allFlags = new byte[ITERS];
         final int[] done = new int[1];
         final MemorySegment whole;
         final MemorySegment out;
@@ -230,6 +256,13 @@ public class TestCheckedVectorsAtRawAccesses {
                 sel[i] = badFrom > ITERS ? i & 1 : (i < badFrom ? 0 : 1);
             }
             Arrays.fill(flags, (byte) 2);
+            for (int i = 0; i < allIx.length; i++) {
+                allIx[i] = (i % 400) * 2;
+            }
+            for (int i = badFrom; i < ITERS; i++) {
+                allIx[8 * i + 7] = 5000;
+            }
+            Arrays.fill(allFlags, (byte) 4);
             whole = arena.allocate(LIMIT + 64, 64);
             out = whole.asSlice(0, LIMIT);
             // Not zero: a lane that a resumed exception zeroed would store zero.
@@ -271,6 +304,12 @@ public class TestCheckedVectorsAtRawAccesses {
                 check(a.flags[i] == 0, "userCheckKernel found a bad index at " + i);
             }
         }
+        if (only == null || only.equals("allTrueCheck")) {
+            allTrueCheckKernel(in, a.pos, a.allIx, a.intLimits, a.allFlags, ITERS);
+            for (int i = 0; i < ITERS; i++) {
+                check(a.allFlags[i] == 0, "allTrueCheckKernel: flag " + a.allFlags[i] + " at " + i);
+            }
+        }
     }
 
     static void bad(Arena arena, MemorySegment in) {
@@ -291,6 +330,10 @@ public class TestCheckedVectorsAtRawAccesses {
         for (int i = 0; i < ITERS; i++) {
             check(a.flags[i] == (i < badFrom ? 0 : 1), "userCheckKernel: flag " + a.flags[i] + " at " + i);
         }
+        allTrueCheckKernel(in, a.pos, a.allIx, a.intLimits, a.allFlags, ITERS);
+        for (int i = 0; i < ITERS; i++) {
+            check(a.allFlags[i] == (i < badFrom ? 0 : 3), "allTrueCheckKernel: flag " + a.allFlags[i] + " at " + i);
+        }
     }
 
     static void run(int rounds, String only) {
@@ -307,7 +350,7 @@ public class TestCheckedVectorsAtRawAccesses {
     }
 
     static void protects() throws Exception {
-        for (String kernel : new String[] { "laneCheck", "gather", "userCheck" }) {
+        for (String kernel : new String[] { "laneCheck", "gather", "userCheck", "allTrueCheck" }) {
             OutputAnalyzer out = ProcessTools.executeTestJava(
                 "-XX:+UnlockDiagnosticVMOptions", "-XX:+AvoidLosableStateAtTraps", "-XX:-TieredCompilation", "-Xbatch",
                 "-XX:CompileCommand=compileonly,*TestCheckedVectorsAtRawAccesses::" + kernel + "Kernel",
@@ -319,6 +362,10 @@ public class TestCheckedVectorsAtRawAccesses {
                             + "[1-9][0-9]* values protected for their checks");
             out.shouldNotContain("retrying");
             out.shouldNotContain("no copy for");
+            if (kernel.equals("allTrueCheck")) {
+                // Both tests of all lanes read their masks in general purpose registers.
+                out.shouldMatch("no-trap: 2 of 2 tests of masks of allTrueCheckKernel read the mask as an integer");
+            }
         }
     }
 
@@ -386,6 +433,13 @@ public class TestCheckedVectorsAtRawAccesses {
                 try (Arena local = Arena.ofConfined()) {
                     good(local, in, null);
                     good(local, firstPage, null);
+                    if (round % 32 == 31) {
+                        // Both outcomes of the checks of allTrueCheckKernel, so that neither is
+                        // compiled as an uncommon trap.
+                        Arguments b = new Arguments(local, ITERS / 2);
+                        allTrueCheckKernel(in, b.pos, b.allIx, b.intLimits, b.allFlags, ITERS);
+                        allTrueCheckKernel(firstPage, b.pos, b.allIx, b.intLimits, b.allFlags, ITERS);
+                    }
                 }
             }
             diskpart(dir, select, "detach vdisk");
@@ -442,6 +496,21 @@ public class TestCheckedVectorsAtRawAccesses {
             }
             System.out.println("userCheckKernel: " + outcome + ", flag of the faulting iteration: " + a.flags[faultAt]);
             if (a.flags[faultAt] == 0) {
+                failures++;
+            }
+
+            a = new Arguments(arena, faultAt);
+            a.pos[faultAt] = 350 * PAGE;
+            try {
+                allTrueCheckKernel(mapped, a.pos, a.allIx, a.intLimits, a.allFlags, ITERS);
+                outcome = "returned";
+            } catch (InternalError e) {
+                outcome = "InternalError";
+            }
+            // Both checks of the faulting iteration must find the bad index of lane 7 (3), unless the
+            // iteration did not get to store its flags (4).
+            System.out.println("allTrueCheckKernel: " + outcome + ", flags of the faulting iteration: " + a.allFlags[faultAt]);
+            if (a.allFlags[faultAt] != 3 && a.allFlags[faultAt] != 4) {
                 failures++;
             }
 

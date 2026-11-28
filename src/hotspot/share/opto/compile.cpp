@@ -3445,6 +3445,11 @@ void Compile::Optimize() {
     C->optimize_logic_cones(igvn);
     igvn.optimize();
     if (failing()) return;
+    const NoTrapPlatform* no_trap = Matcher::no_trap();
+    if (no_trap != nullptr) {
+      NoTrapSites::test_masks_as_integers(this, igvn, no_trap);
+      if (failing()) return;
+    }
   }
 
   DEBUG_ONLY( _modified_nodes = nullptr; )

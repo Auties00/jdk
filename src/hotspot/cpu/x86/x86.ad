@@ -2793,6 +2793,12 @@ class X86NoTrap : public NoTrapPlatform {
   virtual bool raw_access_kill_follows_masks() const {
     return VM_Version::supports_avx512vlbwdq();
   }
+
+  // kmov, or movmsk for a mask that is a vector, and a compare with an immediate, where the test
+  // of the mask is a kortest or a ptest.
+  virtual bool tests_masks_as_integers() const {
+    return true;
+  }
 };
 
 static const X86NoTrap x86_no_trap;
