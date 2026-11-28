@@ -764,7 +764,11 @@ a memory segment, the common case, for the sake of that one.
    `m` with `allTrue()` on the fast path: with the operation on the longs, both tests read one conversion of
    `m`, which step 1 puts right behind `m`, and `m` has no other reader that checks. Without it, the `and` of
    the slow path was a reader of `m` that defines a mask, behind every raw access of the loop, and `m` was
-   kept on the stack on every iteration for it.
+   kept on the stack on every iteration for it. A merge of masks of which one is tested itself is converted
+   the same way, as the merge of their bits: the slow paths of the copies of an unrolled loop share their
+   code, which tests the Phi of the masks of the copies. And a conversion reads the mask itself, not a cast of
+   it (the casts that pin an unboxed mask under the check of its box are of the same value), so that all the
+   tests of one mask read one conversion.
 
    The same is done for the other reader of a mask that every loop has: the debug info. A mask that a Java
    local holds is named by every trap behind its definition, as the booleans of its box
@@ -775,7 +779,8 @@ a memory segment, the common case, for the sake of that one.
    (`VectorLongToMask`, a `kmov` back into a mask register in the block of the trap, or the bytes themselves
    where masks are vectors): the trap reads the general purpose register that the test reads, and the mask
    has no reader behind the accesses. The mask that the trap describes is the one the program computed,
-   bit for bit.
+   bit for bit. Each of these conversions keeps the control of the cast it replaces, so that it stays in the
+   block of its trap.
 1. **Before register allocation, on the scheduled code** (`NoTrapSites::protect_checked_values()`, called from
    `Compile::Code_Gen()` after global code motion). `CheckFlow` is a backward dataflow over the masks and vectors,
    "reaches a check"; it finds the values that can be in a losable register across a raw access (a vector whose
