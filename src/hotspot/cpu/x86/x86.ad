@@ -2799,6 +2799,46 @@ class X86NoTrap : public NoTrapPlatform {
   virtual bool tests_masks_as_integers() const {
     return true;
   }
+
+  // evpbroadcastd and evpbroadcastq read a general purpose register.
+  virtual MachNode* broadcast_from_register(Compile* C, const MachNode* value, MachNode*& scalar) const {
+    const TypeVect* vt = value->bottom_type()->isa_vect();
+    if (NoTrapBroadcastForm != 1 || vt == nullptr || value->ideal_Opcode() != Op_Replicate ||
+        !VM_Version::supports_evex() || !(vt->length_in_bytes() == 64 || VM_Version::supports_avx512vl())) {
+      return nullptr;
+    }
+    MachNode* copy;
+    if (value->rule() == ReplI_imm_rule && vt->element_basic_type() == T_INT) {
+      if (scalar == nullptr) {
+        const jint con = (jint)value->_opnds[1]->constant();
+        scalar = new loadConINode();
+        scalar->_opnds[0] = new rRegIOper();
+        scalar->_opnds[1] = new immIOper(con);
+        scalar->_bottom_type = TypeInt::make(con);
+        scalar->add_req(C->root());
+      }
+      copy = new ReplI_regNode();
+      copy->_opnds[1] = new rRegIOper();
+    } else if (value->rule() == ReplL_imm_rule && vt->element_basic_type() == T_LONG) {
+      if (scalar == nullptr) {
+        const jlong con = value->_opnds[1]->constantL();
+        scalar = new loadConLNode();
+        scalar->_opnds[0] = new rRegLOper();
+        scalar->_opnds[1] = new immLOper(con);
+        scalar->_bottom_type = TypeLong::make(con);
+        scalar->add_req(C->root());
+      }
+      copy = new ReplL_regNode();
+      copy->_opnds[1] = new rRegLOper();
+    } else {
+      return nullptr;
+    }
+    copy->_opnds[0] = value->_opnds[0]->clone();
+    copy->_bottom_type = value->bottom_type();
+    copy->add_req(nullptr);
+    copy->add_req(scalar);
+    return copy;
+  }
 };
 
 static const X86NoTrap x86_no_trap;
