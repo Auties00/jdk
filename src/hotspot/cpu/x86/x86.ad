@@ -24908,7 +24908,10 @@ instruct mask_all_true_evexI_LE16(kReg dst, immI_M1 src) %{
   format %{ "mask_all_true_evexI_LE16 $dst \t" %}
   ins_encode %{
     int mask_len = Matcher::vector_length(this);
-    __ kxnorwl($dst$$KRegister, $dst$$KRegister, $dst$$KRegister);
+    // Of k0 with itself, not of dst with itself: the instruction waits for its sources, and dst
+    // is the register of the mask it replaces, which in a loop can be the result of the compare
+    // of the iteration before (k0 is never allocated).
+    __ kxnorwl($dst$$KRegister, k0, k0);
     if (mask_len != 16) {
       __ kshiftrwl($dst$$KRegister, $dst$$KRegister, 16 - mask_len);
     }
@@ -24922,7 +24925,10 @@ instruct mask_all_true_evexL_LE16(kReg dst, immL_M1 src) %{
   format %{ "mask_all_true_evexL_LE16 $dst \t" %}
   ins_encode %{
     int mask_len = Matcher::vector_length(this);
-    __ kxnorwl($dst$$KRegister, $dst$$KRegister, $dst$$KRegister);
+    // Of k0 with itself, not of dst with itself: the instruction waits for its sources, and dst
+    // is the register of the mask it replaces, which in a loop can be the result of the compare
+    // of the iteration before (k0 is never allocated).
+    __ kxnorwl($dst$$KRegister, k0, k0);
     if (mask_len != 16) {
       __ kshiftrwl($dst$$KRegister, $dst$$KRegister, 16 - mask_len);
     }
