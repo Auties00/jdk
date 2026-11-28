@@ -683,7 +683,10 @@ opto/noTrap.cpp):
   a boxed mask).
 - **A reader that checks**: everything else that defines no mask or vector. Flags producers (VectorTest, that is
   `anyTrue`/`allTrue`, on masks and, with AVX2, on vectors), conversions of a mask to an integer (`toLong`,
-  `trueCount`, `firstTrue`, `lastTrue`), the arguments of calls, returns.
+  `trueCount`, `firstTrue`, `lastTrue`), the arguments of calls, returns. On x64 `anyTrue` and `allTrue` are
+  themselves conversions to an integer in these compilations (step 0 below): the reader that checks is then the
+  instruction that moves the bits of the mask to a general purpose register, and the compare of that register
+  reads no mask and no vector.
 - **A reader that does not check**: the vector stores and scatters (they store what the vector holds or, with a
   zeroed mask, nothing), and the arithmetic reductions and lane extracts. The integer or floating point result of
   a reduction or an extract is a value of the window like the vector it is computed from, and it is tested as an
@@ -734,6 +737,50 @@ a memory segment, the common case, for the sake of that one.
 
 ### How the rule is enforced
 
+0. **Before matching, the tests of masks read integers** (`NoTrapSites::test_masks_as_integers()`, called from
+   `Compile::Optimize()` once the compilation is known to have unsafe accesses; x64 only,
+   `NoTrapPlatform::tests_masks_as_integers()`). A test of all or any lanes of a mask is a VectorTest, whose
+   result is the condition codes: a `kortest` of the mask register or, where masks are vectors, a `ptest` against
+   a vector of ones. The condition codes cannot be kept across the instructions that the scheduler puts between a
+   mask and its test (an add with a memory operand sets them, and so does the explicit null test of section 3),
+   so the instruction that reads the mask for the test was always the last one in front of the branch, behind
+   every raw access of its block. Each VectorTest is replaced by `VectorMaskToLong(mask)` and a compare of that
+   long: equal to the bits of a mask with every lane set for `allTrue`, not zero for `anyTrue` (a `kmov`, or a
+   `movmsk` of the vector, and a `cmp` with an immediate). It is the conversion behind `VectorMask.toLong()`, with
+   the same bits. Nothing about the rule changes: the conversion defines no mask and no vector, so it is a reader
+   that checks, as the VectorTest was, and a mask or a vector that reaches it across a raw access is found and
+   protected like any other. What changes is that its result can cross an access: it is a long in a general
+   purpose register, and these compilations keep integers out of every losable register (counterexample 1, and
+   r16-r31 with APX). A VectorTest stays as it is where its shape is not the one the Vector API makes (a second
+   input that is not the mask or a vector of ones, a Bool that is neither the test nor its negation) or where the
+   conversion is not supported for the mask (more than 64 lanes; a vector mask of two lanes or of more than 256
+   bits): it is then a reader that checks whose value comes from the stack or is computed again, as before.
+
+   A tested mask that is made by bitwise operations from other masks is converted through them where one of
+   those masks is tested itself, or is the constant with every lane set: the bits of each mask are converted
+   and the operation is made on the longs (`toLong(a & b)` is `toLong(a) & toLong(b)`, bit for bit, also where
+   masks are vectors and the bit of a lane is its sign). The slow path of a masked access tests whether any lane
+   of its mask is out of bounds, `m.and(outOfBounds).anyTrue()`, and `intoMemorySegment(..., m)` tests the same
+   `m` with `allTrue()` on the fast path: with the operation on the longs, both tests read one conversion of
+   `m`, which step 1 puts right behind `m`, and `m` has no other reader that checks. Without it, the `and` of
+   the slow path was a reader of `m` that defines a mask, behind every raw access of the loop, and `m` was
+   kept on the stack on every iteration for it. A merge of masks of which one is tested itself is converted
+   the same way, as the merge of their bits: the slow paths of the copies of an unrolled loop share their
+   code, which tests the Phi of the masks of the copies. And a conversion reads the mask itself, not a cast of
+   it (the casts that pin an unboxed mask under the check of its box are of the same value), so that all the
+   tests of one mask read one conversion.
+
+   The same is done for the other reader of a mask that every loop has: the debug info. A mask that a Java
+   local holds is named by every trap behind its definition, as the booleans of its box
+   (`VectorStoreMask(mask)`, a reader that always checks: a mask in the debug info can be the result of a
+   check that the interpreter tests after the deoptimization). Those conversions sit in the blocks of the
+   traps, behind the raw accesses of the iteration, so the mask of every iteration was kept on the stack for
+   them. Where a test reads the bits of the mask, the booleans are made from those bits instead
+   (`VectorLongToMask`, a `kmov` back into a mask register in the block of the trap, or the bytes themselves
+   where masks are vectors): the trap reads the general purpose register that the test reads, and the mask
+   has no reader behind the accesses. The mask that the trap describes is the one the program computed,
+   bit for bit. Each of these conversions keeps the control of the cast it replaces, so that it stays in the
+   block of its trap.
 1. **Before register allocation, on the scheduled code** (`NoTrapSites::protect_checked_values()`, called from
    `Compile::Code_Gen()` after global code motion). `CheckFlow` is a backward dataflow over the masks and vectors,
    "reaches a check"; it finds the values that can be in a losable register across a raw access (a vector whose
@@ -755,7 +802,33 @@ a memory segment, the common case, for the sake of that one.
      follows copies back to a register that still holds the value, cannot point the reader at the value's
      register, or at an earlier reload, again.
 
-   Two choices between these forms are made by cost, and neither adds a form:
+   In front of these three forms, on x64, a reader that checks and whose result is an integer (the bits of a
+   mask for its test, by step 0; `toLong`, `trueCount`, `firstTrue`, `lastTrue`) is not given a copy at all: the
+   reader itself is moved up, right behind the definition of the value, in its block or from a block that the
+   definition dominates (move_check_behind_value()). Nothing losable then crosses the accesses for that check:
+   the check has read the value before any raw access can follow, and its result waits for the compare in a
+   general purpose register. The move is made wherever the reader can run there: it has no control input and
+   reads no memory, every other input is defined at that place (in a block that dominates it, or earlier in the
+   block), and what it kills besides its own TEMPs, which move with it, is the condition codes, which must then
+   not be live at that place (set before it and read behind it). Where the value could be computed again for
+   the reader instead, the move is made unless the definition runs more than twice as often as the reader (a
+   test in a slow path of a loop keeps its copy there); where the value would be kept on the stack, the move
+   always costs less, one instruction where there would be a store.
+
+   And in front of all of these, on x64, for a value that is a Phi: the raw loads of its block are moved to the
+   end of the block that immediately dominates it, in front of its branch, if every raw access of the block is
+   a load that can be made there and that block does not run more often (hoist_accesses_above_merge()). The
+   mask of an iteration of a loop with a masked tail (`S.indexInRange(i, n)`) is such a Phi: every lane on one
+   side of a branch on the lanes left, the lanes left on the other. A raw read of the same iteration that the
+   scheduler put behind the merge is one the Phi is live across, although the read does not depend on the
+   branch; in front of the branch, the Phi does not exist yet. The Phi then needs nothing: no store on every
+   iteration for a check in a slow path, and no check made behind it. A load can be made there if the
+   scheduler could have put it there itself: its control, its memory state and its other inputs are defined
+   there, the nodes of the block that compute its address (which read no memory and have no control) move with
+   it, and what they kill besides their TEMPs is the condition codes, which are then not live in front of the
+   branch and of the compare that sets them for it. An access is moved once.
+
+   Two choices between the three forms are made by cost, and neither adds a form:
    - a value that can be computed again is kept on the stack instead where that costs less by the frequencies
      of the blocks (is_cheaper_on_stack()): a store where it is defined and a load for each reader, against
      its instruction for each reader plus, for each mask or vector among its inputs, that input's instruction
@@ -770,9 +843,25 @@ a memory segment, the common case, for the sake of that one.
      definition of the vector and in front of the access, with the copies of constants an earlier round put in
      front of it (move_in_front_of_accesses()). The next round finds its result, the mask, live across the
      access and keeps that on the stack: a few bytes, where the vector took a slot of its own size, 64 bytes
-     for a zmm register in a frame that is aligned to 16.
+     for a zmm register in a frame that is aligned to 16. Where the masks are vectors (AVX2), the instruction that
+     is moved is one that makes a vector from its inputs alone; and a value that was moved this way lets its own
+     readers be moved behind it in the next round. With the checks that read integers, the chain ends in a general
+     purpose register and nothing is kept on the stack: the vector is loaded, the compare that makes the mask
+     follows it, the conversion to the long follows the compare, and only then comes the raw access that the
+     scheduler had put in between.
 
-   Argument. The form on the stack is the general one, sound for every value. The instruction that is moved
+   Argument. The form on the stack is the general one, sound for every value. A check that is moved behind its
+   value reads the value itself, with no raw access between the definition and the read, so it reads what the
+   program computed; its instruction has no memory and no control input, so it computes at the new place what
+   it computed at the old one, from the same inputs; the test that follows reads an integer, which is in no
+   losable register across the accesses in between (the debug check of the placement of integers and step 2
+   below are run on the code as it then is). A raw load that is moved in front of a merge is made in a block
+   between the earliest one its inputs allow and the one the scheduler chose, which is a placement the
+   scheduler was free to make: the load reads the same memory state, a load changes nothing that the nodes it
+   now precedes read, and a page error at it is reported as before, by an error that is thrown at a later
+   poll. Neither move is trusted for the rule: after each, the dataflow is run again on the code as it then
+   is, and whatever a move left or put in a losable register across a raw access on its way to a check is
+   found and given one of the three forms. The instruction that is moved
    has no memory or control input, no TEMP and no kill, so it computes the same mask wherever its inputs are
    defined, and they are (checked: each is defined in another block, which dominates this one, or earlier in
    this block, or is such a constant that moves with it); every reader of the mask follows the old place of
@@ -806,7 +895,13 @@ never killed: losing it only stops the accesses it governs.
 What a protected value costs: for a constant mask, one kxnor in front of each reader that checks it; for a value
 that can be computed again, its instruction once more in front of each such reader; for any other mask or vector,
 one store to the stack after its definition and one load in front of each reader that checks it,
-which in Vector API code is on the slow paths (an access that is not wholly in bounds) and at explicit tests. A
+which in Vector API code is on the slow paths (an access that is not wholly in bounds) and at explicit tests. On
+x64 a test of the lanes of a mask (`allTrue`, `anyTrue`) and a conversion of a mask to an integer cost nothing
+where the reader can be made behind the mask: the same instruction, earlier. What is left in that case is what
+the mask itself is made from: a vector that the loop keeps in a register across its raw accesses and that the
+compare reads is made again in front of the compare, once per iteration: the limit of a compare, broadcast
+from a constant or from an integer (one instruction that loads 4 or 8 bytes from the constant table, or
+reads a general purpose register), or the lane numbers, reloaded from the stack, where masks are vectors. A
 value that no check reads costs nothing, whatever raw accesses it is live across.
 
 ### What holds without a rule
@@ -1110,25 +1205,225 @@ What the tables say:
     +10% on the second;
   - segmentCompareBlendStore: 1 to 2 ns per call with AVX-512 and 19 ns with AVX2, +3% to +5% (+0% to +4%).
 
-What is left, and what would remove it. With AVX-512 the loop of compareAcrossLoadMaskedStore has, per
-iteration, a broadcast of the limit, a store of the mask to the stack and a load of it (it had a store and a
-load of a zmm register in an unaligned slot and the broadcast); tailMaskedCopy has a store and a load of the
-mask; segmentCompareBlendStore the broadcast. With AVX2, where a mask is a ymm vector, the stores and loads
-are of 32 bytes, and an all-ones vector is made again for the test. All of it exists for one reader, the
-`m.allTrue()` with which `intoMemorySegment(..., m)` picks between the store without a mask and the masked one. That test is not a
-bounds check (both paths check their own bounds, the first in general purpose registers, the second with
-`anyTrue()` on the lanes out of bounds in a slow path), and a wrong answer after a resumed fault would store
-lanes in bounds that the mask excluded, which section 5 accepts for the stores of the window. But the rule
-counts every flags producer as a reader that checks, so that a check a program computes itself is covered
-whatever it is written with, and telling the two apart needs either trust in the shape of the Vector API (its
-own bounds checks use `anyTrue()` only) or a look at what the branch leads to. That is a narrowing of the rule
-of section 5, not of its enforcement, and it is not made here. Short of it, the test could be made in front of
-the raw load and its result carried in a general purpose register (a `kmov` and a compare in place of the
-store, the load and the `ktest`), which needs instructions that the matcher does not select today; or the raw
-load that sits between the compare and the test could be scheduled first, which needs it not to be folded
-into the add as a memory operand. unsafeWithLiveMask is as before (+3% to +8%): on the EPYC 7763 its +6% is
-two spill moves of a general purpose register in the loop, which is otherwise the same instruction for
-instruction with the mode on and off, and not a trap site.
+What was left, and why. With AVX-512 the loop of compareAcrossLoadMaskedStore had, per iteration, a broadcast
+of the limit, a store of the mask to the stack and a load of it (it had a store and a load of a zmm register in
+an unaligned slot and the broadcast); tailMaskedCopy had a store and a load of the mask;
+segmentCompareBlendStore the broadcast. With AVX2, where a mask is a ymm vector, the stores and loads were of
+32 bytes, and an all-ones vector was made again for the test. The reader they were made for is the
+`m.allTrue()` with which `intoMemorySegment(..., m)` picks between the store without a mask and the masked
+one. That test is not a bounds check (both paths check their own bounds, the first in general purpose
+registers, the second with `anyTrue()` on the lanes out of bounds in a slow path), but the rule counts every
+test of a mask as a reader that checks, so that a check a program computes itself is covered whatever it is
+written with, and it stays that way: `allTrue()` is a reader that checks. What changed is how the test reads
+the mask, in the next subsection.
+
+### The tests of masks: `allTrue()` behind a raw access
+
+The copies of section 5 that were left in the segment kernels all served readers of the mask of the iteration
+that sit behind the raw accesses of the loop, and none of them needs to sit there:
+
+- the test of `intoMemorySegment(..., m)`, `m.allTrue()`, on every iteration. Its instruction set the
+  condition codes from the mask (`kortest`, or `ptest` against a vector of ones), so it had to be the last one
+  in front of its branch, behind the raw load that the scheduler folds into the add of the iteration;
+- the test of the slow path of each masked access, `m.and(outOfBounds).anyTrue()`, whose `and` reads `m` in a
+  block that the loop never runs;
+- the debug info of every trap behind `m`, which names the local that holds `m` as the booleans of its box, a
+  conversion of `m` in the block of the trap;
+- with unrolling, the same three readers of the Phi of the masks of the copies, in the code that their slow
+  paths share.
+
+Four changes, all on x64, the first three in compilations with unsafe accesses only (section 5, steps 0 and
+1):
+
+1. a test of the lanes of a mask reads the bits of the mask as a long (`kmov` or `movmsk`, and a `cmp`), and a
+   check whose result is an integer is made right behind the mask or vector it reads, in front of the raw
+   accesses: the test then reads a general purpose register across them;
+2. the bits of a mask that is made by bitwise operations from masks, or merged from masks, of which one is
+   tested itself are the same operations, or the merge, on the bits of those masks, and the booleans of a
+   tested mask for the debug info of a trap are made from its bits: every reader of `m` that checks is then one
+   conversion, right behind `m`;
+3. the raw loads of a block that starts with the Phi of a mask or vector that reaches a check are made in
+   front of the merge (the `U.getInt()` of unsafeWithLiveMask, behind the merge of the mask of
+   `S.indexInRange()`): the Phi is not live across them;
+4. the mask with every lane set, which the mode makes with a `kxnor` where the mask is the input of a merge
+   (mask_all_true_evexI_LE16, section 5), is the `kxnor` of k0 with itself, not of its own register: the
+   instruction waits for its sources, and its own register is that of the mask it replaces.
+
+Nothing of the rule changed: no reader was taken off the list of the readers that check, and the dataflow of
+step 1 and the product check of step 2 run on the code these changes leave. TestCheckedVectorsAtRawAccesses has
+a kernel with two checks that the program writes with `allTrue()` (section 9); its `fault` id takes the page
+error at the read between the masks and their tests, and without the mode the second check passes there.
+
+The hot loops, instruction for instruction (PrintOptoAssembly under JMH of the fastdebug builds, the blocks
+within a factor of three of the most frequent one of the compilation of the kernel; AVX-512 on an EPYC 9V74 on
+windows-2025, bench run 46154984810; AVX2 on an EPYC 7763 on Linux with the mode forced, run 46150833818).
+Instructions in those blocks: before (666f6f18254) -> now, and in brackets the mode off:
+
+| kernel | AVX-512 | AVX2 |
+|---|---|---|
+| segmentCompareBlendStore | 58 -> 57 (54) | 69 -> 70 (61) |
+| tailMaskedCopy | 23 -> 22 (21) | 25 -> 23 (22) |
+| compareAcrossLoadMaskedStore | 59 -> 57 (49) | 70 -> 61 (57) |
+| unsafeWithLiveMask | 31 -> 28 (30) | 31 -> 31 (31) |
+| compareAcrossLoad, constantMaskPredicate, segmentMaskedSum | as the mode off | as the mode off |
+
+What the loops still differ in from the mode off (the main loops of the compare kernels are unrolled four
+times, the others twice; the counts above are of all the copies):
+
+- compareAcrossLoadMaskedStore and segmentCompareBlendStore, per iteration: the bits of the mask go to a
+  general purpose register and are compared with an immediate (`kmov` and `cmp`, or `movmsk` and `cmp`), where
+  the mode off has `kortest`, or `ptest` against a vector of ones; and the limit is broadcast from the constant
+  table in front of the compare (`vpbroadcastd` with a memory operand, one load), where the mode off keeps it in
+  a register. No store and no load of a mask or of a vector is left. The broadcast is what the rule still costs
+  these loops: the limit is a zmm or ymm vector that the loop would keep in a register across its raw accesses,
+  and it reaches the test through the compare;
+- tailMaskedCopy: on the side of the branch that the full iterations take, the mask with every lane set is made
+  by a `kxnor` (AVX2: a `vpcmpeq` of a register with itself), where the mode off copies a register; its bits go
+  to a general purpose register behind the merge, and the test is a `cmp`;
+- unsafeWithLiveMask: the `kxnor` on the side of the full iterations, where the mode off copies a mask
+  register, and nothing else: the raw read is in front of the merge. (With the mode off the allocator makes the
+  vector of the limit again on every iteration of this loop, which the mode on keeps in a register here: two
+  instructions fewer.) AVX2: the same instructions as the mode off.
+
+JMH, three interleaved rounds of two forks per configuration on each machine; a cell is the median of the
+rounds of all the machines of its kind. "before" is the branch at 666f6f18254 (the bundles of run 46095852250),
+"now" this branch (the bundles of run 46150833818); each is compared with itself with
+-XX:-AvoidLosableStateAtTraps (on Linux the mode is forced on and off). Bench runs 46154984810
+(https://github.com/Auties00/jdk/actions/runs/46154984810), 46159895831 and 46160209342 (the machines with AVX2
+and more of the others): 19 machines.
+
+The cost of the mode: the mode on against the mode off of the same build, before -> now.
+
+| kernel | EPYC 7763, windows-2022 (1 machine) | EPYC 9V45, windows-2022 (1 machine) | Xeon 8370C, windows-2022 (1 machine) | EPYC 7763, windows-2025 (4 machines) | EPYC 9V45, windows-2025 (1 machine) | EPYC 9V74, windows-2025 (2 machines) |
+|---|---|---|---|---|---|---|
+| segmentMaskedSum | +0% -> +0% | +0% -> -1% | -2% -> +2% | -0% -> +0% | -2% -> +0% | -0% -> +0% |
+| segmentCompareBlendStore | +3% -> +0% | +6% -> -5% | +8% -> +11% | +4% -> +0% | +4% -> -3% | +3% -> +6% |
+| tailMaskedCopy | +10% -> -0% | +14% -> +6% | +1% -> -3% | +9% -> +0% | +13% -> +7% | +1% -> +0% |
+| compareAcrossLoadMaskedStore | +10% -> -2% | +62% -> +4% | +71% -> +34% | +9% -> -2% | +59% -> +4% | +46% -> +10% |
+| compareAcrossLoad | +1% -> +1% | +3% -> +3% | -0% -> -4% | +1% -> +1% | +1% -> +0% | +2% -> +2% |
+| constantMaskPredicate | +0% -> -0% | +0% -> -1% | -1% -> -0% | -0% -> -0% | -0% -> +1% | +2% -> +2% |
+| unsafeWithLiveMask | +6% -> -1% | +5% -> +3% | -3% -> -2% | +5% -> -0% | -1% -> +2% | +2% -> -4% |
+| heapMaskedSum (control) | +1% -> +1% | -0% -> -4% | -0% -> -0% | +1% -> +1% | -3% -> -2% | -2% -> +1% |
+| heapCompareBlendStore (control) | +0% -> +0% | -2% -> -7% | -2% -> -1% | -0% -> +0% | +14% -> +12% | +2% -> +1% |
+
+| kernel | EPYC 7763, Linux (1 machine) | EPYC 9V45, Linux (1 machine) | EPYC 9V74, Linux (1 machine) | Xeon 6975P-C, Linux (4 machines) | Xeon 8573C, Linux (2 machines) |
+|---|---|---|---|---|---|
+| segmentMaskedSum | -0% -> +0% | -3% -> -0% | +0% -> -0% | -10% -> -9% | -2% -> -1% |
+| segmentCompareBlendStore | +4% -> +0% | +4% -> -5% | +1% -> +10% | +1% -> +3% | +3% -> +3% |
+| tailMaskedCopy | +17% -> +21% | +13% -> +7% | +1% -> +1% | +1% -> +0% | +4% -> -1% |
+| compareAcrossLoadMaskedStore | +26% -> -0% | +57% -> +4% | +36% -> +11% | +33% -> +9% | +28% -> +3% |
+| compareAcrossLoad | -2% -> -4% | +1% -> +2% | -8% -> +1% | +0% -> +0% | -0% -> -2% |
+| constantMaskPredicate | +0% -> +0% | +4% -> +2% | +1% -> +1% | -1% -> -1% | +1% -> -1% |
+| unsafeWithLiveMask | +6% -> -0% | +2% -> +1% | -3% -> -1% | +1% -> +6% | +3% -> +1% |
+| heapMaskedSum (control) | -0% -> -0% | -5% -> -4% | -2% -> -0% | -0% -> -3% | +3% -> +3% |
+| heapCompareBlendStore (control) | +0% -> -0% | -2% -> -1% | -1% -> -4% | -2% -> +0% | +1% -> +0% |
+
+The times behind it: ns per call, the mode off / on, before -> now.
+
+| kernel | EPYC 7763, windows-2022 (1 machine) | EPYC 9V45, windows-2022 (1 machine) | Xeon 8370C, windows-2022 (1 machine) | EPYC 7763, windows-2025 (4 machines) | EPYC 9V45, windows-2025 (1 machine) | EPYC 9V74, windows-2025 (2 machines) |
+|---|---|---|---|---|---|---|
+| segmentMaskedSum | 82 / 83 -> 83 / 83 | 25 / 25 -> 26 / 25 | 54 / 53 -> 52 / 53 | 84 / 84 -> 84 / 84 | 25 / 25 -> 26 / 26 | 35 / 34 -> 35 / 35 |
+| segmentCompareBlendStore | 529 / 548 -> 529 / 529 | 32 / 34 -> 32 / 31 | 56 / 60 -> 56 / 62 | 537 / 556 -> 536 / 538 | 32 / 33 -> 33 / 32 | 54 / 55 -> 54 / 57 |
+| tailMaskedCopy | 416 / 456 -> 415 / 414 | 100 / 114 -> 100 / 106 | 198 / 200 -> 198 / 193 | 422 / 462 -> 420 / 420 | 99 / 112 -> 101 / 108 | 144 / 146 -> 145 / 146 |
+| compareAcrossLoadMaskedStore | 552 / 609 -> 552 / 543 | 34 / 55 -> 34 / 36 | 64 / 109 -> 63 / 85 | 560 / 613 -> 561 / 550 | 35 / 55 -> 35 / 36 | 63 / 92 -> 63 / 70 |
+| compareAcrossLoad | 57 / 58 -> 57 / 58 | 27 / 27 -> 27 / 28 | 60 / 60 -> 64 / 62 | 58 / 59 -> 58 / 59 | 27 / 28 -> 28 / 28 | 51 / 53 -> 51 / 52 |
+| constantMaskPredicate | 67 / 67 -> 67 / 67 | 13 / 13 -> 12 / 12 | 20 / 20 -> 20 / 20 | 68 / 68 -> 68 / 68 | 13 / 13 -> 13 / 13 | 23 / 24 -> 23 / 24 |
+| unsafeWithLiveMask | 86 / 91 -> 87 / 86 | 30 / 32 -> 31 / 32 | 71 / 69 -> 71 / 69 | 88 / 93 -> 88 / 88 | 30 / 30 -> 32 / 32 | 49 / 49 -> 48 / 47 |
+| heapMaskedSum (control) | 79 / 80 -> 79 / 80 | 25 / 24 -> 25 / 24 | 58 / 58 -> 58 / 58 | 80 / 81 -> 80 / 81 | 25 / 24 -> 25 / 25 | 38 / 37 -> 37 / 37 |
+| heapCompareBlendStore (control) | 522 / 523 -> 523 / 526 | 34 / 33 -> 35 / 33 | 79 / 78 -> 80 / 80 | 533 / 532 -> 530 / 531 | 33 / 38 -> 34 / 38 | 69 / 70 -> 69 / 69 |
+
+| kernel | EPYC 7763, Linux (1 machine) | EPYC 9V45, Linux (1 machine) | EPYC 9V74, Linux (1 machine) | Xeon 6975P-C, Linux (4 machines) | Xeon 8573C, Linux (2 machines) |
+|---|---|---|---|---|---|
+| segmentMaskedSum | 83 / 83 -> 82 / 83 | 27 / 26 -> 26 / 26 | 34 / 34 -> 34 / 34 | 46 / 41 -> 45 / 41 | 42 / 42 -> 42 / 42 |
+| segmentCompareBlendStore | 526 / 546 -> 526 / 526 | 34 / 36 -> 34 / 32 | 54 / 54 -> 53 / 58 | 48 / 48 -> 47 / 48 | 55 / 56 -> 55 / 56 |
+| tailMaskedCopy | 352 / 413 -> 374 / 451 | 103 / 117 -> 105 / 112 | 142 / 144 -> 143 / 144 | 180 / 181 -> 181 / 181 | 196 / 203 -> 205 / 203 |
+| compareAcrossLoadMaskedStore | 540 / 678 -> 541 / 540 | 36 / 57 -> 36 / 37 | 68 / 92 -> 63 / 70 | 48 / 64 -> 49 / 53 | 53 / 68 -> 55 / 57 |
+| compareAcrossLoad | 57 / 55 -> 57 / 55 | 28 / 29 -> 29 / 29 | 55 / 51 -> 51 / 51 | 39 / 39 -> 39 / 39 | 42 / 42 -> 43 / 42 |
+| constantMaskPredicate | 67 / 67 -> 67 / 67 | 13 / 13 -> 13 / 13 | 23 / 23 -> 23 / 23 | 15 / 15 -> 15 / 15 | 17 / 17 -> 17 / 17 |
+| unsafeWithLiveMask | 87 / 91 -> 86 / 86 | 32 / 32 -> 31 / 32 | 48 / 46 -> 48 / 48 | 51 / 52 -> 51 / 54 | 55 / 56 -> 53 / 54 |
+| heapMaskedSum (control) | 79 / 79 -> 79 / 79 | 25 / 24 -> 26 / 25 | 38 / 37 -> 38 / 38 | 44 / 44 -> 44 / 43 | 43 / 44 -> 43 / 45 |
+| heapCompareBlendStore (control) | 520 / 521 -> 521 / 521 | 35 / 34 -> 34 / 34 | 70 / 69 -> 72 / 70 | 56 / 55 -> 56 / 57 | 57 / 58 -> 58 / 59 |
+
+Against the unpatched base: the mode off / on, before -> now.
+
+| kernel | EPYC 7763, windows-2022 (1 machine) | EPYC 9V45, windows-2022 (1 machine) | Xeon 8370C, windows-2022 (1 machine) | EPYC 7763, windows-2025 (4 machines) | EPYC 9V45, windows-2025 (1 machine) | EPYC 9V74, windows-2025 (2 machines) |
+|---|---|---|---|---|---|---|
+| segmentMaskedSum | -69% / -69% -> -69% / -69% | -65% / -64% -> -64% / -64% | -59% / -60% -> -61% / -60% | -69% / -69% -> -69% / -69% | -64% / -65% -> -63% / -63% | -69% / -69% -> -69% / -69% |
+| segmentCompareBlendStore | -40% / -37% -> -40% / -39% | -74% / -73% -> -74% / -76% | -74% / -72% -> -74% / -72% | -40% / -37% -> -40% / -39% | -74% / -73% -> -74% / -75% | -72% / -72% -> -72% / -71% |
+| tailMaskedCopy | -16% / -8% -> -16% / -16% | -26% / -15% -> -25% / -21% | -25% / -24% -> -25% / -27% | -16% / -9% -> -17% / -17% | -26% / -16% -> -25% / -20% | -31% / -30% -> -30% / -30% |
+| compareAcrossLoadMaskedStore | -49% / -44% -> -49% / -50% | -82% / -71% -> -82% / -81% | -80% / -66% -> -80% / -74% | -49% / -44% -> -49% / -50% | -82% / -71% -> -81% / -81% | -78% / -68% -> -78% / -76% |
+| compareAcrossLoad | -1% / +0% -> -1% / +0% | -1% / +3% -> +1% / +4% | -0% / -0% -> +6% / +2% | -0% / +1% -> -0% / +1% | +0% / +1% -> +1% / +1% | +0% / +3% -> -0% / +2% |
+| constantMaskPredicate | -0% / -0% -> -0% / -0% | +2% / +2% -> +0% / -0% | +0% / -0% -> -0% / -0% | +0% / -0% -> +0% / -0% | +3% / +2% -> +4% / +5% | -0% / +1% -> -0% / +1% |
+| unsafeWithLiveMask | -0% / +5% -> +0% / -0% | -1% / +4% -> +0% / +3% | +0% / -3% -> +0% / -2% | -0% / +5% -> -0% / -0% | +1% / +0% -> +5% / +7% | +0% / +2% -> -0% / -4% |
+| heapMaskedSum (control) | -0% / +1% -> -0% / +1% | +2% / +2% -> +3% / -1% | -0% / -1% -> -0% / -0% | +0% / +1% -> +0% / +1% | -8% / -11% -> -6% / -8% | +2% / -0% -> -1% / -0% |
+| heapCompareBlendStore (control) | -1% / -1% -> -1% / -0% | -8% / -10% -> -5% / -11% | -3% / -4% -> -1% / -2% | +0% / +0% -> -0% / +0% | +3% / +17% -> +3% / +16% | -1% / +1% -> -1% / -0% |
+
+What the tables say:
+
+- compareAcrossLoadMaskedStore, the kernel with a compare, a raw load and a tested mask on every iteration:
+  with AVX-512 the mode cost it 28% to 71% and now costs 3% to 11% on ten of the eleven machines (1 to 7 ns
+  per call where it was 14 to 29 ns), and 34% on the Xeon 8370C (22 ns where it was 45 ns); with AVX2, on six
+  EPYC 7763, it cost 9% to 26% and now costs nothing (-2% to 0%);
+- segmentCompareBlendStore: 0% on the EPYC 7763 (it was +3% to +4%), -5% to -3% on the three EPYC 9V45, +3%
+  on the Xeon 6975P-C and 8573C, and +6% to +11% on the EPYC 9V74 and the Xeon 8370C (it was +1% to +8%
+  there);
+- tailMaskedCopy: 0% on the five EPYC 7763 with Windows (it was +9% and +10%), and between -3% and +1% on
+  the EPYC 9V74 and the Xeons; +6% to +7% on the three EPYC 9V45 (it was +13% to +14%); and +21% on the one
+  EPYC 7763 with Linux (it was +17%), on the levels of that kernel on that processor (below);
+- unsafeWithLiveMask: -1% to 0% on the EPYC 7763 (it was +5% to +6%), between -4% and +3% on the EPYC 9V74,
+  9V45 and the Xeon 8370C and 8573C, and +6% on the four Xeon 6975P-C (it was +1%), where segmentMaskedSum,
+  whose code is the same with the mode on and off, is 9% apart between the two;
+- compareAcrossLoad, constantMaskPredicate, segmentMaskedSum and the heap controls: the same code with the mode
+  on and off, and within the scatter of the machines (the controls move by up to 7%, and by 12% on one EPYC
+  9V45, between the mode on and off of one build).
+
+What is left, and why.
+
+- The broadcast of the limit, once per iteration of a loop whose compare makes a mask that is tested (the two
+  compare kernels). It is one instruction with a memory operand of 4 bytes. On the EPYC 7763, the EPYC 9V45 and
+  the Xeon 8573C it is within the scatter; on the EPYC 9V74 and the Xeon 6975P-C it is about 10% of
+  compareAcrossLoadMaskedStore, and on the Xeon 8370C 34%, with 11% of segmentCompareBlendStore. The loop of
+  compareAcrossLoadMaskedStore already loads two vectors of 64 bytes per iteration and stores one, and the
+  cost follows how many such loads a processor takes per cycle (Ice Lake has two load ports, Zen 4 splits a
+  512-bit load in two): that is the likely reason, not one that was measured with counters. The rule needs
+  the limit to be out of the zmm registers across the raw accesses, so the iteration needs either that load
+  or a broadcast from a general purpose register, which takes a port of the compare instead; neither is free
+  on every processor.
+- tailMaskedCopy on the EPYC 7763: its forks fall on levels between 320 and 460 ns with the mode on and off
+  alike. On the five machines with Windows (30 forks per configuration) the median is 420 ns with the mode on
+  and with it off, and it was 460 ns with the mode on before; with -XX:CodeEntryAlignment=64 and the loops
+  aligned to 16, 32 or 64 bytes the mode on is near 460 ns and the mode off near 400 ns, at all three. On the
+  machine with Linux the mode off is at 374 ns and the mode on at 451 ns, and with the loops aligned to 16,
+  32 and 64 bytes at 418, 413 and 451 ns. The loops differ in the test alone (`movmsk`, `cmp` and a branch for
+  `ptest` and a branch) and have the same number of instructions but one, so what differs is where the code of
+  the loop falls, as for segmentMaskedSum before ("segmentMaskedSum on AVX2" below).
+- unsafeWithLiveMask on the EPYC 7763 had two spill moves of a general purpose register per iteration with
+  the mode on. They are the allocator's: the PrintOptoAssembly runs of this branch show the same pair with the
+  mode off and not with it on, and the other way round, from one build to the next with no change to the loop
+  (the allocator keeps a value that only a slow path reads in a register at the head of the loop in one case
+  and in memory in the other). With the raw read in front of the merge, the loops of the mode on and off are
+  the same instructions with AVX2, and the kernel costs nothing there.
+
+What was tried and is not in the branch.
+
+- The limit of a compare as a memory operand of the compare (AVX-512, `vpcmpd k, zmm, m512` from the constant
+  table, matched together although the debug info of every trap reads the same vector). The loop then has no
+  broadcast, and with the whole vector as the operand compareAcrossLoad, whose mask reaches no check and whose
+  limit the mode leaves in its register, became 20% to 32% slower with the mode on (bench run 46130253714: every
+  compare of a compilation with unsafe accesses took the operand, one more load of 64 bytes per iteration).
+  With one element as the operand that the compare broadcasts itself (`m32bcst`) it was still 7% to 15% slower
+  (bench run 46138172864), where the separate broadcast of the same element costs that kernel nothing. An
+  instruction with a relocated operand and an immediate must also be known to Assembler::locate_operand(), which
+  does not know the unsigned compares: a test of this branch found their constants read one byte off.
+- The booleans of a mask for the debug info made from its bits without a place: one conversion for all the
+  traps of a loop, which the scheduler put into the loop. They keep the control of the cast they replace.
+- The bits of every merge of masks with a constant input as a merge of longs: the long of the mask of a loop
+  iteration then lives across the loop for the traps alone, and cost unsafeWithLiveMask 10% on the Xeon
+  6975P-C (bench run 46147378616). A mask is converted through its inputs only where one of them is tested.
+- The `kxnor` of a mask register with itself for the mask with every lane set, which the branch had before:
+  the instruction waits for the register it overwrites, and where the allocator gives the mask the register
+  of the compare of the iteration before, the iterations run one after the other (unsafeWithLiveMask +23% to
+  +65% on the EPYC 9V74 and 9V45, bench run 46130253714). It is the `kxnor` of k0 now.
 
 ### Renaissance scrabble
 
@@ -1391,8 +1686,12 @@ no check reads costs nothing, whatever raw accesses it is live across.
 - The unsafe window: spill masks (share/opto/matcher.cpp, init_first_stack_mask()), rematerialization
   (MachNode::rematerialize(), has_losable_input()), APX exclusion (opto/chaitin.cpp), the masks and vectors that
   reach a check (NoTrapSites::protect_checked_values() from Compile::Code_Gen(), CheckFlow and protect_values()
-  with is_cheaper_on_stack() and move_in_front_of_accesses()
-  in opto/noTrap.cpp, the check on the allocated code in NoTrapSites::apply(), the retries in
+  with is_cheaper_on_stack(), move_in_front_of_accesses(), move_check_behind_value() and
+  hoist_accesses_above_merge() in opto/noTrap.cpp; the tests of masks as integers, with the bits of masks that
+  are made or merged from tested masks and the booleans of a mask from its bits, in
+  NoTrapSites::test_masks_as_integers() from Compile::Optimize(); the all-true mask that is made from k0,
+  mask_all_true_evexI_LE16 and mask_all_true_evexL_LE16 in cpu/x86/x86.ad; the check on the allocated code in
+  NoTrapSites::apply(), the retries in
   opto/c2compiler.cpp, the kill of the mask registers in Matcher::kill_masks_at_raw_accesses(), no implicit null
   check on an access that defines a mask or a vector in opto/lcm.cpp), comment at the handler
   (os/windows/os_windows.cpp, EXCEPTION_IN_PAGE_ERROR).
@@ -1427,8 +1726,10 @@ Tests (test/hotspot/jtreg):
 - compiler/runtime/safepoints/TestMaskKillAtRawAccesses: masks live across raw accesses as predicates and as the
   results of checks; its `kills` id reads the decisions of protect_checked_values() from the log.
 - compiler/runtime/safepoints/TestCheckedVectorsAtRawAccesses: the lane numbers of the check of a masked store
-  (counterexample 4), the index vector of a gather, and a check kept in long-lane vectors; its `protects` id reads
-  the decisions from the log, and its `fault` id takes a real page error at the raw access.
+  (counterexample 4), the index vector of a gather, a check kept in long-lane vectors, and two checks that the
+  program writes with `allTrue()` (`allTrueCheckKernel`: the test of a mask from before the read, and a
+  compare, behind the read, of a vector from before it); its `protects` id reads the decisions from the log,
+  and its `fault` id takes a real page error at the raw access.
 - runtime/jni/mxcsr/TestMXCSRRestore (JNI, FFM downcalls and upcalls) and TestMXCSRAfterJVMTICallback.
 
 CI of the integrated branch: run 46062686610 (https://github.com/Auties00/jdk/actions/runs/46062686610), builds
@@ -1482,7 +1783,40 @@ the final test), on windows-2025 (26100.33828, native probe: bug present; EPYC 9
   the compilations of the three kernels have values that are live across the raw access and reach a check, each
   gets its copy, and nothing is compiled again; that id fails on the build without the rule.
 
+CI of the tests of masks as integers, of the checks that are made behind their masks and of the raw loads in
+front of a merge (steps 0 and 1 of "How the rule is enforced" in section 5): run 46150833818
+(https://github.com/Auties00/jdk/actions/runs/46150833818), 22 jobs, all pass: the builds of windows-x64 and
+linux-x64, release and fastdebug; on linux-x64 with the mode forced the three compiler tier1 groups, tier2,
+compiler/vectorapi and compiler/vectorization, compiler/runtime/safepoints and jdk/foreign; on windows-2025 the
+same vector tests, jdk/incubator/vector, jdk/foreign, compiler/runtime/safepoints with runtime/jni/mxcsr and
+compiler/c1, and the first compiler tier1 group; and the reproducers on windows-2025 (26100.33828, bug present,
+two EPYC 9V74) and on windows-2022, which is not affected and where everything passes. On the affected kernel
+TestExceptionXStateLoss passes with the mode (5 of 5 ids, twice per machine) and fails with
+-XX:-AvoidLosableStateAtTraps and on the base; TestExceptionXStateLossC1 passes with the mode and fails without
+it; TestCheckedVectorsAtRawAccesses passes with the mode (4 of 4 ids, twice per machine, `fault` with the page
+error) and its `fault` id fails with the mode off, on cost-kmask and on the base. In that id the new kernel,
+`allTrueCheckKernel`, stores the flags 3 for the iteration of the page error with the mode (both checks found
+the bad index of lane 7), and 1 without it, on cost-kmask and on the base: the check that compares the indices
+behind the read, `vix.compare(LT, limit).allTrue()`, passed, on lanes that the resumed fault had zeroed. On
+windows-2022 every build stores 3. The same ids passed on an EPYC 7763 of windows-2025 with an earlier state of
+this branch (run 46126059368, 26100.33828: 4 of 4 ids twice, the flags 3 with the mode and 1 without). On
+windows-11-arm (run 46150840498, https://github.com/Auties00/jdk/actions/runs/46150840498)
+compiler/runtime/safepoints with runtime/jni/mxcsr and jdk/foreign pass, and compiler/vectorapi passes (114
+tests) but for TestMaskedNotAllOnes.java, the failure of mainline that is there with the mode off as well
+(JDK-8386697).
+
+An earlier version of `allTrueCheckKernel` tested the negation of a mask, `bad.not().allTrue()`. In a
+fastdebug build its compilation failed now and then with `assert((this->*is_xxx)()) failed: Not a Vector, got
+top` in XorVNode::Ideal_XorV_VectorMaskCmp() (opto/vectornode.cpp), which makes a compare of the inputs of the
+negated one while one of them is dead during the loop optimizations (run 46143916162, windows-2025, the `protects`
+id). That is code of mainline, with or without the mode, and not of this branch; the kernel does not negate a
+mask any more.
+
 ## 10. History
+
+The tests of masks as integers, the checks that are made behind their masks and the raw loads in front of a
+merge (steps 0 and 1 of "How the rule is enforced" in section 5, "The tests of masks" in section 8) were done
+on branch JDK-8365196-cost-alltrue, on top of 666f6f18254.
 
 The null checks of the segment kernels (the last two subsections of section 3, the two choices by cost in
 section 5, the segment kernels, scrabble and segmentMaskedSum on AVX2 in section 8) were done on branch
