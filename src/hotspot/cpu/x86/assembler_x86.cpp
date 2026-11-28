@@ -1115,6 +1115,13 @@ address Assembler::locate_operand(address inst, WhichOperand which) {
     case 0x3f: // evpcmpb/evpcmpw
       tail_size = 1;  // the imm8
       break;
+    case 0x1e: // evpcmpud/evpcmpuq
+    case 0x3e: // evpcmpub/evpcmpuw
+      // In the 0F 3A map only: 0F 38 1E is vpabsd, without an immediate.
+      if ((0x07 & *(inst + 1)) == VEX_OPCODE_0F_3A) {
+        tail_size = 1;  // the imm8
+      }
+      break;
     default:
       break;
     }
